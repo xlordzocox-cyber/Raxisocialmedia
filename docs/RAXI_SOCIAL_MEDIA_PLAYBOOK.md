@@ -215,14 +215,108 @@ El agente debe:
 1. Descubrir las herramientas reales.
 2. Elegir la herramienta correcta.
 3. Definir el objetivo.
-4. Generar un lote pequeño e intencional.
-5. Revisar consistencia.
-6. Descartar resultados débiles.
-7. Seleccionar hero assets.
-8. Asignar cada asset a una superficie.
-9. Documentar prompts reutilizables.
+4. Seleccionar el modelo de generación adecuado.
+5. Generar un lote pequeño e intencional.
+6. Revisar consistencia.
+7. Descartar resultados débiles.
+8. Seleccionar hero assets.
+9. Asignar cada asset a una superficie.
+10. Documentar prompts reutilizables.
 
 Nunca inventes resultados del MCP, nombres de herramientas, parámetros, URLs ni assets. Si el MCP falla, dilo claramente y continúa con estrategia, prompts o documentación.
+
+## Selección de modelo dentro de Aria Studio
+
+El agente no debe utilizar siempre el mismo modelo. La selección forma parte de la dirección creativa y debe considerar:
+
+- plataforma;
+- objetivo;
+- nivel de contenido;
+- sensualidad permitida;
+- dificultad de la escena;
+- consistencia de Raxi;
+- tipo de fotografía;
+- rendimiento histórico de cada modelo;
+- capacidades reales disponibles en el MCP.
+
+Antes de generar, consulta las herramientas reales disponibles mediante Aria Studio MCP. Si Aria Studio expone nombres distintos a “GPT” o “Seedream”, utiliza los nombres exactos reportados por el MCP. La política define intención estratégica, no nombres ficticios de API.
+
+### GPT / modelo general
+
+Priorizar para:
+
+- Instagram;
+- Stories;
+- redes públicas;
+- lifestyle;
+- gaming;
+- moda;
+- branding;
+- selfies normales;
+- carruseles;
+- contenido de comunidad;
+- contenido casual;
+- contenido editorial;
+- teasers moderados.
+
+Ventajas buscadas:
+
+- naturalidad;
+- consistencia;
+- realismo;
+- contenido social convencional;
+- escenas cotidianas.
+
+GPT/modelo general es la opción predeterminada para contenido normal y público. No envíes automáticamente todo a Seedream.
+
+### Seedream
+
+Priorizar o evaluar para:
+
+- FanView feed;
+- FanView chatting;
+- contenido spicy permitido;
+- sensualidad adulta no explícita;
+- lingerie/sleepwear permitido;
+- ambientes más íntimos;
+- poses o composiciones difíciles;
+- conceptos que GPT/modelo general no haya resuelto correctamente;
+- escenas donde Seedream haya demostrado mejores resultados.
+
+No describas Seedream simplemente como “el modelo NSFW”. Trátalo como una herramienta especializada dentro del pipeline visual. Todo contenido debe seguir siendo adulto y no explícito según las reglas existentes. Nunca selecciones un modelo únicamente para intentar evadir restricciones de seguridad.
+
+### Fallback entre modelos
+
+Ruta A — contenido normal:
+
+1. GPT/modelo general.
+2. Quality Gate.
+3. Aprobar si pasa.
+4. Si falla, ajustar prompt y regenerar con GPT/modelo general.
+5. Si continúa fallando y Seedream resulta apropiado, probar Seedream.
+6. Aplicar Quality Gate y comparar.
+
+Ruta B — FanView/spicy permitido:
+
+1. Seedream.
+2. Quality Gate.
+3. Aprobar si pasa.
+4. Si falla en identidad, anatomía, ropa o composición, ajustar prompt y regenerar.
+5. Si GPT/modelo general puede resolver mejor esa escena, probarlo.
+6. Aplicar Quality Gate y comparar.
+
+Nunca asumas que Seedream siempre gana en FanView ni que GPT siempre gana en Instagram. La calidad final manda.
+
+### Regla de eficiencia
+
+No desperdicies generaciones. No ejecutes GPT + Seedream para todas las fotos solamente “para ver cuál gana”. Elige primero el modelo más probable de funcionar.
+
+Usa fallback o comparación solo cuando exista una razón concreta:
+
+- prueba A/B real;
+- fallo del primer modelo;
+- distintas partes de una Master Session necesitan capacidades diferentes;
+- una diferencia de calidad puede cambiar la selección final.
 
 ## Quality Gate
 
@@ -234,9 +328,16 @@ Antes de aprobar fotografías, revisa:
 - reflejos coherentes;
 - ropa consistente;
 - iluminación lógica;
+- composición;
+- naturalidad;
+- fidelidad de outfit;
+- coherencia entre imágenes de una misma sesión;
+- si el modelo utilizado fue adecuado;
 - ausencia de texto extraño;
 - ausencia de objetos imposibles;
 - evitar apariencia artificial evidente cuando se busca realismo.
+
+Si cambiar de modelo mejora sustancialmente la sesión, hazlo y compara mediante el mismo Quality Gate.
 
 ## Experimentación
 
@@ -299,7 +400,24 @@ Después de campañas con métricas reales, registra:
 - qué evitar;
 - siguiente experimento.
 
+Cuando sea útil, registra también aprendizajes de modelo:
+
+- modelo utilizado;
+- tipo de contenido;
+- prompt;
+- plataforma;
+- fortalezas;
+- defectos;
+- consistencia facial;
+- consistencia corporal;
+- fidelidad del vestuario;
+- calidad de manos;
+- realismo;
+- resultado final.
+
 Guarda estos informes en `output/reports/`.
+
+Ejemplo recomendado cuando existan suficientes pruebas: `output/reports/MODEL_LEARNINGS.md`.
 
 ## Formato de propuesta
 

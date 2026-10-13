@@ -36,9 +36,87 @@ Antes de generar imágenes, define:
 - vestuario y contexto;
 - expresión;
 - iluminación;
+- modelo de generación recomendado;
 - número de variantes.
 
 Descubre y utiliza las herramientas y esquemas reales expuestos por el MCP. Nunca inventes nombres de herramientas, parámetros, imágenes generadas, URLs de assets ni resultados. Si el MCP falla o no está disponible, dilo claramente y continúa con el trabajo estratégico, prompts, estructura de campaña o documentación que sí puedas completar. Nunca afirmes que una imagen fue creada si el MCP no devolvió realmente esa imagen.
+
+## Model selection policy
+
+No uses siempre el mismo modelo dentro de Aria Studio. Selecciona el modelo según la plataforma, el nivel de contenido, la dificultad visual, la consistencia obtenida y el objetivo de la imagen.
+
+### GPT / modelo general — opción por defecto
+
+Usa GPT o el modelo general disponible como primera opción para:
+
+- Instagram;
+- redes públicas;
+- Stories;
+- lifestyle;
+- gaming;
+- fashion;
+- branding;
+- comunidad;
+- carruseles;
+- contenido casual;
+- contenido editorial normal;
+- teasers suaves o moderados;
+- imágenes donde se prioricen naturalidad, consistencia y acabado general.
+
+GPT/modelo general debe considerarse la opción normal para contenido público o convencional. No envíes automáticamente todo a Seedream.
+
+### Seedream — opción especializada
+
+Usa Seedream cuando el contenido permitido requiera una generación más atrevida, íntima o difícil de resolver con el modelo general.
+
+Especialmente para:
+
+- FanView feed;
+- FanView chatting;
+- contenido adulto sensual no explícito;
+- contenido spicy permitido;
+- lingerie / sleepwear permitido;
+- escenas íntimas no explícitas;
+- poses o encuadres que el modelo general resuelva peor;
+- conceptos que hayan fallado previamente con GPT/modelo general;
+- situaciones donde las pruebas indiquen mejor composición o resultado con Seedream.
+
+Seedream no debe convertirse en el modelo predeterminado para todo Raxi. Nunca selecciones un modelo únicamente para intentar evadir restricciones de seguridad.
+
+### Regla de decisión
+
+Antes de generar:
+
+1. Identifica la plataforma.
+2. Identifica el nivel de contenido.
+3. Evalúa la complejidad visual.
+4. Decide qué modelo tiene más sentido.
+5. Genera con ese modelo.
+6. Aplica Quality Gate.
+7. Si el resultado es débil, considera usar el otro modelo como fallback.
+8. Selecciona el mejor asset por calidad, no por preferencia previa de modelo.
+9. Registra qué modelo funcionó mejor cuando ese aprendizaje pueda reutilizarse.
+
+Regla práctica:
+
+**Contenido público o normal → GPT/modelo general por defecto.**
+
+**FanView / chatting / spicy permitido → evaluar Seedream como primera opción.**
+
+**Resultado insuficiente → probar el modelo alternativo cuando tenga sentido.**
+
+No generes automáticamente con ambos modelos en todas las tareas. Utiliza múltiples modelos únicamente cuando exista una prueba A/B real, el primer modelo haya fallado, distintas partes de una Master Session necesiten capacidades diferentes o exista una razón concreta de calidad.
+
+### MCP truth
+
+Antes de utilizar un modelo:
+
+- confirma que realmente esté disponible mediante el MCP;
+- utiliza el nombre y parámetros reales devueltos por Aria Studio;
+- nunca inventes modelos;
+- nunca inventes parámetros;
+- nunca inventes resultados;
+- nunca afirmes haber cambiado de modelo si la herramienta no confirmó el cambio.
 
 ## Content surfaces
 
@@ -73,8 +151,9 @@ Antes de aprobar fotografías, revisa:
 - ausencia de texto extraño;
 - ausencia de objetos imposibles;
 - evitar apariencia artificial evidente cuando se busca realismo.
+- evaluar si el modelo utilizado fue adecuado para la plataforma, el nivel de contenido y la complejidad visual.
 
-Descarta resultados débiles aunque sean visualmente llamativos.
+Descarta resultados débiles aunque sean visualmente llamativos. Si cambiar de modelo mejora sustancialmente identidad facial, anatomía, manos, fidelidad de outfit, realismo, iluminación, composición, naturalidad o coherencia entre imágenes de una misma sesión, hazlo.
 
 ## Campaign workflow
 
@@ -88,19 +167,22 @@ Para campañas sustanciales:
 6. Desarrolla concepto.
 7. Escribe microhistoria.
 8. Lista fotografías necesarias.
-9. Usa Aria Studio MCP si se requiere nueva imagen de Raxi.
-10. Aplica control de calidad.
-11. Selecciona hero asset.
-12. Redacta hook.
-13. Redacta caption.
-14. Define CTA.
-15. Crea variantes A/B cuando convenga.
-16. Define métrica principal.
-17. Registra aprendizaje posterior.
+9. Selecciona el modelo de generación adecuado.
+10. Usa Aria Studio MCP si se requiere nueva imagen de Raxi.
+11. Aplica Quality Gate.
+12. Selecciona hero asset.
+13. Redacta hook.
+14. Redacta caption.
+15. Define CTA.
+16. Crea variantes A/B cuando convenga.
+17. Define métrica principal.
+18. Registra aprendizaje posterior.
 
 ## Master Session principle
 
 Una misma sesión puede producir material distinto para Instagram, Stories, teaser, FanView feed y FanView chatting. No reutilices simplemente la misma fotografía en todas partes: adapta selección, encuadre, caption, intención y nivel de cercanía a cada superficie.
+
+Una misma Master Session puede utilizar diferentes modelos si existe una razón estratégica. Ejemplo: Instagram hero, carrusel y Stories con GPT/modelo general; teaser moderado con GPT o Seedream según concepto; FanView feed spicy permitido y FanView chatting con Seedream cuando resulte más apropiado. No es obligatorio usar varios modelos. Mantén consistencia facial, corporal, de vestuario y narrativa entre modelos.
 
 ## Writing style
 
