@@ -22,6 +22,48 @@ Para campañas completas, utiliza el workflow de equipo definido en `docs/RAXI_M
 
 Una Master Session debe interpretarse como parte de una campaña completa salvo que el usuario pida explícitamente solo generación visual. El objetivo no es producir muchas imágenes, sino convertir una idea en un paquete publicable con contexto editorial, calendario y criterio de rendimiento.
 
+## Content Lanes / Visual Families
+
+Raxi ya cuenta con familias visuales que pueden usarse como punto de partida para campañas. Estas líneas ayudan a curar, reutilizar, expandir y combinar assets sin depender siempre de generar imágenes nuevas.
+
+### Gamer Portraits
+
+Representa la identidad base de Raxi como creadora gamer: setup indoor, luces RGB, silla gamer, control, teclado, monitor y retratos casuales. Sirve mejor para Instagram público, Stories, carruseles, comunidad, teaser suave y chatting casual. Su tono suele ser cercano, gamer, confiado y cotidiano. Puede inspirar campañas de “noche de partida”, “elige mi outfit para jugar”, “setup mood” o recap semanal gamer.
+
+### Arcade Lifestyle
+
+Representa a Raxi fuera de casa en un entorno gamer social: máquinas arcade, simulador de carreras, luces de sala recreativa, salida de fin de semana y date vibe. Sirve para Instagram, Stories, Reels/photo dumps, teaser y apoyo narrativo a FanView. Su tono suele ser divertido, social, nocturno, espontáneo y lifestyle. Puede inspirar campañas de fin de semana, gamer lifestyle, planes con amigos, arcade date o “salí solo por una partida”.
+
+### Cosplay / Character-Inspired
+
+Representa sesiones inspiradas en personajes, fandom, cosplay gamer y fashion de personaje sin perder la identidad de Raxi. Sirve para campañas temáticas, engagement, carruseles, debates, Reels, teaser y FanView selectivo cuando corresponda. Su tono suele ser más especial, juguetón, fandom-driven y visualmente memorable. Puede inspirar campañas de “qué personaje soy”, votaciones de cosplay, drops temáticos o especiales de temporada.
+
+### Lifestyle / casual
+
+Representa momentos cotidianos fuera del énfasis gamer: café, habitación, espejo, streetwear, descanso, planes y mood personal. Sirve para Instagram, Stories, comunidad, captions conversacionales y campañas de personalidad. Su tono suele ser natural, actual, íntimo sin ser exclusivo y fácil de comentar. Puede inspirar campañas de rutina, outfit, “día normal de Raxi” o contenido de cercanía.
+
+### FanView casual
+
+Representa una versión más cercana y privada de Raxi sin elevar demasiado la sensualidad: selfies casuales, habitación, después del stream, fotos que no subió a Instagram y momentos espontáneos. Sirve para FanView feed, chatting, teaser y retención. Su tono suele ser personal, exclusivo, conversacional y cálido. Puede inspirar campañas de “esta no iba al feed”, behind the scenes privado o secuencias de conversación.
+
+### FanView spicy permitido
+
+Representa contenido adulto sensual no explícito dentro de los límites establecidos: sleepwear, lingerie permitida, poses más coquetas, luz íntima y encuadres más cercanos. Sirve para FanView feed, chatting y teaser selectivo. Su tono suele ser íntimo, cuidado, adulto y no explícito. Puede inspirar campañas de escalera de sensualidad, sesiones nocturnas, drops privados o variantes de una Master Session.
+
+## Campaign Planning from Existing Assets
+
+El sistema debe revisar primero si ya existen imágenes fuertes de Raxi que puedan servir para una campaña. Generar nuevas imágenes es una opción, no el punto de partida obligatorio.
+
+Flujo recomendado:
+
+1. Revisar bibliotecas visuales existentes.
+2. Elegir una o varias familias visuales.
+3. Detectar huecos de formato, plataforma, tono o narrativa.
+4. Decidir si hace falta generar nuevas imágenes.
+5. Construir copy y campaña alrededor de los assets disponibles y los nuevos assets complementarios.
+
+El equipo debe saber curar, reutilizar, expandir, agrupar y convertir fotos existentes en campañas completas. Si una familia visual ya tiene fuerza, úsala como campaign seed; si falta una pieza concreta, genera solo esa pieza y mantén la coherencia con la biblioteca.
+
 ## Niveles de contenido
 
 ### Nivel 1 — Instagram / redes públicas

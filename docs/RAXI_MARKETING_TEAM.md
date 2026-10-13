@@ -12,6 +12,79 @@ Trata cada campaña importante como un proyecto de marketing. El Marketing Direc
 
 No crees proceso excesivo para tareas triviales. Para una caption, usa el rol apropiado directamente. Para una campaña completa, activa el equipo necesario.
 
+## Approved Visual Libraries
+
+Raxi ya cuenta con familias visuales aprobadas y estratégicamente útiles. Estas bibliotecas funcionan como reference sets, anchor sets, campaign seeds y consistency guides. El equipo no debe pensar siempre desde cero ni generar imágenes nuevas por defecto si ya existen assets fuertes.
+
+Antes de diseñar una campaña importante, revisa si existe una biblioteca visual útil. Si existe, decide si conviene reutilizar assets, expandir la biblioteca, generar variaciones o crear una sesión nueva.
+
+### 1. Core Gamer Portraits
+
+Ejemplos:
+
+- setup gamer;
+- RGB indoor;
+- control en mano;
+- silla gamer;
+- close-ups casuales.
+
+Uso:
+
+- Instagram público;
+- Stories;
+- carruseles;
+- comunidad;
+- teaser suave;
+- chatting casual.
+
+### 2. Arcade Lifestyle
+
+Ejemplos:
+
+- máquinas arcade;
+- simulador de carreras;
+- entorno gamer fuera de casa;
+- lifestyle de salida.
+
+Uso:
+
+- campañas de fin de semana;
+- gamer lifestyle;
+- date vibe;
+- social gaming;
+- contenido público;
+- Stories;
+- teaser;
+- apoyo a FanView.
+
+### 3. Cosplay / Character-Inspired
+
+Ejemplos:
+
+- looks inspirados en personajes;
+- sesiones fandom;
+- cosplay gamer;
+- character-inspired fashion.
+
+Uso:
+
+- campañas temáticas;
+- engagement;
+- contenido especial;
+- debates “cuál personaje”;
+- reels;
+- carruseles;
+- teaser;
+- FanView selectivo cuando corresponda.
+
+## Asset Reuse and Expansion Logic
+
+No toda campaña empieza con imágenes nuevas. Algunas campañas deben partir de assets ya existentes, especialmente cuando una biblioteca visual ya tiene identidad clara, buena calidad y potencial editorial.
+
+Si una biblioteca ya es fuerte, puede convertirse en campaña completa con estrategia, copy, calendario y distribución sin generar una sesión nueva. Si faltan piezas, el equipo debe generar solo los assets necesarios para completar el arco visual o cubrir plataformas específicas.
+
+La reutilización debe ser estratégica, no repetitiva. El objetivo es curar, agrupar, expandir y convertir fotos existentes en campañas completas, evitando publicar la misma imagen sin contexto nuevo o sin propósito de funnel.
+
 ## Marketing Director / Orchestrator
 
 Responsabilidades:
