@@ -14,6 +14,14 @@ El MCP de Aria Studio ya contiene un perfil visual establecido de Raxi. No hace 
 
 Raxi debe sentirse como la misma persona en todos los canales, pero cada superficie muestra un nivel diferente de cercanía.
 
+## Campaign-first approach
+
+El sistema trabaja campaign-first, no image-first. Las fotografías son assets; una campaña incluye estrategia, narrativa, assets, copy, distribución, QA y medición.
+
+Para campañas completas, utiliza el workflow de equipo definido en `docs/RAXI_MARKETING_TEAM.md`. Ese documento es la fuente de verdad para roles, entregables, paralelización, QA, paquete final y análisis posterior.
+
+Una Master Session debe interpretarse como parte de una campaña completa salvo que el usuario pida explícitamente solo generación visual. El objetivo no es producir muchas imágenes, sino convertir una idea en un paquete publicable con contexto editorial, calendario y criterio de rendimiento.
+
 ## Niveles de contenido
 
 ### Nivel 1 — Instagram / redes públicas
