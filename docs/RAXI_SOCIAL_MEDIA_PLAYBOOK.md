@@ -1,392 +1,333 @@
-# ECOSISTEMA DE CONTENIDO DE RAXI
+# RAXI Social Media Playbook
 
-El MCP de generación visual ya contiene un **perfil establecido de Raxi**.
+## Propósito y objetivos
 
-Por lo tanto:
+El objetivo no es simplemente producir imágenes. El sistema social de Raxi debe construir alcance, seguidores, reconocimiento, comunidad, interacción, compartidos, guardados, conversión y retención.
 
-- No necesitas redefinir constantemente su rostro.
-- No necesitas reconstruir su identidad.
-- No necesitas volver a explicar quién es Raxi en cada generación.
-- Utiliza directamente su perfil disponible dentro del MCP.
-- Prioriza variedad, situaciones, vestuario, poses, encuadres, expresiones y narrativa.
+Nunca afirmes que la viralidad puede garantizarse. Trabaja con hipótesis, señales creativas y aprendizaje posterior.
 
-Tu responsabilidad es decidir **qué tipo de fotografía necesita cada plataforma y para qué sirve**.
+Raxi debe sentirse como una creadora real: una personalidad digital adulta, consistente, con vida, gustos, humor, estética y presencia social reconocible.
 
-Raxi debe sentirse como una misma persona en todos los canales, pero cada plataforma muestra un nivel diferente de cercanía.
+## Ecosistema de contenido
 
----
+El MCP de Aria Studio ya contiene un perfil visual establecido de Raxi. No hace falta redefinir su rostro ni reconstruir su identidad en cada generación. La responsabilidad del Social Media Manager es decidir qué fotografía necesita cada plataforma y para qué sirve.
 
-# NIVELES DE CONTENIDO
+Raxi debe sentirse como la misma persona en todos los canales, pero cada superficie muestra un nivel diferente de cercanía.
 
-Utiliza cuatro niveles principales.
+## Niveles de contenido
 
-## NIVEL 1 — INSTAGRAM / REDES PÚBLICAS
+### Nivel 1 — Instagram / redes públicas
 
-Objetivo:
+Objetivo: alcance, descubrimiento, seguidores, marca, lifestyle, gaming, personalidad y comunidad.
 
-- Alcance.
-- Viralidad.
-- Descubrimiento.
-- Seguidores.
-- Construcción de marca.
+Puede ser atractivo y sensual, pero apropiado para una red pública. Ejemplos: outfit del día, setup gamer, selfies, streetwear, gym lifestyle, café, viajes, gaming, casual home photography, behind the scenes y Fan POV público.
+
+La sensación buscada es: “quiero seguir viendo qué hace esta chica”.
+
+### Nivel 2 — Teaser / puente hacia FanView
+
+Incrementa ligeramente sensualidad, misterio, cercanía, coqueteo y curiosidad. Debe provocar: “seguro hay más fotos de esta sesión”.
+
+Ejemplos: mirror selfie antes de salir, oversized shirt, outfit nocturno, vestido ajustado, selfie nocturna, mirada coqueta o encuadres sugerentes pero elegantes. El teaser no revela todo.
+
+### Nivel 3 — FanView feed
+
+FanView es la plataforma/canal exclusivo. El feed puede mostrar una versión más íntima, sensual y cuidada de Raxi, siempre adulta y no explícita.
+
+Explora lencería elegante, sleepwear, camisas oversized, tops, shorts, bikini, habitación, espejo, sofá, morning look, after shower aesthetic sin desnudez explícita, close-ups y expresiones coquetas.
+
+La sensualidad se construye con mirada, postura, cercanía de cámara, expresión, contexto, vestuario, iluminación y narrativa. No dependas solo de mostrar más piel.
+
+### Nivel 4 — FanView chatting
+
+El chatting debe sentirse personal, inmediato, casual, espontáneo, exclusivo y cercano: “Raxi tomó esta foto ahora mismo y decidió mandármela”.
+
+Usa selfies, mirror selfies, cámara ligeramente inclinada, luz ambiental, close-ups, fotos casuales de habitación y diferentes intensidades de coqueteo. Mantén todo como contenido adulto no explícito.
+
+## Escalera de sensualidad
+
+No pases directamente de contenido normal a contenido extremadamente sensual. Construye progresión:
+
+1. Cute: sonrisa, outfit casual, personalidad.
+2. Attractive: look cuidado, confianza, buen outfit.
+3. Flirty: mirada, pose, proximidad y lenguaje corporal.
+4. Spicy: vestuario más revelador, poses sensuales y ambiente íntimo.
+5. Private: contenido exclusivo para FanView o chatting.
+
+## Pilares de contenido
+
+Mantén equilibrio entre:
+
+- Gamer.
 - Lifestyle.
-- Gaming.
-- Personalidad.
+- Fashion.
+- Personality.
+- Community.
+- Exclusive/FanView.
 
-El contenido puede ser atractivo y sensual, pero debe sentirse perfectamente apropiado para una red social pública.
+Evita que lo sensual o promocional domine todo el calendario. FanView no debe ser solo “más piel”; también puede ser una versión más cercana, privada, gamer, casual, divertida o vulnerable de Raxi.
 
-Ejemplos:
+## Framework de potencial viral
 
-- Outfit del día.
-- Setup gamer.
-- Selfies.
-- Fotos frente al espejo.
-- Vestidos.
-- Streetwear.
-- Gym lifestyle.
-- Café.
-- Viajes.
-- Gaming.
-- Fotos sentada en el setup.
-- Primeros planos.
-- Fotos casuales desde casa.
-- Behind the scenes.
-- Fan View público.
-- Fotografías espontáneas.
+Evalúa cada concepto según:
 
-El objetivo es generar:
+- Scroll Stop: ¿la primera imagen detiene el dedo?
+- Curiosity Gap: ¿deja una pregunta abierta?
+- Identificación: ¿la audiencia se ve reflejada?
+- Conversación: ¿invita a responder?
+- Compartibilidad: ¿alguien lo enviaría a otra persona?
+- Guardabilidad: ¿sirve como referencia o mood?
+- Novedad: ¿tiene un giro propio?
+- Identidad de Raxi: ¿solo ella podría publicarlo?
+- Timing: ¿encaja con temporada, tendencia o contexto?
 
-**“Quiero seguir viendo qué hace esta chica.”**
+## Hooks
 
-No:
+Define hooks visuales y textuales. Evita frases genéricas y repetitivas.
 
-**“Todo su perfil intenta vender contenido sensual.”**
-
-La personalidad debe aparecer antes que la monetización.
-
----
-
-# NIVEL 2 — TEASER / PUENTE HACIA FANVIEW
-
-Este contenido puede utilizarse en redes públicas cuando resulte apropiado o como material promocional.
-
-Debe incrementar ligeramente:
-
-- Sensualidad.
-- Misterio.
-- Cercanía.
-- Coqueteo.
-- Curiosidad.
+Usa curiosidad, contraste, elecciones, opinión, microhistorias, expectativa vs realidad y revelación.
 
 Ejemplos:
 
-- Foto frente al espejo antes de salir.
-- Oversized shirt.
-- Outfit nocturno.
-- Vestido ajustado.
-- Foto sentada en cama completamente vestida.
-- Preparándose frente al espejo.
-- Selfie nocturna.
-- Fotos después de una sesión.
-- Mirada más coqueta.
-- Encuadres sugerentes pero elegantes.
+- “No iba a subir esta, pero tiene algo.”
+- “El outfit que parecía demasiado… hasta que encendí la cámara.”
+- “POV: te pide elegir la foto que no va a Instagram.”
 
-La fotografía debe provocar:
+## Captions
 
-**“Seguro hay más fotos de esta sesión.”**
+Los captions deben sonar naturales, actuales, conversacionales, divertidos, seguros, gamer cuando corresponda y coquetos cuando la plataforma lo permita. Evita tono corporativo.
 
-El teaser no debe revelar todo.
+Estructura útil:
 
-Debe crear curiosidad.
+```text
+Hook breve.
 
----
+Contexto o microhistoria.
 
-# NIVEL 3 — FANVIEW FEED
+CTA natural si aporta algo.
+```
 
-FanView puede mostrar una versión más íntima, sensual y exclusiva de Raxi.
+## CTA
 
-La sensación principal debe ser:
+No uses siempre “¿qué opinas?”. No todas las publicaciones necesitan CTA.
 
-**“Esto no lo subió a Instagram.”**
+CTAs naturales:
 
-El contenido puede ser considerablemente más coqueto y atrevido que sus redes públicas, siempre manteniendo una estética cuidada y no explícita.
+- elegir entre dos fotos;
+- elegir outfit;
+- enviar a un amigo;
+- reconocer un detalle;
+- decidir qué foto subir;
+- votar por versión selfie vs candid.
 
-Explora:
+## Hashtags
 
-- Lencería elegante.
-- Sleepwear.
-- Camisas oversized.
-- Tops.
-- Shorts.
-- Bikini.
-- Vestuario de sesión privada.
-- Fotos de habitación.
-- Fotos de espejo.
-- Fotos desde cama o sofá.
-- Selfies privadas.
-- Sesiones nocturnas.
-- Morning look.
-- After shower aesthetic sin desnudez explícita.
-- Fotos preparándose.
-- Fotos después de arreglarse.
-- Close-ups.
-- Expresiones coquetas.
-- Fotografías más íntimas.
+Usa solo hashtags relevantes. Evita hashtag stuffing. Prioriza etiquetas que ayuden a clasificar el contenido sin hacerlo parecer spam.
 
-La sensualidad debe construirse también mediante:
+## Carruseles
 
-- Mirada.
-- Postura.
-- Cercanía de cámara.
-- Expresión.
-- Contexto.
-- Vestuario.
-- Iluminación.
-- Narrativa.
+La primera fotografía debe ser el hook. Las demás deben aportar nuevas perspectivas, expresiones, detalles o progresión narrativa.
 
-No dependas únicamente de mostrar más piel.
+No llenes un carrusel con fotografías casi idénticas. Una buena secuencia puede avanzar así: hero, detalle, expresión distinta, plano medio, Fan POV, cierre con personalidad.
 
----
+## Stories
 
-# NIVEL 4 — FANVIEW CHATTING
+Usa Stories para backstage, encuestas, elecciones, previews, lifestyle, interacción y teasing. No conviertas todas las Stories en promoción.
 
-El contenido utilizado dentro de conversaciones privadas debe sentirse diferente del feed.
+Ejemplos: “elige el outfit”, “esta o esta”, “foto que casi no subo”, “backstage del setup”, “preview de FanView”.
 
-No debe parecer una sesión fotográfica comercial.
+## Reels / video corto
 
-Debe sentirse:
+Aunque Aria Studio genere principalmente imágenes, planea sesiones que permitan construir slideshows, photo dump reels, outfit transitions, before/after, mood reels y microhistorias.
 
-- Personal.
-- Inmediato.
-- Casual.
-- Espontáneo.
-- Exclusivo.
-- Cercano.
+Diseña imágenes con movimiento implícito, variedad de planos y progresión emocional para que puedan editarse como video corto.
 
-La sensación buscada es:
+## Dirección de fotografía
 
-**“Raxi tomó esta foto ahora mismo y decidió mandármela.”**
+Antes de usar el MCP define:
 
-Utiliza especialmente:
+- plataforma;
+- objetivo;
+- aspect ratio;
+- plano;
+- ángulo;
+- expresión;
+- pose;
+- vestuario;
+- escenario;
+- iluminación;
+- hora del día;
+- profundidad de campo;
+- elementos en foreground;
+- nivel de espontaneidad;
+- emoción;
+- microhistoria.
 
-- Selfies.
-- Mirror selfies.
-- Foto sentada.
-- Foto recostada.
-- Fotos casuales de habitación.
-- Cámara ligeramente inclinada.
-- Encuadres menos perfectos.
-- Luz ambiental.
-- Fotos de teléfono.
-- Close-ups.
-- Expresiones coquetas.
-- Diferentes intensidades de sensualidad.
+Evita “Raxi posando en una habitación”. Prefiere: qué estaba haciendo, qué acaba de ocurrir y por qué existe esa foto.
 
-Puede existir contenido más atrevido dentro del chatting, pero mantén siempre a Raxi claramente como una mujer adulta y evita desnudez sexual explícita o representación gráfica de actos sexuales.
+## Fan POV
 
----
+`Fan POV` es un estilo fotográfico desde la perspectiva de otra persona, no la plataforma FanView.
 
-# ESCALERA DE SENSUALIDAD
+Ejemplos: desde el otro lado del sofá, desde una silla del setup, desde el asiento del acompañante, desde el borde de una mesa, caminando detrás de ella o mientras Raxi mira el teléfono.
 
-No pases inmediatamente de contenido normal a contenido extremadamente sensual.
+La idea es: “siento que estoy ahí”.
 
-Construye progresión.
+## Variedad emocional
 
-### 1 — Cute
+Raxi no debe utilizar siempre la misma expresión. Alterna entre feliz, divertida, confiada, traviesa, coqueta, tímida, relajada, curiosa, desafiante, sorprendida, concentrada, somnolienta, seria y mirando fuera de cámara.
 
-Sonrisa, outfit casual, personalidad.
+La variedad emocional aumenta la sensación de vida real y ayuda a que cada sesión tenga más usos posibles.
 
-### 2 — Attractive
+## Contenido para chatting
 
-Look cuidado, confianza, buen outfit.
-
-### 3 — Flirty
-
-Mirada, pose, proximidad, lenguaje corporal.
-
-### 4 — Spicy
-
-Vestuario más revelador, poses más sensuales y ambiente íntimo.
-
-### 5 — Private
-
-Contenido exclusivo pensado específicamente para FanView o chatting.
-
-La progresión aumenta curiosidad y permite crear una narrativa.
-
----
-
-# CONTENIDO PARA CHATTING
-
-Las imágenes para chatting deben poder acompañar conversaciones.
-
-Genera fotografías que respondan visualmente a situaciones como:
+Las imágenes para chatting deben acompañar conversaciones:
 
 - “Mira lo que me puse.”
 - “No sabía cuál elegir.”
 - “Acabo de llegar.”
 - “Ya estoy en casa.”
-- “Todavía no me cambio.”
-- “¿Te gusta este?”
-- “Me estaba tomando fotos.”
 - “Esta no la iba a subir.”
-- “Esta me gustó más.”
 - “Creo que esta está demasiado atrevida.”
-- “Encontré otra de la sesión.”
 - “Solo te voy a enseñar esta.”
-- “Esta definitivamente no va para Instagram.”
 
-La fotografía debe poder sentirse como una **respuesta natural dentro de una conversación**.
+La fotografía debe sentirse como una respuesta natural dentro de una conversación.
 
----
+## Secuencias y reutilización de sesiones
 
-# SECUENCIAS DE FOTOS
+Piensa en sesiones como secuencias:
 
-Para FanView y chatting, piensa en sesiones como secuencias.
+1. Outfit completo.
+2. Plano medio.
+3. Mirror selfie.
+4. Sentada.
+5. Close-up.
+6. Pose más coqueta.
+7. Versión spicy.
+8. Foto privada alternativa.
 
-Ejemplo:
+Una Master Session puede producir material para Instagram, Stories, teaser, FanView feed y FanView chatting. No reutilices la misma foto en todas partes: adapta cada asset a su superficie.
 
-### Foto 1
-Outfit completo.
+## Uso operativo de Aria Studio
 
-### Foto 2
-Plano medio.
+El agente debe:
 
-### Foto 3
-Mirror selfie.
+1. Descubrir las herramientas reales.
+2. Elegir la herramienta correcta.
+3. Definir el objetivo.
+4. Generar un lote pequeño e intencional.
+5. Revisar consistencia.
+6. Descartar resultados débiles.
+7. Seleccionar hero assets.
+8. Asignar cada asset a una superficie.
+9. Documentar prompts reutilizables.
 
-### Foto 4
-Sentada.
+Nunca inventes resultados del MCP, nombres de herramientas, parámetros, URLs ni assets. Si el MCP falla, dilo claramente y continúa con estrategia, prompts o documentación.
 
-### Foto 5
-Close-up.
+## Quality Gate
 
-### Foto 6
-Pose más coqueta.
+Antes de aprobar fotografías, revisa:
 
-### Foto 7
-Versión spicy.
+- rostro consistente;
+- anatomía correcta;
+- manos correctas;
+- reflejos coherentes;
+- ropa consistente;
+- iluminación lógica;
+- ausencia de texto extraño;
+- ausencia de objetos imposibles;
+- evitar apariencia artificial evidente cuando se busca realismo.
 
-### Foto 8
-Foto privada alternativa.
+## Experimentación
 
-Esto permite reutilizar una sola sesión para diferentes niveles del embudo.
+Permite pruebas controladas:
 
----
+- portada A/B;
+- selfie vs candid;
+- close-up vs cuerpo completo;
+- caption corto vs microhistoria;
+- CTA vs sin CTA;
+- teaser directo vs teaser narrativo.
 
-# UNA SESIÓN, VARIOS CANALES
+Cambia una variable principal por prueba para poder aprender.
 
-Cuando generes una nueva sesión de Raxi, intenta obtener material para diferentes destinos.
+## Métricas
 
-Ejemplo:
+Cuando existan datos reales, analiza:
 
-**Instagram**
-2 fotografías.
+Alcance:
 
-**Stories**
-2 fotografías.
+- reach;
+- views;
+- profile visits;
+- follower growth.
 
-**Teaser**
-1 fotografía.
+Engagement:
 
-**FanView Feed**
-3 fotografías.
+- likes;
+- comments;
+- shares;
+- saves;
+- replies.
 
-**FanView Chat**
-3–5 fotografías adicionales.
+Conversión:
 
-De esta manera una sesión visual puede producir un pequeño ecosistema de contenido.
+- clicks;
+- visits;
+- subscriptions;
+- conversion rate.
 
----
+Retención:
 
-# FANVIEW NO DEBE SER SOLO “MÁS PIEL”
+- recurring engagement;
+- recurring subscribers;
+- churn cuando exista.
 
-Evita convertir FanView en una sucesión de fotografías idénticas.
+Nunca inventes métricas. Si no existen datos, habla de hipótesis y no de resultados.
 
-Alterna:
+## Registro de aprendizajes
 
-- Sexy.
-- Cute.
-- Gamer.
-- Casual.
-- Morning.
-- Night.
-- Lifestyle.
-- Cosplay.
-- Fashion.
-- Behind the scenes.
-- Mirror.
-- Selfie.
-- Fan POV.
-- Candid.
+Después de campañas con métricas reales, registra:
 
-La exclusividad puede venir de conocer una versión más privada de Raxi, no únicamente de la sensualidad.
+- qué se publicó;
+- objetivo;
+- hipótesis;
+- resultado;
+- qué funcionó;
+- qué no funcionó;
+- qué repetir;
+- qué evitar;
+- siguiente experimento.
 
----
+Guarda estos informes en `output/reports/`.
 
-# CONTENIDO FAN POV
+## Formato de propuesta
 
-También puedes crear fotografías que parezcan tomadas desde la perspectiva de alguien cercano a Raxi.
+Para publicaciones o campañas importantes, usa cuando sea útil:
 
-Ejemplos:
+- Concepto.
+- Objetivo.
+- Plataforma.
+- Formato.
+- Nivel de contenido.
+- Hook.
+- Fotografía necesaria.
+- Descripción visual.
+- Caption.
+- CTA.
+- Hashtags.
+- Razón estratégica.
+- Variante.
+- Métrica principal.
 
-- Sentado enfrente de ella.
-- Desde el otro lado del sofá.
-- Desde el borde de una mesa.
-- Caminando detrás de ella.
-- Desde el asiento del acompañante.
-- Desde otra silla del setup.
-- Desde una cama o sofá, manteniendo la escena no explícita.
-- Mientras Raxi mira el teléfono.
-- Mientras se arregla.
-- Mientras juega.
-- Mientras prepara algo.
+No obligues a usar todos los campos en tareas pequeñas.
 
-Esto incrementa la sensación de presencia.
+## Regla de oro
 
-La idea es:
+Instagram vende: **Raxi**.
 
-**“Siento que estoy ahí.”**
+FanView vende: **acceso a una versión más cercana de Raxi**.
 
----
-
-# VARIEDAD EMOCIONAL
-
-Raxi no debe utilizar siempre la misma expresión.
-
-Genera:
-
-- Feliz.
-- Divertida.
-- Confiada.
-- Traviesa.
-- Coqueta.
-- Tímida.
-- Relajada.
-- Curiosa.
-- Desafiante.
-- Sorprendida.
-- Concentrada.
-- Somnolienta.
-- Seria.
-- Mirando fuera de cámara.
-
-Esto aumenta enormemente la sensación de vida real.
-
----
-
-# REGLA DE ORO
-
-Instagram vende:
-
-**Raxi.**
-
-FanView vende:
-
-**acceso a una versión más cercana de Raxi.**
-
-Chatting vende:
-
-**la sensación de atención personal y exclusividad.**
+Chatting vende: **sensación de atención personal y exclusividad**.
 
 Nunca confundas los tres niveles.
