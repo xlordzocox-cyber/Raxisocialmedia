@@ -9,7 +9,8 @@ import { AgentMotion } from '../src/office/agents/agentMotion';
 import { routeBetweenZones } from '../src/office/pathfinding';
 import { zones, zoneOrder } from '../src/office/zones';
 import { getStatusVisual } from '../src/office/agents/agentVisualState';
-import { zoomAt, clampCamera } from '../src/office/camera';
+import { zoomAt, clampCamera, advanceCameraFocus } from '../src/office/camera';
+import { OfficeScene } from '../src/office/OfficeScene';
 import { handoffFrame, memoryFrame } from '../src/office/effects/visualTimelines';
 import { PendingMemoryOrigins } from '../src/office/effects/memoryOrigins';
 import type { Container } from 'pixi.js';
@@ -31,6 +32,65 @@ test('camera zoom preserves pointer anchor and clamps zoom/pan bounds', () => {
   camera.x=-9999; camera.y=9999;
   clampCamera(stage,{minX:-100,maxX:50,minY:-80,maxY:60});
   assert.equal(camera.x,-100); assert.equal(camera.y,60);
+});
+test('camera focus reaches an in-bounds target', () => {
+  const camera={x:0,y:0} as Container;
+  const bounds={minX:-100,maxX:50,minY:-80,maxY:60};
+  const target={x:-60,y:40};
+  let active=true;
+  for(let frame=0;frame<200 && active;frame++) active=advanceCameraFocus(camera,target,bounds,16);
+  assert.equal(active,false);
+  assert.deepEqual({x:camera.x,y:camera.y},target);
+});
+test('camera focus clamps an out-of-bounds target and finishes at the limit', () => {
+  const camera={x:0,y:0} as Container;
+  const bounds={minX:-100,maxX:50,minY:-80,maxY:60};
+  const target={x:-1000,y:1000};
+  let active=true;
+  for(let frame=0;frame<200 && active;frame++) active=advanceCameraFocus(camera,target,bounds,16);
+  assert.equal(active,false);
+  assert.deepEqual({x:camera.x,y:camera.y},{x:-100,y:60});
+  assert.equal(advanceCameraFocus(camera,target,bounds,16),false);
+  assert.deepEqual({x:camera.x,y:camera.y},{x:-100,y:60});
+});
+test('Centrar cancels focus and the next scene frame preserves the centered camera', () => {
+  const world={x:-100,y:60,scale:{x:1,y:1,set(value:number){this.x=value;this.y=value;}},position:{set(x:number,y:number){world.x=x;world.y=y;}}};
+  const scene={
+    app:{screen:{width:630,height:630}},world,fitScale:1,
+    focusTarget:{x:-1000,y:1000},elapsed:0,highlightUntil:0,
+    zoneHighlight:{alpha:0},stationLights:new Map(),motions:new Map(),
+    depthLayer:{sortChildren(){}},effects:[],
+    constrainCamera(){clampCamera(world as unknown as Container,{minX:-450,maxX:40,minY:-45,maxY:105});},
+    onZoom(_percent:number){},
+  };
+  OfficeScene.prototype.resetCamera.call(scene as unknown as OfficeScene);
+  assert.equal(scene.focusTarget,undefined);
+  const centered={x:world.x,y:world.y};
+  OfficeScene.prototype['tick'].call(scene as unknown as OfficeScene,16);
+  assert.deepEqual({x:world.x,y:world.y},centered);
+});
+test('camera focus replay after reset is deterministic', () => {
+  const run=()=>{
+    const world={x:0,y:0,scale:{x:1,y:1,set(value:number){this.x=value;this.y=value;}},position:{set(x:number,y:number){world.x=x;world.y=y;}}};
+    const bounds={minX:-100,maxX:50,minY:-80,maxY:60};
+    const target={x:-1000,y:1000};
+    const positions:{x:number;y:number;active:boolean}[]=[];
+    let active=true;
+    for(let frame=0;frame<12;frame++) advanceCameraFocus(world as unknown as Container,target,bounds,16);
+    const scene={app:{screen:{width:630,height:630}},world,fitScale:1,focusTarget:target,
+      constrainCamera(){clampCamera(world as unknown as Container,{minX:-450,maxX:40,minY:-45,maxY:105});},
+      onZoom(_percent:number){},
+    };
+    OfficeScene.prototype.resetCamera.call(scene as unknown as OfficeScene);
+    assert.equal(scene.focusTarget,undefined);
+    positions.push({x:world.x,y:world.y,active:false});
+    for(let frame=0;frame<120 && active;frame++) {
+      active=advanceCameraFocus(world as unknown as Container,target,bounds,16);
+      positions.push({x:world.x,y:world.y,active});
+    }
+    return positions;
+  };
+  assert.deepEqual(run(),run());
 });
 test('pathfinding connects all 49 pairs and ends at the target', () => {
   for (const from of zoneOrder) for (const to of zoneOrder) {

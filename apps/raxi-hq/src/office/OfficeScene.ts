@@ -8,7 +8,7 @@ import { zones } from './zones';
 import { HandoffEffect } from './effects/HandoffEffect';
 import { MemoryArchiveEffect } from './effects/MemoryArchiveEffect';
 import { PendingMemoryOrigins } from './effects/memoryOrigins';
-import { clampCamera, zoomAt } from './camera';
+import { advanceCameraFocus, clampCamera, zoomAt, type CameraBounds } from './camera';
 
 /** Pixi receives domain snapshots and emits selection intent. No adapter imports. */
 export class OfficeScene {
@@ -76,6 +76,7 @@ export class OfficeScene {
   }
 
   resetCamera():void {
+    this.focusTarget=undefined;
     const {width,height}=this.app.screen;
     const scale=this.fitScale*1.05;
     this.world.scale.set(scale);
@@ -94,12 +95,15 @@ export class OfficeScene {
     const rect=this.canvas.getBoundingClientRect();
     this.zoom(Math.exp(-event.deltaY*0.001),event.clientX-rect.left,event.clientY-rect.top);
   };
-  private constrainCamera():void {
+  private cameraBounds():CameraBounds {
     const s=this.world.scale.x,{width,height}=this.app.screen;
     // Keep at least a map edge visible; limit panning independently on each axis.
     const minX=Math.min(width-1040*s-40,40),maxX=Math.max(40,width-1040*s+40);
     const minY=Math.min(height-635*s-40,40),maxY=Math.max(65*s+40,height-635*s+40);
-    clampCamera(this.world,{minX,maxX,minY,maxY});
+    return {minX,maxX,minY,maxY};
+  }
+  private constrainCamera():void {
+    clampCamera(this.world,this.cameraBounds());
   }
 
   update(state: HQState): void {
@@ -172,11 +176,7 @@ export class OfficeScene {
   private tick(deltaMs: number): void {
     this.elapsed += deltaMs;
     if(this.focusTarget) {
-      const blend=Math.min(1,Math.max(0,deltaMs)*0.004);
-      this.world.x+=(this.focusTarget.x-this.world.x)*blend;
-      this.world.y+=(this.focusTarget.y-this.world.y)*blend;
-      this.constrainCamera();
-      if(Math.hypot(this.focusTarget.x-this.world.x,this.focusTarget.y-this.world.y)<1) this.focusTarget=undefined;
+      if(!advanceCameraFocus(this.world,this.focusTarget,this.cameraBounds(),deltaMs)) this.focusTarget=undefined;
     }
     this.zoneHighlight.alpha=Math.max(0,Math.min(1,(this.highlightUntil-this.elapsed)/500));
     for(const light of this.stationLights.values()) light.alpha=0;
