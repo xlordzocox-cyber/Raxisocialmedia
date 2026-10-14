@@ -84,6 +84,34 @@ test('timeline covers IDLE/RUNNING/WAITING/BLOCKED/QA/COMPLETED and preserves re
   const archived = mockTimeline.find(t=>t.event.type==='MEMORY_ARCHIVED')!.event;
   assert.equal(reduceEventToVisualState({...archived,verified:false},initial()).memorySignals.at(-1)?.status,'FAILED');
 });
+test('replaying the same event sequence produces identical states regardless of wall clock', (t) => {
+  let wallClock = 1000;
+  const clock = t.mock.method(Date, 'now', () => wallClock);
+  const replay = (startTime: number): HQState[] => {
+    let state = initial();
+    wallClock = startTime;
+    return structuredClone(mockTimeline).map(({ event }) => {
+      wallClock += 12345;
+      state = reduceEventToVisualState(event, state);
+      return state;
+    });
+  };
+  const first = replay(1000);
+  const second = replay(9000000000000);
+  assert.equal(first.length, mockTimeline.length);
+  first.forEach((state, index) => assert.deepEqual(second[index], state, `event ${index}`));
+  assert.equal(clock.mock.callCount(), 0, 'reducer must not consult the wall clock');
+});
+test('handoff and asset receipt timestamps come from their events in epoch milliseconds', () => {
+  const handoff = mockTimeline.find(({ event }) => event.type === 'HANDOFF_SENT')!.event;
+  const asset = mockTimeline.find(({ event }) => event.type === 'ASSET_RECEIVED')!.event;
+  const events = [
+    { ...handoff, timestamp: '2026-01-01T00:00:00.000Z' },
+    { ...asset, timestamp: '2026-01-01T00:00:02.500Z' },
+  ];
+  const state = events.reduce((current, event) => reduceEventToVisualState(event, current), initial());
+  assert.deepEqual(state.handoffs.map(({ createdAt }) => createdAt), [1767225600000, 1767225602500]);
+});
 test('complete mock engine drives Research, Creative and Performance to their zones', () => {
   let state = initial(); const motions = Object.fromEntries(Object.values(state.agents).map((a,i)=>[a.id,new AgentMotion(a,i)]));
   let time=0;

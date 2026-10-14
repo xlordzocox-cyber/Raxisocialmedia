@@ -79,7 +79,7 @@ export function reduceEventToVisualState(event: HQEvent, state: HQState): HQStat
         fromAgentId: actor?.id ?? 'unknown',
         toAgentId: target?.id,
         label: event.type,
-        createdAt: Date.now(),
+        createdAt: Date.parse(event.timestamp),
       });
       break;
     }
@@ -116,7 +116,7 @@ export function reduceEventToVisualState(event: HQEvent, state: HQState): HQStat
         fromAgentId: actor?.id ?? 'creative',
         toAgentId: target?.id,
         label: 'ASSET',
-        createdAt: Date.now(),
+        createdAt: Date.parse(event.timestamp),
       });
       break;
     }
