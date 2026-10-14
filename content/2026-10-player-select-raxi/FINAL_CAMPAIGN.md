@@ -37,13 +37,13 @@ No es el foco de esta prueba. Puede activarse después si el look ganador justif
 
 ## Assets Seleccionados
 
-| Orden | Asset | Imagen / referencia | Plataforma | Objetivo | Formato | Modelo | Nivel | QA | Métrica |
+| Orden | Asset ID | Repo path | Plataforma | Objetivo | Formato | Modelo | Nivel | QA | Métrica |
 |---:|---|---|---|---|---|---|---|---|---|
-| 1 | B — Blue Duelist | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_30_59 PM.jpg` | Instagram | Abrir campaña | Carrusel 4:5 | No aplica, asset existente | Público | APPROVED | comentarios |
-| 2 | A — Forest Rogue | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_30_51 PM.jpg` | Instagram/Stories | Opción fantasy | Carrusel/Story | No aplica | Público/teaser suave | APPROVED | votos |
-| 3 | D — Red Adventurer | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_31_27 PM.jpg` | Instagram/Stories | Opción aventura | Carrusel/Story | No aplica | Público | APPROVED WITH COPY DIRECTION | votos |
-| 4 | C — Dual Pistols Action | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_31_22 PM.jpg` | Instagram/Stories | Opción acción | Carrusel/Story | No aplica | Público | APPROVED WITH CAUTION | votos |
-| 5 | E — Black Moon Fighter | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_31_33 PM.jpg` | Instagram/Stories | Wildcard | Carrusel/Story | No aplica | Público/teaser suave | APPROVED WITH CAUTION | votos |
+| 1 | B-BLUE-DUELIST | `assets/approved/cosplay/B-BLUE-DUELIST.jpg` | Instagram | Abrir campaña | Carrusel 4:5 | No aplica, asset existente | Público | APPROVED | comentarios |
+| 2 | A-FOREST-ROGUE | `assets/approved/cosplay/A-FOREST-ROGUE.jpg` | Instagram/Stories | Opción fantasy | Carrusel/Story | No aplica | Público/teaser suave | APPROVED | votos |
+| 3 | D-RED-ADVENTURER | `assets/approved/cosplay/D-RED-ADVENTURER.jpg` | Instagram/Stories | Opción aventura | Carrusel/Story | No aplica | Público | APPROVED_WITH_COPY_DIRECTION | votos |
+| 4 | C-DUAL-PISTOLS | `assets/approved/cosplay/C-DUAL-PISTOLS.jpg` | Instagram/Stories | Opción acción | Carrusel/Story | No aplica | Público | APPROVED_WITH_CAUTION | votos |
+| 5 | E-BLACK-MOON | `assets/approved/cosplay/E-BLACK-MOON.jpg` | Instagram/Stories | Wildcard | Carrusel/Story | No aplica | Público/teaser suave | APPROVED_WITH_CAUTION | votos |
 
 ## Modelo Usado
 

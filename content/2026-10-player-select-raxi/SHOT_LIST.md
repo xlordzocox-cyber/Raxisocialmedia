@@ -2,13 +2,13 @@
 
 ## Existing Asset Shot List
 
-| Orden | ID | Build | Archivo | Formato sugerido | Función |
+| Orden | Asset ID | Build | Repo path | Formato sugerido | Función |
 |---:|---|---|---|---|---|
-| 1 | B | Blue Duelist | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_30_59 PM.jpg` | Carrusel 4:5 | Hero / portada |
-| 2 | A | Forest Rogue | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_30_51 PM.jpg` | Carrusel 4:5 | Opción fantasy |
-| 3 | D | Red Adventurer | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_31_27 PM.jpg` | Carrusel 4:5 | Opción aventura |
-| 4 | C | Dual Pistols Action | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_31_22 PM.jpg` | Carrusel 4:5 | Opción acción |
-| 5 | E | Black Moon Fighter | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_31_33 PM.jpg` | Carrusel 4:5 | Opción combate |
+| 1 | B-BLUE-DUELIST | Blue Duelist | `assets/approved/cosplay/B-BLUE-DUELIST.jpg` | Carrusel 4:5 | Hero / portada |
+| 2 | A-FOREST-ROGUE | Forest Rogue | `assets/approved/cosplay/A-FOREST-ROGUE.jpg` | Carrusel 4:5 | Opción fantasy |
+| 3 | D-RED-ADVENTURER | Red Adventurer | `assets/approved/cosplay/D-RED-ADVENTURER.jpg` | Carrusel 4:5 | Opción aventura |
+| 4 | C-DUAL-PISTOLS | Dual Pistols Action | `assets/approved/cosplay/C-DUAL-PISTOLS.jpg` | Carrusel 4:5 | Opción acción |
+| 5 | E-BLACK-MOON | Black Moon Fighter | `assets/approved/cosplay/E-BLACK-MOON.jpg` | Carrusel 4:5 | Opción combate |
 
 ## Stories
 

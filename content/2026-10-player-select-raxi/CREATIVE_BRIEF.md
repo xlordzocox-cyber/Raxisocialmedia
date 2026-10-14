@@ -6,19 +6,19 @@ Una selección de personaje propia de Raxi: cinco versiones visuales con nombres
 
 ## Biblioteca Usada
 
-Cosplay / Character-Inspired existente en `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil`.
+Cosplay / Character-Inspired desde `content/asset-library/ASSET_CATALOG.json`.
 
 ## Assets Seleccionados
 
-- A — Forest Rogue: look salvaje/fantasy en exterior.
-- B — Blue Duelist: look azul con abanicos, asset más fuerte para portada.
-- C — Dual Pistols Action: pose de acción con props.
-- D — Red Adventurer: versión exploradora/action.
-- E — Black Moon Fighter: estética fighting/fantasy más gráfica.
+- A-FOREST-ROGUE: look salvaje/fantasy en exterior, `assets/approved/cosplay/A-FOREST-ROGUE.jpg`.
+- B-BLUE-DUELIST: look azul con abanicos, asset más fuerte para portada, `assets/approved/cosplay/B-BLUE-DUELIST.jpg`.
+- C-DUAL-PISTOLS: pose de acción con props, `assets/approved/cosplay/C-DUAL-PISTOLS.jpg`.
+- D-RED-ADVENTURER: versión exploradora/action, `assets/approved/cosplay/D-RED-ADVENTURER.jpg`.
+- E-BLACK-MOON: estética fighting/fantasy más gráfica, `assets/approved/cosplay/E-BLACK-MOON.jpg`.
 
 ## Hero Asset
 
-B — Blue Duelist.
+B-BLUE-DUELIST.
 
 Razón: tiene composición frontal, silueta clara, look memorable y energía de "personaje seleccionable". Abre mejor el carrusel.
 

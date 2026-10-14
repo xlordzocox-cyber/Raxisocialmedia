@@ -173,6 +173,10 @@ Antes de aprobar fotografías, revisa:
 
 Descarta resultados débiles aunque sean visualmente llamativos. Si cambiar de modelo mejora sustancialmente identidad facial, anatomía, manos, fidelidad de outfit, realismo, iluminación, composición, naturalidad o coherencia entre imágenes de una misma sesión, hazlo.
 
+## Asset Library
+
+Todo asset visual debe referenciarse por `Asset ID` canónico desde `content/asset-library/ASSET_CATALOG.json` y por una ruta portable del repositorio. Nunca guardes rutas locales como `C:\Users\...` dentro de campañas, catálogos o documentación. La aprobación visual requiere inspección real de la imagen; si no hay acceso visual, marca `VISUAL_REVIEW_REQUIRED`.
+
 ## Campaign workflow
 
 Para campañas sustanciales:

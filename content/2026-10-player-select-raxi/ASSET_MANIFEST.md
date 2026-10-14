@@ -10,13 +10,13 @@ No se usa Aria Studio en esta prueba. No se generan imágenes nuevas. No hay mod
 
 ## Manifest
 
-| Asset ID | Referencia | Descripción | Categoría | Destino | Función | QA | Variación | Nueva generación |
+| Asset ID | Repo path | Descripción | Categoría | Destino | Función | QA | Variación | Nueva generación |
 |---|---|---|---|---|---|---|---|---|
-| B-BLUE-DUELIST | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_30_59 PM.jpg` | Raxi en look azul de duelista con abanicos, composición frontal y estética fuerte de personaje. | Cosplay / Character-Inspired | Instagram carrusel, portada, Stories finalistas | Hero asset / opción B | APPROVED | No necesaria | No |
-| A-FOREST-ROGUE | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_30_51 PM.jpg` | Raxi en entorno bosque/fantasy con capa/piel y prop de cuchillo. | Cosplay / Character-Inspired | Carrusel, Stories ronda 1 | Opción A / contraste fantasy | APPROVED | No necesaria | No |
-| D-RED-ADVENTURER | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_31_27 PM.jpg` | Raxi con top rojo, shorts y prop de acción, vibra aventurera. | Cosplay / Character-Inspired | Carrusel, Stories ronda 2 | Opción D / aventura | APPROVED | No necesaria | No |
-| C-DUAL-PISTOLS | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_31_22 PM.jpg` | Raxi en pose de acción con dos pistolas prop en interior. | Cosplay / Character-Inspired | Carrusel, Stories ronda 2 | Opción C / acción | APPROVED | No necesaria | No |
-| E-BLACK-MOON | `C:\Users\joslu\Downloads\ARIAIA\Fotos perfil\ChatGPT Image Oct 13, 2026, 05_31_33 PM.jpg` | Raxi con look negro/blanco tipo fighter, pose energética en fondo claro. | Cosplay / Character-Inspired | Carrusel, wildcard Stories | Opción E / combate | APPROVED | No necesaria | No |
+| B-BLUE-DUELIST | `assets/approved/cosplay/B-BLUE-DUELIST.jpg` | Raxi en look azul de duelista con abanicos, composición frontal y estética fuerte de personaje. | Cosplay / Character-Inspired | Instagram carrusel, portada, Stories finalistas | Hero asset / opción B | APPROVED | No necesaria | No |
+| A-FOREST-ROGUE | `assets/approved/cosplay/A-FOREST-ROGUE.jpg` | Raxi en entorno bosque/fantasy con capa/piel y prop de cuchillo. | Cosplay / Character-Inspired | Carrusel, Stories ronda 1 | Opción A / contraste fantasy | APPROVED | No necesaria | No |
+| D-RED-ADVENTURER | `assets/approved/cosplay/D-RED-ADVENTURER.jpg` | Raxi con top rojo, shorts y prop de acción, vibra aventurera. | Cosplay / Character-Inspired | Carrusel, Stories ronda 2 | Opción D / aventura | APPROVED_WITH_COPY_DIRECTION | No necesaria | No |
+| C-DUAL-PISTOLS | `assets/approved/cosplay/C-DUAL-PISTOLS.jpg` | Raxi en pose de acción con dos pistolas prop en interior. | Cosplay / Character-Inspired | Carrusel, Stories ronda 2 | Opción C / acción | APPROVED_WITH_CAUTION | No necesaria | No |
+| E-BLACK-MOON | `assets/approved/cosplay/E-BLACK-MOON.jpg` | Raxi con look negro/blanco tipo fighter, pose energética en fondo claro. | Cosplay / Character-Inspired | Carrusel, wildcard Stories | Opción E / combate | APPROVED_WITH_CAUTION | No necesaria | No |
 
 ## Notas
 

@@ -275,11 +275,16 @@ Revisa:
 Estados de asset:
 
 - `APPROVED`
+- `APPROVED_WITH_CAUTION`
+- `APPROVED_WITH_COPY_DIRECTION`
+- `VISUAL_REVIEW_REQUIRED`
 - `REGENERATE`
 - `REWRITE`
 - `REJECT`
 
 Cada rechazo debe incluir una razón breve. Ningún asset importante debe entrar al paquete final sin revisión de QA.
+
+Para campañas que reutilicen o cataloguen imágenes existentes, sigue `content/asset-library/QA_CAPABILITIES.md`: la aprobación visual requiere inspección real del asset; si no hay acceso visual, el estado final debe quedar como `VISUAL_REVIEW_REQUIRED`.
 
 Output: `content/<campaign>/QA_REPORT.md`
 
