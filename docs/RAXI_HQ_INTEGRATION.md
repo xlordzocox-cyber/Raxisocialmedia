@@ -39,12 +39,17 @@ The three previously accepted Supermemory documents belong to the historical v0.
 
 ## Selected visual evidence
 
-- `output/reports/raxi-hq-integration/evidence/v02-office.jpg`: earlier technical map, for comparison.
-- `output/reports/raxi-hq-integration/evidence/v03-opening.jpg`: furnished isometric office.
-- `output/reports/raxi-hq-integration/evidence/v03-final.jpg`: office after the complete mock scenario.
-- `output/reports/raxi-hq-integration/evidence/v03-inspection.jpg`: React inspection from avatar selection.
+Each screenshot is registered in `content/asset-library/ASSET_CATALOG.json` by canonical Asset ID and portable repository path. Entries include verified dimensions, byte size and SHA-256, with `supermemory_document_id: null`. They are technical review evidence, not campaign photography or proof of real external integration.
 
-These are historical browser-review screenshots from the v0.2/v0.3 passes, not new captures from the durable clone.
+| Asset ID | Repo path | Review purpose |
+| --- | --- | --- |
+| `RAXI-HQ-EVIDENCE-V02-OFFICE` | `output/reports/raxi-hq-integration/evidence/v02-office.jpg` | Earlier technical map for comparison. |
+| `RAXI-HQ-EVIDENCE-V03-DURABLE-DEV` | `output/reports/raxi-hq-integration/evidence/v03-durable-dev.jpg` | Fresh dev-server verification from the durable clone. |
+| `RAXI-HQ-EVIDENCE-V03-FINAL` | `output/reports/raxi-hq-integration/evidence/v03-final.jpg` | Furnished office after the complete mock scenario. |
+| `RAXI-HQ-EVIDENCE-V03-INSPECTION` | `output/reports/raxi-hq-integration/evidence/v03-inspection.jpg` | React inspection and mock handoff from avatar selection. |
+| `RAXI-HQ-EVIDENCE-V03-OPENING` | `output/reports/raxi-hq-integration/evidence/v03-opening.jpg` | Furnished isometric office during the initial mock stages. |
+
+Except for `RAXI-HQ-EVIDENCE-V03-DURABLE-DEV`, these are historical browser-review screenshots from the v0.2/v0.3 passes. Catalog visual approval applies only to screenshot readability and suitability as technical evidence; it does not approve campaign assets or change mock runtime states.
 
 ## Commit boundary
 
@@ -70,7 +75,7 @@ Retained standalone copies are not automatically synchronized; subsequent develo
 
 The dev server was launched from this repository's `apps/raxi-hq/`, using `npm run dev -- --host 127.0.0.1 --port 5177 --strictPort`. The durable app is available at `http://127.0.0.1:5177/`. A different port avoids disturbing the pre-existing servers from the standalone copy.
 
-Visual inspection confirmed seven isometric rooms, role-specific chibi agents, procedural furniture, event-driven movement, handoff packet/indicators, pan, zoom, centering and React inspection panels. Selecting Creative showed ARIA_LINK, task-creative, WRITE_DISABLED and the expected role/capabilities. The mock completed 18 events at 100% MOCK_READY. Browser console had no observed warnings or errors. Fresh evidence from this dev server: `output/reports/raxi-hq-integration/evidence/v03-durable-dev.jpg`.
+Visual inspection confirmed seven isometric rooms, role-specific chibi agents, procedural furniture, event-driven movement, handoff packet/indicators, pan, zoom, centering and React inspection panels. Selecting Creative showed ARIA_LINK, task-creative, WRITE_DISABLED and the expected role/capabilities. The mock completed 18 events at 100% MOCK_READY. Browser console had no observed warnings or errors. Fresh evidence from this dev server: Asset ID `RAXI-HQ-EVIDENCE-V03-DURABLE-DEV`, repo path `output/reports/raxi-hq-integration/evidence/v03-durable-dev.jpg`.
 
 One requested repeat passed: build, typecheck, nine tests and `git diff --check`. Final staging is restricted to `apps/raxi-hq/`, this document and `output/reports/raxi-hq-integration/`. No commit, push or memory writes are performed.
 
