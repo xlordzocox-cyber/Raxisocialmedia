@@ -7,6 +7,7 @@ import { applyAgentAnimation } from './agents/agentAnimations';
 import { zones } from './zones';
 import { HandoffEffect } from './effects/HandoffEffect';
 import { MemoryArchiveEffect } from './effects/MemoryArchiveEffect';
+import { PendingMemoryOrigins } from './effects/memoryOrigins';
 import { clampCamera, zoomAt } from './camera';
 
 /** Pixi receives domain snapshots and emits selection intent. No adapter imports. */
@@ -21,6 +22,7 @@ export class OfficeScene {
   private motions = new Map<string, AgentMotion>();
   private effects: (HandoffEffect | MemoryArchiveEffect)[] = [];
   private seen = new Set<string>();
+  private memoryOrigins = new PendingMemoryOrigins();
   private state?: HQState;
   private elapsed = 0;
   private resizeObserver: ResizeObserver;
@@ -124,10 +126,17 @@ export class OfficeScene {
     for (const event of [...state.events].reverse()) {
       if (this.seen.has(event.id)) continue;
       this.seen.add(event.id);
-      if (event.type === 'MEMORY_ARCHIVED' && event.verified) {
-        const from=this.motions.get(event.actorId ?? '')?.position ?? zones[state.agents[event.actorId ?? '']?.zone ?? 'WAR_ROOM'].anchor;
-        this.addEffect(new MemoryArchiveEffect({ ...from },zones.SUPERMEMORY_CORE.anchor));
-        this.highlight('SUPERMEMORY_CORE',true);
+      if (event.type === 'MEMORY_SAVE_REQUESTED') {
+        const origin=this.motions.get(event.actorId ?? '')?.position ?? zones[state.agents[event.actorId ?? '']?.zone ?? 'WAR_ROOM'].anchor;
+        this.memoryOrigins.remember(event,origin);
+      }
+      if (event.type === 'MEMORY_ARCHIVED') {
+        const fallback=this.motions.get(event.actorId ?? '')?.position ?? zones[state.agents[event.actorId ?? '']?.zone ?? 'WAR_ROOM'].anchor;
+        const from=this.memoryOrigins.consume(event,fallback);
+        if (event.verified) {
+          this.addEffect(new MemoryArchiveEffect(from,zones.SUPERMEMORY_CORE.anchor));
+          this.highlight('SUPERMEMORY_CORE',true);
+        }
       }
       if (['HANDOFF_SENT', 'ASSET_RECEIVED'].includes(event.type) && event.actorId && event.targetId) {
         const from = this.motions.get(event.actorId)?.position;
@@ -201,7 +210,7 @@ export class OfficeScene {
     this.onHover();
     for (const sprite of this.sprites.values()) sprite.destroy({ children: true });
     for (const effect of this.effects) effect.destroy({ children: true });
-    this.sprites.clear(); this.motions.clear(); this.seen.clear(); this.effects = [];
+    this.sprites.clear(); this.motions.clear(); this.seen.clear(); this.memoryOrigins.clear(); this.effects = [];
     this.zoneHighlight.clear(); this.highlightUntil=0; this.focusTarget=undefined;
     for(const light of this.stationLights.values()) light.alpha=0;
   }

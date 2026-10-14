@@ -11,6 +11,7 @@ import { zones, zoneOrder } from '../src/office/zones';
 import { getStatusVisual } from '../src/office/agents/agentVisualState';
 import { zoomAt, clampCamera } from '../src/office/camera';
 import { handoffFrame, memoryFrame } from '../src/office/effects/visualTimelines';
+import { PendingMemoryOrigins } from '../src/office/effects/memoryOrigins';
 import type { Container } from 'pixi.js';
 import type { HQState } from '../src/domain/hq';
 import type { AgentStatus } from '../src/domain/agents';
@@ -240,6 +241,43 @@ test('memory signal travels to Core, receives, indexes and then settles', () => 
   assert.equal(indexing.phase,'indexing');
   assert.equal(stable.phase,'done');
   assert.equal(stable.signal.alpha,0);
+});
+
+test('memory archive starts at the request position after Performance reaches Core', () => {
+  const request=mockTimeline.find(({event})=>event.type==='MEMORY_SAVE_REQUESTED')!.event;
+  const archive=mockTimeline.find(({event})=>event.type==='MEMORY_ARCHIVED')!.event;
+  const motion=new AgentMotion(mockAgents.find(agent=>agent.id==='performance')!,0);
+  const source={...motion.position};
+  const pending=new PendingMemoryOrigins();
+  pending.remember(request,motion.position);
+  motion.sync({...mockAgents.find(agent=>agent.id==='performance')!,status:'WALKING',destinationZone:'SUPERMEMORY_CORE'});
+  motion.update(8000);
+  const destination={...motion.position};
+  assert.notDeepEqual(destination,source);
+  const origin=pending.consume(archive,destination);
+  assert.deepEqual(origin,source);
+  assert.notDeepEqual(origin,destination);
+  const travelling=memoryFrame(700,origin,zones.SUPERMEMORY_CORE.anchor);
+  assert.ok(travelling.signal.y>zones.SUPERMEMORY_CORE.anchor.y-43);
+  assert.deepEqual(pending.consume(archive,destination),destination,'consumed origin must be removed');
+});
+
+test('memory origin reset and fallback replay deterministically', () => {
+  const request=mockTimeline.find(({event})=>event.type==='MEMORY_SAVE_REQUESTED')!.event;
+  const archive=mockTimeline.find(({event})=>event.type==='MEMORY_ARCHIVED')!.event;
+  const pending=new PendingMemoryOrigins();
+  const source=zones.GITHUB_HUB.workPoints[0];
+  const fallback=zones.SUPERMEMORY_CORE.workPoints[0];
+  const replay=()=>{
+    pending.clear();
+    pending.remember(request,source);
+    const origin=pending.consume(archive,fallback);
+    return {origin,frame:memoryFrame(700,origin,zones.SUPERMEMORY_CORE.anchor)};
+  };
+  assert.deepEqual(replay(),replay());
+  pending.remember(request,source);
+  pending.clear();
+  assert.deepEqual(pending.consume(archive,fallback),fallback);
 });
 
 test('neither idle motion nor animation timelines introduce random walking', () => {
