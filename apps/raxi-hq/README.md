@@ -1,10 +1,12 @@
-# Raxi HQ Office v0.3 — Visual Office Pass
+# Raxi HQ Office v0.4 — Agent Life & Presence Pass
 
 Local mock, read-only office demo. No external integrations or credentials.
 
-The v0.3 visual pass adds seven open isometric rooms, procedural furniture and role-specific chibi avatars. All artwork is drawn locally in Pixi, with no external/proprietary assets. Furniture stations match the unchanged v0.2 work endpoints, including all four visual seat slots. Characters and furniture sort together by ground Y; local limb animation never changes the motion coordinates. Verified mock memory events animate an isometric knowledge pulse.
+The office has seven connected isometric zones, visible corridors and stations, procedural furniture, and role-specific chibi avatars. v0.4 improves agent size, contrast and state cues so activity is legible without relying on floating labels. Agents follow mock event destinations, arrive at workstations, and stay aligned while working; active stations light subtly. Characters and furniture sort together by ground Y, with soft shadows and local animation that does not change motion coordinates. All artwork is drawn locally in Pixi, with no external/proprietary assets.
 
-Drag empty floor to pan, use the wheel or +/- to zoom, and choose Centrar to reset. Zoom is limited to 80–280% of the responsive fitted view and panning is bounded. Hover shows a React inspection card; click selects the full agent panel. Only hovered/selected avatars show names. Handoffs produce a short gesture, bubble and transfer packet. The v0.2 engine, reducer, contracts, mock adapters, zone coordinates and route logic are preserved, so the mock campaign retains its original v0.2 title.
+Drag empty floor to pan, use the wheel or +/- to zoom, and choose Centrar to reset. The initial zoom is 105% of the responsive fitted view; zoom and panning are bounded. Optional Seguir críticos briefly focuses important events without overriding manual camera control. Hover shows a React inspection card; click selects the full agent panel. Only hovered/selected avatars show names. Handoffs show approach, a short gesture and a glowing transfer packet before agents resume their event-driven activity. On verified mock MEMORY_ARCHIVED events, a signal travels from the saved request position to Supermemory Core, which briefly shows RECEIVING and INDEXING before settling. This is a visual effect only.
+
+The mock campaign starts at 0% and advances deterministically through workflow milestones to 100% / MOCK_READY. Blocking and waiting do not advance progress without a milestone. At the end of the demo, all eight agents are COMPLETED. Restarting the demo replays the same events, routes, effects and percentages.
 
 ## Run and validate
 
@@ -29,13 +31,13 @@ There is currently no lint script or ESLint configuration. On Windows with a tru
 - Pixi receives snapshots and emits selection intent through a callback. It imports neither adapters nor the store.
 - Only a changed snapshot destination creates a route. Idle agents do not wander. Blocked agents stop; resumed snapshots allow the same route to continue.
 - Pixi interpolates coordinates along a deterministic BFS zone graph. Presentation pulses do not choose destinations or update domain state.
-- Mock timeline covers IDLE, RUNNING, WAITING, BLOCKED, QA and COMPLETED, plus more specific task/waiting states. Research moves to Research Lab, Creative to Aria Link and Performance to Supermemory Core.
+- Mock timeline covers IDLE, RUNNING, WAITING, BLOCKED, QA and COMPLETED, plus more specific task/waiting states. Research moves to Research Lab, Creative to Aria Link and Performance to Supermemory Core. Campaign progress comes from numeric milestones on mock events, not elapsed time or frames.
 - Restart resets snapshots, routes, transient effects and processed event IDs. Cleanup cancels intervals and stale asynchronous initialization, including React StrictMode remounts.
-- A memory archive effect requires a verified mock event. It never performs a real memory write.
-- The Munder Difflin, GitHub, Aria and Supermemory directories contain boundary documentation only. No connection, generation, publishing, commit or memory-save APIs run.
+- A memory archive effect requires a verified mock event. Its request origin is temporary visual state consumed on archive; it never performs a real memory write.
+- The Munder Difflin, GitHub, Aria Studio and Supermemory integrations remain stub/read-only. No external connection, generation, publishing, commit or memory-save APIs run.
 
 ## Limitations
 
 This is a mock visualization, not an agent runner or a publishing system. Routing uses zone adjacency, not collision-aware tile navigation. Task snapshots remain initial demo data; agent and campaign projections carry the animated scenario. A campaign reaching MOCK_READY does not grant human approvals, approve a visual asset or publish content. External adapters remain future work.
 
-Tests cover 49 zone pairs, deterministic motion, pause/resume, bounded seating, reducer immutability and state coverage, complete mock destinations, StrictMode/restart/selection cleanup and adapter isolation. Security scanning covers application files and build output; registry dependency internals are excluded and checked separately with npm audit.
+Tests cover 49 zone pairs, deterministic motion and milestone progress, pause/resume, station arrival, visual handoff and memory timelines, temporary memory-origin consumption, reducer immutability and state coverage, complete mock destinations, StrictMode/restart/selection cleanup and adapter isolation. Security scanning covers application files and build output; registry dependency internals are excluded and can be checked separately with npm audit.

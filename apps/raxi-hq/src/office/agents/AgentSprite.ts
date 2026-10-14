@@ -23,16 +23,21 @@ export class AgentSprite extends Container {
   private rightLeg=new Graphics();
   private eyes=new Graphics();
   private statusPip=new Graphics();
+  private statusGlyph=new Graphics();
+  private activityHalo=new Graphics();
   private selection=new Graphics();
   private nameLabel:Text;
   private bubble:Text;
   private selected=false;
   private hovered=false;
   private handoffUntil=0;
+  private handoffShown=false;
+  private lastAgent?:AgentSnapshot;
   private direction=1;
 
   constructor(public readonly agentId:string,agent:AgentSnapshot,accent:number) {
     super();
+    this.scale.set(1.13);
     const look=roles[agentId]??{coat:accent,hair:0x354056,skin:0xecc5a2,detail:'tablet'};
     const shadow=new Graphics();
     for(let i=3;i>0;i--) shadow.beginFill(0x02050d,0.1).drawEllipse(0,0,10+i*2,4+i).endFill();
@@ -69,19 +74,31 @@ export class AgentSprite extends Container {
     this.puppet.addChild(this.leftLeg,this.rightLeg,torso,this.leftArm,this.rightArm,this.head,held);
     this.nameLabel=new Text(agent.displayName,new TextStyle({fill:0xe4efff,fontFamily:'Segoe UI, sans-serif',fontSize:10,fontWeight:'600',stroke:0x090d18,strokeThickness:3}));
     this.nameLabel.anchor.set(0.5,0); this.nameLabel.position.set(0,9);
-    this.bubble=new Text('↗ handoff',new TextStyle({fill:0x35e7ff,fontFamily:'Segoe UI, sans-serif',fontSize:10,fontWeight:'600',stroke:0x090d18,strokeThickness:4}));
+    this.bubble=new Text('⇄',new TextStyle({fill:0x35e7ff,fontFamily:'Segoe UI, sans-serif',fontSize:16,fontWeight:'700',stroke:0x090d18,strokeThickness:4}));
     this.bubble.anchor.set(0.5); this.bubble.position.set(0,-68); this.bubble.visible=false;
     this.statusPip.position.set(17,-48);
+    this.statusGlyph.position.set(17,-48);
     this.eventMode='static'; this.cursor='pointer'; this.hitArea=new Rectangle(-22,-62,44,72);
     this.on('pointerdown',event=>event.stopPropagation());
-    this.addChild(shadow,this.selection,this.puppet,this.statusPip,this.nameLabel,this.bubble);
+    this.addChild(shadow,this.activityHalo,this.selection,this.puppet,this.statusPip,this.statusGlyph,this.nameLabel,this.bubble);
     this.updateAgent(agent); this.setSelected(false);
   }
 
   updateAgent(agent:AgentSnapshot):void {
+    this.lastAgent=agent;
     this.nameLabel.text=agent.displayName;
     const visual=getStatusVisual(agent.status);
-    this.statusPip.clear().lineStyle(1,0x0c1422).beginFill(visual.color).drawCircle(0,0,3).endFill();
+    this.statusPip.clear().lineStyle(2,0x0b1423).beginFill(visual.color).drawCircle(0,0,7).endFill();
+    this.statusGlyph.clear().lineStyle(1.5,0x0b1423,1);
+    switch(visual.animation) {
+      case 'walk': this.statusGlyph.moveTo(-3,0).lineTo(3,0).moveTo(0,-3).lineTo(3,0).lineTo(0,3); break;
+      case 'work': case 'research': this.statusGlyph.drawRect(-3,-2,6,4).moveTo(-2,3).lineTo(2,3); break;
+      case 'review': this.statusGlyph.drawRect(-3,-4,6,8).moveTo(-2,0).lineTo(-1,2).lineTo(3,-2); break;
+      case 'waiting': this.statusGlyph.drawCircle(0,0,3).moveTo(0,0).lineTo(0,-2).moveTo(0,0).lineTo(2,1); break;
+      case 'blocked': this.statusGlyph.moveTo(0,-3).lineTo(0,1).moveTo(0,3).lineTo(0,4); break;
+      case 'complete': this.statusGlyph.moveTo(-3,0).lineTo(-1,3).lineTo(4,-3); break;
+      default: this.statusGlyph.drawCircle(0,0,1); break;
+    }
   }
   setSelected(selected:boolean):void { this.selected=selected; this.updateLabel(); }
   setHovered(hovered:boolean):void { this.hovered=hovered; this.updateLabel(); }
@@ -95,20 +112,34 @@ export class AgentSprite extends Container {
   animate(status:AgentStatus,elapsed:number):void {
     const t=elapsed/1000,visual=getStatusVisual(status);
     const walking=visual.animation==='walk';
-    const working=['work','research'].includes(visual.animation);
-    const reviewing=status==='QA'||this.agentId.includes('qa')&&working;
+    const working=['work','research','review'].includes(visual.animation);
+    const reviewing=visual.animation==='review'||this.agentId.includes('qa')&&working;
     const handing=elapsed<this.handoffUntil;
-    this.puppet.position.y=walking?Math.abs(Math.sin(t*10))*-1.5:Math.sin(t*2)*0.35;
+    if(handing) {
+      this.statusPip.tint=0x35e7ff;
+      this.statusGlyph.clear().lineStyle(1.5,0x09131f).drawRoundedRect(-3,-2,6,4,1).moveTo(-2,-3).lineTo(0,-4).lineTo(2,-3);
+      this.handoffShown=true;
+    } else if(this.handoffShown) {
+      this.handoffShown=false;
+      if(this.lastAgent) this.updateAgent(this.lastAgent);
+      this.statusPip.tint=0xffffff;
+    }
+    this.puppet.position.y=walking?Math.abs(Math.sin(t*10))*-2:working?-2+Math.sin(t*8)*0.3:visual.animation==='blocked'?2:Math.sin(t*2)*0.35;
     this.puppet.scale.set(this.direction,1);
     this.leftLeg.rotation=walking?Math.sin(t*10)*0.32:0;
     this.rightLeg.rotation=walking?-Math.sin(t*10)*0.32:0;
-    this.leftArm.rotation=walking?-Math.sin(t*10)*0.35:working?-0.5+Math.sin(t*8)*0.1:0.05;
-    this.rightArm.rotation=handing?-1+Math.sin(t*12)*0.3:reviewing?-0.8+Math.sin(t*3)*0.12:working?0.5+Math.sin(t*8)*0.1:visual.animation==='waiting'?0.25:0;
+    this.leftArm.rotation=walking?-Math.sin(t*10)*0.4:working?-0.65+Math.sin(t*8)*0.12:visual.animation==='blocked'?0.8:visual.animation==='waiting'?-0.35:0.05;
+    this.rightArm.rotation=handing?-1.2+Math.sin(t*12)*0.3:reviewing?-0.95+Math.sin(t*3)*0.12:working?0.65+Math.sin(t*8)*0.12:visual.animation==='waiting'?0.35:visual.animation==='complete'?-0.8:visual.animation==='blocked'?-0.8:0;
     this.head.rotation=reviewing?Math.sin(t*2)*0.045:0;
     this.eyes.clear().beginFill(0x20283a);
     const blink=t%4>3.88;
     this.eyes.drawRect(-6,0,2,blink?1:3).drawRect(4,0,2,blink?1:3).endFill();
     this.statusPip.alpha=visual.animation==='waiting'?0.5+Math.sin(t*3)*0.25:1;
+    this.statusGlyph.alpha=this.statusPip.alpha;
+    this.activityHalo.clear();
+    if(working) this.activityHalo.lineStyle(1.5,visual.color,0.23+Math.sin(t*5)*0.08).drawEllipse(0,0,19,8);
+    if(visual.animation==='blocked') this.activityHalo.lineStyle(2,0xff5f7a,0.48).drawEllipse(0,0,17,7);
+    if(visual.animation==='complete') this.activityHalo.lineStyle(2,0x5be39a,0.35).drawEllipse(0,0,18,7);
     this.bubble.visible=handing;
   }
 }

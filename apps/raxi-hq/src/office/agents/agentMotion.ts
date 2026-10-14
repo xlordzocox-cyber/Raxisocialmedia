@@ -12,10 +12,10 @@ export class AgentMotion {
 
   constructor(agent: AgentSnapshot, readonly slot: number) {
     this.zone = this.goal = agent.zone;
-    this.position = this.seat(agent.zone);
+    this.position = this.stationPoint(agent.zone);
   }
 
-  private seat(zone: ZoneId): Point {
+  stationPoint(zone: ZoneId): Point {
     const points = zones[zone].workPoints;
     const point = points[this.slot % points.length];
     const row = Math.floor(this.slot / points.length) % 2;
@@ -28,10 +28,14 @@ export class AgentMotion {
     if (destination === this.goal) return;
     this.goal = destination;
     this.route = routeBetweenZones(this.zone, destination).map((point) => ({ ...point }));
-    this.route[this.route.length - 1] = this.seat(destination);
+    this.route[this.route.length - 1] = this.stationPoint(destination);
   }
 
   get walking(): boolean { return !this.blocked && this.route.length > 0; }
+  atStation(zone: ZoneId): boolean {
+    const point = this.stationPoint(zone);
+    return !this.walking && this.position.x === point.x && this.position.y === point.y;
+  }
 
   update(deltaMs: number): void {
     if (this.blocked) return;

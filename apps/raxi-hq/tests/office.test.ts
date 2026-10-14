@@ -9,7 +9,10 @@ import { AgentMotion } from '../src/office/agents/agentMotion';
 import { routeBetweenZones } from '../src/office/pathfinding';
 import { zones, zoneOrder } from '../src/office/zones';
 import { getStatusVisual } from '../src/office/agents/agentVisualState';
-import { zoomAt, clampCamera } from '../src/office/camera';
+import { zoomAt, clampCamera, advanceCameraFocus } from '../src/office/camera';
+import { OfficeScene } from '../src/office/OfficeScene';
+import { handoffFrame, memoryFrame } from '../src/office/effects/visualTimelines';
+import { PendingMemoryOrigins } from '../src/office/effects/memoryOrigins';
 import type { Container } from 'pixi.js';
 import type { HQState } from '../src/domain/hq';
 import type { AgentStatus } from '../src/domain/agents';
@@ -29,6 +32,65 @@ test('camera zoom preserves pointer anchor and clamps zoom/pan bounds', () => {
   camera.x=-9999; camera.y=9999;
   clampCamera(stage,{minX:-100,maxX:50,minY:-80,maxY:60});
   assert.equal(camera.x,-100); assert.equal(camera.y,60);
+});
+test('camera focus reaches an in-bounds target', () => {
+  const camera={x:0,y:0} as Container;
+  const bounds={minX:-100,maxX:50,minY:-80,maxY:60};
+  const target={x:-60,y:40};
+  let active=true;
+  for(let frame=0;frame<200 && active;frame++) active=advanceCameraFocus(camera,target,bounds,16);
+  assert.equal(active,false);
+  assert.deepEqual({x:camera.x,y:camera.y},target);
+});
+test('camera focus clamps an out-of-bounds target and finishes at the limit', () => {
+  const camera={x:0,y:0} as Container;
+  const bounds={minX:-100,maxX:50,minY:-80,maxY:60};
+  const target={x:-1000,y:1000};
+  let active=true;
+  for(let frame=0;frame<200 && active;frame++) active=advanceCameraFocus(camera,target,bounds,16);
+  assert.equal(active,false);
+  assert.deepEqual({x:camera.x,y:camera.y},{x:-100,y:60});
+  assert.equal(advanceCameraFocus(camera,target,bounds,16),false);
+  assert.deepEqual({x:camera.x,y:camera.y},{x:-100,y:60});
+});
+test('Centrar cancels focus and the next scene frame preserves the centered camera', () => {
+  const world={x:-100,y:60,scale:{x:1,y:1,set(value:number){this.x=value;this.y=value;}},position:{set(x:number,y:number){world.x=x;world.y=y;}}};
+  const scene={
+    app:{screen:{width:630,height:630}},world,fitScale:1,
+    focusTarget:{x:-1000,y:1000},elapsed:0,highlightUntil:0,
+    zoneHighlight:{alpha:0},stationLights:new Map(),motions:new Map(),
+    depthLayer:{sortChildren(){}},effects:[],
+    constrainCamera(){clampCamera(world as unknown as Container,{minX:-450,maxX:40,minY:-45,maxY:105});},
+    onZoom(_percent:number){},
+  };
+  OfficeScene.prototype.resetCamera.call(scene as unknown as OfficeScene);
+  assert.equal(scene.focusTarget,undefined);
+  const centered={x:world.x,y:world.y};
+  OfficeScene.prototype['tick'].call(scene as unknown as OfficeScene,16);
+  assert.deepEqual({x:world.x,y:world.y},centered);
+});
+test('camera focus replay after reset is deterministic', () => {
+  const run=()=>{
+    const world={x:0,y:0,scale:{x:1,y:1,set(value:number){this.x=value;this.y=value;}},position:{set(x:number,y:number){world.x=x;world.y=y;}}};
+    const bounds={minX:-100,maxX:50,minY:-80,maxY:60};
+    const target={x:-1000,y:1000};
+    const positions:{x:number;y:number;active:boolean}[]=[];
+    let active=true;
+    for(let frame=0;frame<12;frame++) advanceCameraFocus(world as unknown as Container,target,bounds,16);
+    const scene={app:{screen:{width:630,height:630}},world,fitScale:1,focusTarget:target,
+      constrainCamera(){clampCamera(world as unknown as Container,{minX:-450,maxX:40,minY:-45,maxY:105});},
+      onZoom(_percent:number){},
+    };
+    OfficeScene.prototype.resetCamera.call(scene as unknown as OfficeScene);
+    assert.equal(scene.focusTarget,undefined);
+    positions.push({x:world.x,y:world.y,active:false});
+    for(let frame=0;frame<120 && active;frame++) {
+      active=advanceCameraFocus(world as unknown as Container,target,bounds,16);
+      positions.push({x:world.x,y:world.y,active});
+    }
+    return positions;
+  };
+  assert.deepEqual(run(),run());
 });
 test('pathfinding connects all 49 pairs and ends at the target', () => {
   for (const from of zoneOrder) for (const to of zoneOrder) {
@@ -80,9 +142,33 @@ test('timeline covers IDLE/RUNNING/WAITING/BLOCKED/QA/COMPLETED and preserves re
     assert.ok(statuses.has(status), status); assert.ok(getStatusVisual(status).label);
   }
   assert.equal(state.campaigns[mockCampaign.id].progress,100);
+  assert.equal(state.campaigns[mockCampaign.id].status,'MOCK_READY');
+  assert.ok(Object.values(state.agents).every(agent=>agent.status==='COMPLETED'));
+  assert.equal(state.agents['visual-qa'].securityState,'VISUAL_REVIEW_REQUIRED');
+  assert.equal(state.agents.publisher.securityState,'APPROVAL_REQUIRED');
   assert.equal(state.memorySignals.at(-1)?.status,'ARCHIVED');
   const archived = mockTimeline.find(t=>t.event.type==='MEMORY_ARCHIVED')!.event;
   assert.equal(reduceEventToVisualState({...archived,verified:false},initial()).memorySignals.at(-1)?.status,'FAILED');
+});
+test('campaign progress follows workflow milestones, pauses on blockage and finishes at mock-ready', () => {
+  let state=initial();
+  const progress=[state.campaigns[mockCampaign.id].progress];
+  for(const {event} of mockTimeline) {
+    state=reduceEventToVisualState(event,state);
+    progress.push(state.campaigns[mockCampaign.id].progress);
+  }
+  assert.deepEqual(progress,[0,8,15,25,35,35,35,42,50,58,68,74,80,86,91,95,95,98,98,98,98,100]);
+  assert.equal(state.campaigns[mockCampaign.id].status,'MOCK_READY');
+  assert.ok(progress.some(value=>value>8 && value<100));
+});
+test('campaign progress ignores invalid values and events for other campaigns', () => {
+  const source=mockTimeline[0].event;
+  for(const invalid of [NaN,Infinity,-1,101,'50']) {
+    const state=reduceEventToVisualState({...source,payload:{progress:invalid}},initial());
+    assert.equal(state.campaigns[mockCampaign.id].progress,0);
+  }
+  const unrelated=reduceEventToVisualState({...source,campaignId:'another-campaign'},initial());
+  assert.equal(unrelated.campaigns[mockCampaign.id].progress,0);
 });
 test('replaying the same event sequence produces identical states regardless of wall clock', (t) => {
   let wallClock = 1000;
@@ -139,6 +225,21 @@ test('store handles StrictMode initialization, selection, event ticks, restart a
   hqStore.selectEvent(mockTimeline[0].event.id); assert.equal(hqStore.getSnapshot().selectedAgentId,'orchestrator');
   hqStore.restartDemo(); await new Promise(resolve=>setImmediate(resolve));
   assert.equal(hqStore.getSnapshot().events.length,0); assert.equal(timers.size,1);
+  assert.equal(hqStore.getSnapshot().campaigns[mockCampaign.id].progress,0);
+  const replayProgress=()=>{
+    const start=now;
+    const values=[hqStore.getSnapshot().campaigns[mockCampaign.id].progress];
+    for(const {atMs} of mockTimeline) {
+      now=start+atMs;
+      for(const tick of [...timers.values()]) tick();
+      values.push(hqStore.getSnapshot().campaigns[mockCampaign.id].progress);
+    }
+    return values;
+  };
+  const firstProgress=replayProgress();
+  hqStore.restartDemo(); await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(hqStore.getSnapshot().campaigns[mockCampaign.id].progress,0);
+  assert.deepEqual(replayProgress(),firstProgress);
   hqStore.stop(); assert.equal(timers.size,0);
 });
 test('adapter boundaries contain no renderer imports, connections or external write operations', () => {
@@ -149,4 +250,118 @@ test('adapter boundaries contain no renderer imports, connections or external wr
   }
   assert.doesNotMatch(readFileSync('src/office/OfficeScene.ts','utf8'),/adapters\/|hqStore/);
   assert.doesNotMatch(readFileSync('src/store/hqReducer.ts','utf8'),/pixi|react|office\/|fetch\(/);
+});
+
+test('handoff stages approach, transfer and resume at original agent positions', () => {
+  const from={x:120,y:220},to={x:340,y:260};
+  const approach=handoffFrame(200,from,to);
+  const transfer=handoffFrame(1000,from,to);
+  const done=handoffFrame(1900,from,to);
+  assert.equal(approach.phase,'approach');
+  assert.ok(approach.senderOffset.x>0 && approach.receiverOffset.x<0);
+  assert.equal(approach.packet.alpha,0);
+  assert.equal(transfer.phase,'transfer');
+  assert.ok(transfer.packet.x>from.x && transfer.packet.x<to.x);
+  assert.equal(done.phase,'done');
+  assert.deepEqual(done.senderOffset,{x:0,y:0});
+  assert.deepEqual(done.receiverOffset,{x:0,y:0});
+});
+
+test('visual handoff and memory frames are deterministic for the same event and elapsed time', () => {
+  const from={x:230,y:242},to={x:520,y:60};
+  const times=[0,180,530,900,1500,1900,2500];
+  const first=times.map(ms=>({handoff:handoffFrame(ms,from,to),memory:memoryFrame(ms,from,to)}));
+  const second=times.map(ms=>({handoff:handoffFrame(ms,{...from},{...to}),memory:memoryFrame(ms,{...from},{...to})}));
+  assert.deepEqual(first,second);
+});
+
+test('working agent reaches the exact station and stays there during work', () => {
+  const source={...mockAgents[1],destinationZone:'RESEARCH_LAB' as const,status:'RUNNING' as const};
+  const motion=new AgentMotion(source,1);
+  motion.sync(source);
+  assert.equal(motion.atStation('RESEARCH_LAB'),false);
+  motion.update(10000);
+  assert.equal(motion.atStation('RESEARCH_LAB'),true);
+  assert.deepEqual(motion.position,motion.stationPoint('RESEARCH_LAB'));
+  const atWork={...motion.position};
+  for(let i=0;i<120;i++) motion.update(250);
+  assert.deepEqual(motion.position,atWork);
+});
+
+test('memory signal travels to Core, receives, indexes and then settles', () => {
+  const from={x:488,y:455},core=zones.SUPERMEMORY_CORE.anchor;
+  const travel=memoryFrame(700,from,core);
+  const receiving=memoryFrame(1500,from,core);
+  const indexing=memoryFrame(2100,from,core);
+  const stable=memoryFrame(2500,from,core);
+  assert.equal(travel.phase,'travel');
+  assert.ok(travel.signal.x>from.x && travel.signal.x<core.x);
+  assert.equal(receiving.phase,'receiving');
+  assert.deepEqual({x:receiving.signal.x,y:receiving.signal.y},{x:core.x,y:core.y-43});
+  assert.equal(indexing.phase,'indexing');
+  assert.equal(stable.phase,'done');
+  assert.equal(stable.signal.alpha,0);
+});
+
+test('memory archive starts at the request position after Performance reaches Core', () => {
+  const request=mockTimeline.find(({event})=>event.type==='MEMORY_SAVE_REQUESTED')!.event;
+  const archive=mockTimeline.find(({event})=>event.type==='MEMORY_ARCHIVED')!.event;
+  const motion=new AgentMotion(mockAgents.find(agent=>agent.id==='performance')!,0);
+  const source={...motion.position};
+  const pending=new PendingMemoryOrigins();
+  pending.remember(request,motion.position);
+  motion.sync({...mockAgents.find(agent=>agent.id==='performance')!,status:'WALKING',destinationZone:'SUPERMEMORY_CORE'});
+  motion.update(8000);
+  const destination={...motion.position};
+  assert.notDeepEqual(destination,source);
+  const origin=pending.consume(archive,destination);
+  assert.deepEqual(origin,source);
+  assert.notDeepEqual(origin,destination);
+  const travelling=memoryFrame(700,origin,zones.SUPERMEMORY_CORE.anchor);
+  assert.ok(travelling.signal.y>zones.SUPERMEMORY_CORE.anchor.y-43);
+  assert.deepEqual(pending.consume(archive,destination),destination,'consumed origin must be removed');
+});
+
+test('memory origin reset and fallback replay deterministically', () => {
+  const request=mockTimeline.find(({event})=>event.type==='MEMORY_SAVE_REQUESTED')!.event;
+  const archive=mockTimeline.find(({event})=>event.type==='MEMORY_ARCHIVED')!.event;
+  const pending=new PendingMemoryOrigins();
+  const source=zones.GITHUB_HUB.workPoints[0];
+  const fallback=zones.SUPERMEMORY_CORE.workPoints[0];
+  const replay=()=>{
+    pending.clear();
+    pending.remember(request,source);
+    const origin=pending.consume(archive,fallback);
+    return {origin,frame:memoryFrame(700,origin,zones.SUPERMEMORY_CORE.anchor)};
+  };
+  assert.deepEqual(replay(),replay());
+  pending.remember(request,source);
+  pending.clear();
+  assert.deepEqual(pending.consume(archive,fallback),fallback);
+});
+
+test('neither idle motion nor animation timelines introduce random walking', () => {
+  const idle=new AgentMotion(mockAgents[0],0);
+  const start={...idle.position};
+  for(let i=0;i<400;i++) idle.update(250);
+  assert.deepEqual(idle.position,start);
+  const motionSource=readFileSync('src/office/agents/agentMotion.ts','utf8');
+  const sceneSource=readFileSync('src/office/OfficeScene.ts','utf8');
+  assert.doesNotMatch(motionSource+sceneSource,/Math\.random|crypto\.getRandomValues/);
+});
+
+test('demo reset reconstructs the same stations and event-driven route', () => {
+  const run=()=>{
+    let state=initial();
+    const motion=new AgentMotion(state.agents.research,1);
+    const positions=[{...motion.position}];
+    for(const {event} of mockTimeline.slice(0,3)) {
+      state=reduceEventToVisualState(event,state);
+      motion.sync(state.agents.research);
+      motion.update(2000);
+      positions.push({...motion.position});
+    }
+    return {positions,state};
+  };
+  assert.deepEqual(run(),run());
 });

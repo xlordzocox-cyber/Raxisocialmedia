@@ -9,6 +9,7 @@ export default function App() {
   const sceneRef = useRef<OfficeScene | undefined>(undefined);
   const [hoveredId,setHoveredId] = useState<string>();
   const [zoomPercent,setZoomPercent] = useState(100);
+  const [focusCritical,setFocusCritical] = useState(false);
   const [error, setError] = useState<string>();
   useEffect(() => {
     let scene: OfficeScene;
@@ -24,10 +25,10 @@ export default function App() {
   const hovered = hoveredId ? state.agents[hoveredId] : undefined;
   const campaign = Object.values(state.campaigns)[0];
   return <main>
-    <header><div><h1>Raxi HQ <span>Office v0.3</span></h1><p>Visual Office · un equipo, siete departamentos</p></div>
+    <header><div><h1>Raxi HQ <span>Office v0.4</span></h1><p>Agent Life · un equipo, siete departamentos</p></div>
       <div className="controls"><strong>MOCK · READ ONLY</strong><button onClick={() => hqStore.restartDemo()}>Reiniciar demo</button></div></header>
     <section className="campaign"><b>{campaign?.title ?? 'Cargando…'}</b><span>{campaign?.progress ?? 0}% · {campaign?.status}</span></section>
-    <div className="workspace"><section className="office"><div className="office-toolbar"><span>Arrastra el suelo · rueda para zoom · click para inspeccionar</span><div><button aria-label="Alejar cámara" onClick={()=>sceneRef.current?.zoom(0.85)}>−</button><output aria-label="Zoom de cámara">{zoomPercent}%</output><button aria-label="Acercar cámara" onClick={()=>sceneRef.current?.zoom(1.18)}>+</button><button onClick={()=>sceneRef.current?.resetCamera()}>Centrar</button></div></div><div ref={host} className="canvas-host" />{hovered && <div className="hover-card"><b>{hovered.displayName}</b><span>{hovered.role}</span><span>{hovered.status} · {hovered.zone}</span><span>{hovered.securityState}</span></div>}{error && <p role="alert">{error}</p>}</section>
+    <div className="workspace"><section className="office"><div className="office-toolbar"><span>Arrastra el suelo · rueda para zoom · click para inspeccionar</span><div><button aria-label="Alejar cámara" onClick={()=>sceneRef.current?.zoom(0.85)}>−</button><output aria-label="Zoom de cámara">{zoomPercent}%</output><button aria-label="Acercar cámara" onClick={()=>sceneRef.current?.zoom(1.18)}>+</button><button aria-pressed={focusCritical} onClick={()=>{const enabled=!focusCritical;setFocusCritical(enabled);sceneRef.current?.setCriticalEventFocus(enabled);}}>Seguir críticos</button><button onClick={()=>sceneRef.current?.resetCamera()}>Centrar</button></div></div><div ref={host} className="canvas-host" />{hovered && <div className="hover-card"><b>{hovered.displayName}</b><span>{hovered.role}</span><span>{hovered.status} · {hovered.zone}</span><span>{hovered.securityState}</span></div>}{error && <p role="alert">{error}</p>}</section>
       <aside><h2>Agentes</h2><div className="agent-list">{Object.values(state.agents).map((agent) => <button key={agent.id} aria-pressed={agent.id === state.selectedAgentId} onClick={() => hqStore.selectAgent(agent.id)}>{agent.displayName}<span>{getStatusVisual(agent.status).label}</span></button>)}</div>
         {selected && <section aria-label="Agente seleccionado"><h2>{selected.displayName}</h2><p>{selected.role}</p><dl><dt>Estado</dt><dd>{selected.status}</dd><dt>Zona</dt><dd>{selected.zone}</dd><dt>Destino</dt><dd>{selected.destinationZone ?? '—'}</dd><dt>Seguridad</dt><dd>{selected.securityState}</dd><dt>Esperando</dt><dd>{selected.waitingFor ?? '—'}</dd><dt>Tarea</dt><dd>{selected.currentTaskId ?? '—'}</dd><dt>Provider / modelo</dt><dd>{selected.provider ?? '—'} · {selected.model ?? '—'}</dd><dt>Capacidades</dt><dd>{selected.capabilities.join(', ')}</dd></dl></section>}
       </aside></div>

@@ -1,13 +1,14 @@
 import { Application, Container, Graphics, Rectangle, type FederatedPointerEvent } from 'pixi.js';
 import type { HQState } from '../domain/hq';
-import { drawOfficeMap, createZoneLabels, createOfficeFurniture } from './map';
+import { drawOfficeMap, createZoneLabels, createOfficeFurniture, createStationLights } from './map';
 import { AgentSprite } from './agents/AgentSprite';
 import { AgentMotion } from './agents/agentMotion';
 import { applyAgentAnimation } from './agents/agentAnimations';
 import { zones } from './zones';
 import { HandoffEffect } from './effects/HandoffEffect';
 import { MemoryArchiveEffect } from './effects/MemoryArchiveEffect';
-import { clampCamera, zoomAt } from './camera';
+import { PendingMemoryOrigins } from './effects/memoryOrigins';
+import { advanceCameraFocus, clampCamera, zoomAt, type CameraBounds } from './camera';
 
 /** Pixi receives domain snapshots and emits selection intent. No adapter imports. */
 export class OfficeScene {
@@ -15,16 +16,22 @@ export class OfficeScene {
   private world = new Container();
   private depthLayer = new Container();
   private effectLayer = new Container();
+  private zoneHighlight = new Graphics();
+  private stationLights = createStationLights();
   private sprites = new Map<string, AgentSprite>();
   private motions = new Map<string, AgentMotion>();
   private effects: (HandoffEffect | MemoryArchiveEffect)[] = [];
   private seen = new Set<string>();
+  private memoryOrigins = new PendingMemoryOrigins();
   private state?: HQState;
   private elapsed = 0;
   private resizeObserver: ResizeObserver;
   private fitScale = 1;
   private drag?: { x: number; y: number };
   private canvas: HTMLCanvasElement;
+  private focusTarget?: { x: number; y: number };
+  private focusCriticalEvents = false;
+  private highlightUntil = 0;
 
   constructor(private host: HTMLElement, onSelect: (id: string) => void, private onHover: (id?: string) => void = () => {}, private onZoom: (percent: number) => void = () => {}) {
     this.app = new Application({ backgroundColor: 0x090d18, antialias: true, resolution: window.devicePixelRatio || 1, autoDensity: true });
@@ -37,10 +44,10 @@ export class OfficeScene {
     drawOfficeMap(floor);
     this.world.addChild(floor, ...createZoneLabels());
     this.depthLayer.sortableChildren=true;
-    this.depthLayer.addChild(...createOfficeFurniture());
-    this.world.addChild(this.depthLayer,this.effectLayer);
+    this.depthLayer.addChild(...createOfficeFurniture(),...this.stationLights.values());
+    this.world.addChild(this.depthLayer,this.zoneHighlight,this.effectLayer);
     this.app.stage.eventMode='static';
-    this.app.stage.on('pointerdown',(event:FederatedPointerEvent)=>{ this.drag={x:event.global.x,y:event.global.y}; canvas.style.cursor='grabbing'; });
+    this.app.stage.on('pointerdown',(event:FederatedPointerEvent)=>{ this.focusTarget=undefined; this.drag={x:event.global.x,y:event.global.y}; canvas.style.cursor='grabbing'; });
     this.app.stage.on('pointermove',(event:FederatedPointerEvent)=>{
       if(!this.drag) return;
       this.world.x+=event.global.x-this.drag.x; this.world.y+=event.global.y-this.drag.y;
@@ -69,12 +76,17 @@ export class OfficeScene {
   }
 
   resetCamera():void {
+    this.focusTarget=undefined;
     const {width,height}=this.app.screen;
-    this.world.scale.set(this.fitScale);
-    this.world.position.set((width-1040*this.fitScale)/2,(height-700*this.fitScale)/2+65*this.fitScale);
-    this.onZoom(100);
+    const scale=this.fitScale*1.05;
+    this.world.scale.set(scale);
+    this.world.position.set((width-1040*scale)/2,(height-700*scale)/2+65*scale);
+    this.constrainCamera();
+    this.onZoom(105);
   }
+  setCriticalEventFocus(enabled:boolean):void { this.focusCriticalEvents=enabled; if(!enabled) this.focusTarget=undefined; }
   zoom(factor:number,x=this.app.screen.width/2,y=this.app.screen.height/2):void {
+    this.focusTarget=undefined;
     zoomAt(this.world,factor,x,y,this.fitScale*0.8,this.fitScale*2.8);
     this.constrainCamera(); this.onZoom(Math.round(this.world.scale.x/this.fitScale*100));
   }
@@ -83,12 +95,15 @@ export class OfficeScene {
     const rect=this.canvas.getBoundingClientRect();
     this.zoom(Math.exp(-event.deltaY*0.001),event.clientX-rect.left,event.clientY-rect.top);
   };
-  private constrainCamera():void {
+  private cameraBounds():CameraBounds {
     const s=this.world.scale.x,{width,height}=this.app.screen;
     // Keep at least a map edge visible; limit panning independently on each axis.
     const minX=Math.min(width-1040*s-40,40),maxX=Math.max(40,width-1040*s+40);
     const minY=Math.min(height-635*s-40,40),maxY=Math.max(65*s+40,height-635*s+40);
-    clampCamera(this.world,{minX,maxX,minY,maxY});
+    return {minX,maxX,minY,maxY};
+  }
+  private constrainCamera():void {
+    clampCamera(this.world,this.cameraBounds());
   }
 
   update(state: HQState): void {
@@ -115,8 +130,17 @@ export class OfficeScene {
     for (const event of [...state.events].reverse()) {
       if (this.seen.has(event.id)) continue;
       this.seen.add(event.id);
-      if (event.type === 'MEMORY_ARCHIVED' && event.verified) {
-        this.addEffect(new MemoryArchiveEffect(zones.SUPERMEMORY_CORE.anchor));
+      if (event.type === 'MEMORY_SAVE_REQUESTED') {
+        const origin=this.motions.get(event.actorId ?? '')?.position ?? zones[state.agents[event.actorId ?? '']?.zone ?? 'WAR_ROOM'].anchor;
+        this.memoryOrigins.remember(event,origin);
+      }
+      if (event.type === 'MEMORY_ARCHIVED') {
+        const fallback=this.motions.get(event.actorId ?? '')?.position ?? zones[state.agents[event.actorId ?? '']?.zone ?? 'WAR_ROOM'].anchor;
+        const from=this.memoryOrigins.consume(event,fallback);
+        if (event.verified) {
+          this.addEffect(new MemoryArchiveEffect(from,zones.SUPERMEMORY_CORE.anchor));
+          this.highlight('SUPERMEMORY_CORE',true);
+        }
       }
       if (['HANDOFF_SENT', 'ASSET_RECEIVED'].includes(event.type) && event.actorId && event.targetId) {
         const from = this.motions.get(event.actorId)?.position;
@@ -124,9 +148,23 @@ export class OfficeScene {
         if (from && to) {
           this.sprites.get(event.actorId)?.beginHandoff(this.elapsed);
           this.sprites.get(event.targetId)?.beginHandoff(this.elapsed);
-          this.addEffect(new HandoffEffect({ ...from }, { ...to }, 'handoff'));
+          this.addEffect(new HandoffEffect(event.actorId, event.targetId, { ...from }, { ...to }));
+          this.highlight(state.agents[event.targetId]?.zone ?? 'WAR_ROOM',false);
         }
       }
+      if(event.type==='AGENT_BLOCKED') this.highlight(state.agents[event.actorId ?? '']?.zone ?? 'WAR_ROOM',true);
+    }
+  }
+
+  private highlight(zoneId: keyof typeof zones, critical:boolean):void {
+    const zone=zones[zoneId];
+    this.zoneHighlight.clear().lineStyle(3,zone.accent,0.75).drawPolygon([
+      zone.anchor.x-117,zone.anchor.y+34,zone.anchor.x,zone.anchor.y-34,
+      zone.anchor.x+117,zone.anchor.y+34,zone.anchor.x,zone.anchor.y+101,
+    ]);
+    this.highlightUntil=this.elapsed+1600;
+    if(critical && this.focusCriticalEvents && !this.drag) {
+      this.focusTarget={x:this.app.screen.width/2-zone.anchor.x*this.world.scale.x,y:this.app.screen.height/2-zone.anchor.y*this.world.scale.y};
     }
   }
 
@@ -137,15 +175,28 @@ export class OfficeScene {
 
   private tick(deltaMs: number): void {
     this.elapsed += deltaMs;
+    if(this.focusTarget) {
+      if(!advanceCameraFocus(this.world,this.focusTarget,this.cameraBounds(),deltaMs)) this.focusTarget=undefined;
+    }
+    this.zoneHighlight.alpha=Math.max(0,Math.min(1,(this.highlightUntil-this.elapsed)/500));
+    for(const light of this.stationLights.values()) light.alpha=0;
     for (const [id, motion] of this.motions) {
       const previousX=motion.position.x;
       motion.update(deltaMs);
       const sprite = this.sprites.get(id)!;
-      sprite.position.set(motion.position.x, motion.position.y);
-      sprite.zIndex=motion.position.y;
+      const handoff=this.effects.find((effect):effect is HandoffEffect=>effect instanceof HandoffEffect && (effect.senderId===id || effect.receiverId===id));
+      const offset=handoff ? (handoff.senderId===id ? handoff.frame.senderOffset : handoff.frame.receiverOffset) : {x:0,y:0};
+      sprite.position.set(motion.position.x+offset.x,motion.position.y+offset.y);
+      sprite.zIndex=sprite.y;
       sprite.faceMovement(motion.position.x-previousX);
       const agent = this.state?.agents[id];
-      if (agent) applyAgentAnimation(sprite, motion.walking ? 'WALKING' : agent.status === 'WALKING' ? 'IDLE' : agent.status, this.elapsed);
+      if (agent) {
+        applyAgentAnimation(sprite, motion.walking ? 'WALKING' : agent.status === 'WALKING' ? 'IDLE' : agent.status, this.elapsed);
+        if(motion.atStation(agent.zone) && ['RUNNING','WORKING','RESEARCHING','QA'].includes(agent.status)) {
+          const light=this.stationLights.get(`${agent.zone}:${motion.slot}`);
+          if(light) light.alpha=0.52+Math.sin(this.elapsed*0.006)*0.12;
+        }
+      }
     }
     this.depthLayer.sortChildren();
     this.effects = this.effects.filter((effect) => {
@@ -159,7 +210,9 @@ export class OfficeScene {
     this.onHover();
     for (const sprite of this.sprites.values()) sprite.destroy({ children: true });
     for (const effect of this.effects) effect.destroy({ children: true });
-    this.sprites.clear(); this.motions.clear(); this.seen.clear(); this.effects = [];
+    this.sprites.clear(); this.motions.clear(); this.seen.clear(); this.memoryOrigins.clear(); this.effects = [];
+    this.zoneHighlight.clear(); this.highlightUntil=0; this.focusTarget=undefined;
+    for(const light of this.stationLights.values()) light.alpha=0;
   }
 
   destroy(): void {
