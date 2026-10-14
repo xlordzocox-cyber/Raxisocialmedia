@@ -76,8 +76,15 @@ export function drawOfficeMap(g:Graphics):void {
   const paths=[['SUPERMEMORY_CORE','WAR_ROOM'],['RESEARCH_LAB','WAR_ROOM'],['WAR_ROOM','ARIA_LINK'],['RESEARCH_LAB','QA_LAB'],['WAR_ROOM','GITHUB_HUB'],['ARIA_LINK','PUBLISHING'],['QA_LAB','GITHUB_HUB'],['GITHUB_HUB','PUBLISHING']] as const;
   for(const [a,b] of paths) {
     const from=zones[a].entrances[0],to=zones[b].entrances[0];
-    g.lineStyle(24,0x28374a,0.65).moveTo(from.x,from.y).lineTo(to.x,to.y);
-    g.lineStyle(1,0x5b6b80,0.25).moveTo(from.x,from.y-10).lineTo(to.x,to.y-10);
+    g.lineStyle(38,0x070d19,0.95).moveTo(from.x,from.y+5).lineTo(to.x,to.y+5);
+    g.lineStyle(34,0x3c5067,0.95).moveTo(from.x,from.y).lineTo(to.x,to.y);
+    g.lineStyle(28,0x24354b,1).moveTo(from.x,from.y).lineTo(to.x,to.y);
+    const length=Math.hypot(to.x-from.x,to.y-from.y);
+    for(let at=8;at<length-8;at+=18) {
+      const p=at/length,px=from.x+(to.x-from.x)*p,py=from.y+(to.y-from.y)*p;
+      g.lineStyle(2,0xb6c8db,0.24).moveTo(px-3,py-2).lineTo(px+3,py+2);
+    }
+    g.lineStyle(2,zones[a].accent,0.31).moveTo(from.x,from.y-11).lineTo(to.x,to.y-11);
   }
   for(const id of zoneOrder) {
     const z=zones[id],{x,y}=z.anchor; shadow(g,x,y+45,120,66);
@@ -138,4 +145,23 @@ export function createOfficeFurniture():Container[] {
     }
   }
   return props;
+}
+
+/** Lights are keyed by the same zone/slot coordinates as AgentMotion. */
+export function createStationLights():Map<string,Graphics> {
+  const lights=new Map<string,Graphics>();
+  for(const id of zoneOrder) {
+    const z=zones[id];
+    for(let slot=0;slot<(id==='SUPERMEMORY_CORE'?2:4);slot++) {
+      const p=z.workPoints[slot%z.workPoints.length],row=Math.floor(slot/z.workPoints.length)%2;
+      const light=new Graphics();
+      light.position.set(p.x+row*26,p.y+row*32-12);
+      light.zIndex=light.y+0.5;
+      light.beginFill(z.accent,0.42).drawRoundedRect(-12,-35,22,15,2).endFill();
+      light.lineStyle(2,z.accent,0.55).drawRoundedRect(-13,-36,24,17,3);
+      light.alpha=0;
+      lights.set(`${id}:${slot}`,light);
+    }
+  }
+  return lights;
 }

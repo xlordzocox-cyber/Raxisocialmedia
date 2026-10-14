@@ -11,8 +11,8 @@ button:focus-visible { outline: 2px solid var(--accent); }
 .campaign { padding: 14px; margin: 20px 0; background: var(--panel); border-radius: 10px; }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; }
 .office { position: relative; min-width: 0; border: 1px solid #29364d; border-radius: 12px; overflow: hidden; background: radial-gradient(ellipse at center,#182439,#090d18); }
-.office-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; background:#101a2a; font-size:11px; color:var(--muted); }
-.office-toolbar > div { display:flex; align-items:center; gap:8px; }.office-toolbar button { padding:4px 9px; }.office-toolbar output { min-width:38px; text-align:center; }
+.office-toolbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; padding:10px 14px; background:#101a2a; font-size:11px; color:var(--muted); }
+.office-toolbar > div { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }.office-toolbar button { padding:4px 9px; white-space:nowrap; }.office-toolbar output { min-width:38px; text-align:center; }
 .hover-card { position:absolute; left:18px; bottom:18px; display:grid; gap:4px; padding:12px 16px; border:1px solid #496180; background:#101a2aed; border-radius:10px; pointer-events:none; font-size:11px; }.hover-card b { color:var(--accent); }.hover-card span { color:#c4d0e0; }
 .canvas-host { height: 630px; width: 100%; } canvas { display: block; }
 aside { background: var(--panel); padding: 16px; border-radius: 12px; }

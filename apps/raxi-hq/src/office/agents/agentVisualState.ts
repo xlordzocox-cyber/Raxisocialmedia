@@ -4,7 +4,7 @@ export interface StatusVisual {
   label: string;
   color: number;
   icon: string;
-  animation: 'idle' | 'walk' | 'work' | 'research' | 'waiting' | 'blocked' | 'complete';
+  animation: 'idle' | 'walk' | 'work' | 'research' | 'review' | 'waiting' | 'blocked' | 'complete';
 }
 
 export function getStatusVisual(status: AgentStatus): StatusVisual {
@@ -15,7 +15,7 @@ export function getStatusVisual(status: AgentStatus): StatusVisual {
     case 'WORKING':
       return { label: 'Running', color: 0xb68cff, icon: '*', animation: 'work' };
     case 'QA':
-      return { label: 'QA', color: 0x5be39a, icon: 'QA', animation: 'work' };
+      return { label: 'Reviewing', color: 0x5be39a, icon: 'QA', animation: 'review' };
     case 'RESEARCHING':
       return { label: 'Research', color: 0x35e7ff, icon: '?', animation: 'research' };
     case 'WAITING':

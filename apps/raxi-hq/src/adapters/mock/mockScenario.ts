@@ -5,9 +5,9 @@ import type { TaskSnapshot } from '../../domain/tasks';
 
 export const mockCampaign: CampaignSnapshot = {
   id: 'campaign-raxi-office-demo',
-  title: 'Raxi HQ Office v0.2 Demo',
+  title: 'Raxi HQ Office v0.4 Demo',
   objective: 'Visualizar coordinación de campaña read-only con adapters mock.',
-  progress: 8,
+  progress: 0,
   status: 'MOCK_PLANNING',
 };
 
@@ -161,21 +161,22 @@ export const mockTimeline: TimedMockEvent[] = [
     actorId: 'orchestrator',
     targetId: 'research',
     taskId: 'task-research',
-    payload: { destinationZone: 'RESEARCH_LAB' },
+    payload: { destinationZone: 'RESEARCH_LAB', progress: 8 },
   }),
   event(8, 'TASK_STARTED', 'Research started trend scan in Research Lab', {
     actorId: 'research',
     taskId: 'task-research',
-    payload: { status: 'RESEARCHING', zone: 'RESEARCH_LAB' },
+    payload: { status: 'RESEARCHING', zone: 'RESEARCH_LAB', progress: 15 },
   }),
   event(18, 'HANDOFF_SENT', 'Research handed insights to Strategy', {
     actorId: 'research',
     targetId: 'strategy',
     taskId: 'task-research',
+    payload: { progress: 25 },
   }),
   event(22, 'TASK_STARTED', 'Strategy shaped campaign angle in War Room', {
     actorId: 'strategy',
-    payload: { status: 'RUNNING', zone: 'WAR_ROOM' },
+    payload: { status: 'RUNNING', zone: 'WAR_ROOM', progress: 35 },
   }),
   event(24, 'AGENT_BLOCKED', 'Strategy blocked by mock dependency', {
     actorId: 'strategy', payload: { waitingFor: 'mock brief dependency' },
@@ -184,18 +185,18 @@ export const mockTimeline: TimedMockEvent[] = [
     actorId: 'strategy', payload: { status: 'WAITING', waitingFor: 'mock brief' },
   }),
   event(30, 'AGENT_STATUS_CHANGED', 'Strategy resumed after mock dependency', {
-    actorId: 'strategy', payload: { status: 'RUNNING' },
+    actorId: 'strategy', payload: { status: 'RUNNING', progress: 42 },
   }),
   event(32, 'TASK_ASSIGNED', 'Creative received visual direction', {
     actorId: 'strategy',
     targetId: 'creative',
     taskId: 'task-creative',
-    payload: { destinationZone: 'ARIA_LINK' },
+    payload: { destinationZone: 'ARIA_LINK', progress: 50 },
   }),
   event(38, 'ASSET_REQUESTED', 'Creative prepared mock Aria request', {
     actorId: 'creative',
     taskId: 'task-creative',
-    payload: { status: 'WAITING_ASSET', zone: 'ARIA_LINK' },
+    payload: { status: 'WAITING_ASSET', zone: 'ARIA_LINK', progress: 58 },
     source: 'aria',
   }),
   event(50, 'ASSET_RECEIVED', 'Mock Aria output received for QA', {
@@ -203,29 +204,31 @@ export const mockTimeline: TimedMockEvent[] = [
     targetId: 'visual-qa',
     assetId: 'MOCK-ASSET-ARIA-01',
     source: 'aria',
+    payload: { progress: 68 },
   }),
   event(56, 'QA_REQUESTED', 'Visual QA requested at QA Lab', {
     actorId: 'creative',
     targetId: 'visual-qa',
     taskId: 'task-qa',
-    payload: { destinationZone: 'QA_LAB' },
+    payload: { destinationZone: 'QA_LAB', progress: 74 },
   }),
   event(64, 'VISUAL_REVIEW_REQUIRED', 'Visual QA marks mock asset as review required', {
     actorId: 'visual-qa',
     taskId: 'task-qa',
-    payload: { status: 'WAITING_APPROVAL', zone: 'QA_LAB' },
+    payload: { status: 'WAITING_APPROVAL', zone: 'QA_LAB', progress: 80 },
   }),
   event(72, 'QA_PASS', 'Editorial QA passes copy and platform fit', {
     actorId: 'editorial-qa',
-    payload: { status: 'COMPLETED', zone: 'QA_LAB' },
+    payload: { status: 'COMPLETED', zone: 'QA_LAB', progress: 86 },
   }),
   event(82, 'HANDOFF_SENT', 'QA handed package to Publishing', {
     actorId: 'editorial-qa',
     targetId: 'publisher',
+    payload: { progress: 91 },
   }),
   event(88, 'PUBLISH_SCHEDULED', 'Publishing created read-only schedule preview', {
     actorId: 'publisher',
-    payload: { status: 'WAITING_APPROVAL', zone: 'PUBLISHING' },
+    payload: { status: 'WAITING_APPROVAL', zone: 'PUBLISHING', progress: 95 },
   }),
   event(96, 'MEMORY_SAVE_REQUESTED', 'Performance identified durable learning', {
     actorId: 'performance',
@@ -237,6 +240,16 @@ export const mockTimeline: TimedMockEvent[] = [
     targetId: 'SUPERMEMORY_CORE',
     source: 'supermemory',
     verified: true,
+    payload: { progress: 98 },
+  }),
+  event(106, 'AGENT_STATUS_CHANGED', 'Strategy completed mock campaign plan', {
+    actorId: 'strategy', payload: { status: 'COMPLETED' },
+  }),
+  event(108, 'AGENT_STATUS_CHANGED', 'Visual QA completed mock review; human approval still required', {
+    actorId: 'visual-qa', payload: { status: 'COMPLETED' },
+  }),
+  event(110, 'AGENT_STATUS_CHANGED', 'Publisher completed read-only schedule preview; human approval still required', {
+    actorId: 'publisher', payload: { status: 'COMPLETED' },
   }),
   event(112, 'TASK_COMPLETED', 'Campaign progress reached mock-ready state', {
     actorId: 'orchestrator',

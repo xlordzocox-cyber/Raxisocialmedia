@@ -215,7 +215,6 @@ export function reduceEventToVisualState(event: HQEvent, state: HQState): HQStat
       if (event.campaignId && campaigns[event.campaignId]) {
         campaigns[event.campaignId] = {
           ...campaigns[event.campaignId],
-          progress: typeof payload.progress === 'number' ? payload.progress : campaigns[event.campaignId].progress,
           status: payload.status === 'MOCK_READY' ? 'MOCK_READY' : campaigns[event.campaignId].status,
         };
       }
@@ -234,6 +233,11 @@ export function reduceEventToVisualState(event: HQEvent, state: HQState): HQStat
     }
     default:
       break;
+  }
+
+  if (event.campaignId && campaigns[event.campaignId] && typeof payload.progress === 'number'
+    && Number.isFinite(payload.progress) && payload.progress >= 0 && payload.progress <= 100) {
+    campaigns[event.campaignId] = { ...campaigns[event.campaignId], progress: payload.progress };
   }
 
   return {
