@@ -187,5 +187,160 @@
     "aspect_ratio": "571:768",
     "file_size": 215667,
     "sha256": "431670e608f600564cb94820f0e8b107cfe1e562584c932bfee83d49901de750"
+  },
+  {
+    "asset_id": "RAXI-HQ-EVIDENCE-V02-OFFICE",
+    "name": "HQ v0.2 Office Baseline",
+    "category": "evidence",
+    "visual_family": "Raxi HQ / Office Evidence",
+    "repo_path": "output/reports/raxi-hq-integration/evidence/v02-office.jpg",
+    "supermemory_document_id": null,
+    "description": "Mapa técnico de las siete zonas de Raxi HQ v0.2 al finalizar el escenario mock.",
+    "recommended_platforms": [
+      "GitHub",
+      "Project documentation"
+    ],
+    "content_level": "public",
+    "qa_status": "APPROVED",
+    "tags": [
+      "raxi-hq",
+      "office",
+      "technical-evidence",
+      "screenshot",
+      "mock-only",
+      "v0.2"
+    ],
+    "usage_notes": "Comparar el mapa técnico inicial con el pase visual v0.3; no representa conexiones reales.",
+    "campaigns_used": [],
+    "version": "1.0",
+    "width": 675,
+    "height": 481,
+    "aspect_ratio": "675:481",
+    "file_size": 22318,
+    "sha256": "5d920f3e3f50f5a1bd91951fc782d5d8ac72c8ef8758b972e2b9dbfd30567867"
+  },
+  {
+    "asset_id": "RAXI-HQ-EVIDENCE-V03-DURABLE-DEV",
+    "name": "HQ v0.3 Durable Dev Verification",
+    "category": "evidence",
+    "visual_family": "Raxi HQ / Office Evidence",
+    "repo_path": "output/reports/raxi-hq-integration/evidence/v03-durable-dev.jpg",
+    "supermemory_document_id": null,
+    "description": "Oficina isométrica v0.3 verificada en el dev server del clon durable, con agentes en sus estaciones.",
+    "recommended_platforms": [
+      "GitHub",
+      "Project documentation"
+    ],
+    "content_level": "public",
+    "qa_status": "APPROVED",
+    "tags": [
+      "raxi-hq",
+      "office",
+      "technical-evidence",
+      "screenshot",
+      "mock-only",
+      "v0.3"
+    ],
+    "usage_notes": "Evidencia del pre-commit desde el clon durable; la captura no prueba escrituras externas ni ejecución real de agentes.",
+    "campaigns_used": [],
+    "version": "1.0",
+    "width": 674,
+    "height": 480,
+    "aspect_ratio": "337:240",
+    "file_size": 29113,
+    "sha256": "82706b95da7cd20723b6a7ea1111a2b78983ffc1e6a7a7006b58201d6ef04b5d"
+  },
+  {
+    "asset_id": "RAXI-HQ-EVIDENCE-V03-FINAL",
+    "name": "HQ v0.3 Completed Mock Office",
+    "category": "evidence",
+    "visual_family": "Raxi HQ / Office Evidence",
+    "repo_path": "output/reports/raxi-hq-integration/evidence/v03-final.jpg",
+    "supermemory_document_id": null,
+    "description": "Oficina v0.3 amueblada después del ciclo mock, con Performance en Supermemory Core y Creative en Aria Link.",
+    "recommended_platforms": [
+      "GitHub",
+      "Project documentation"
+    ],
+    "content_level": "public",
+    "qa_status": "APPROVED",
+    "tags": [
+      "raxi-hq",
+      "office",
+      "technical-evidence",
+      "screenshot",
+      "mock-only",
+      "v0.3"
+    ],
+    "usage_notes": "Usar para revisar layout, estaciones y destinos del mock completado; no equivale a publicación o archivo real.",
+    "campaigns_used": [],
+    "version": "1.0",
+    "width": 674,
+    "height": 480,
+    "aspect_ratio": "337:240",
+    "file_size": 29724,
+    "sha256": "0bffcc6168b77cf17148ee6a59c38466dcf4c4e8261db09ca618fb02383f4bcf"
+  },
+  {
+    "asset_id": "RAXI-HQ-EVIDENCE-V03-INSPECTION",
+    "name": "HQ v0.3 Agent Inspection",
+    "category": "evidence",
+    "visual_family": "Raxi HQ / Office Evidence",
+    "repo_path": "output/reports/raxi-hq-integration/evidence/v03-inspection.jpg",
+    "supermemory_document_id": null,
+    "description": "Captura completa de la oficina v0.3 con Creative seleccionado, ficha React, eventos y transferencia visual de handoff.",
+    "recommended_platforms": [
+      "GitHub",
+      "Project documentation"
+    ],
+    "content_level": "public",
+    "qa_status": "APPROVED",
+    "tags": [
+      "raxi-hq",
+      "office",
+      "technical-evidence",
+      "screenshot",
+      "mock-only",
+      "v0.3"
+    ],
+    "usage_notes": "Evidencia de inspección de UI y handoff mock; los estados mostrados son simulados, no aprobación de una campaña real.",
+    "campaigns_used": [],
+    "version": "1.0",
+    "width": 699,
+    "height": 2012,
+    "aspect_ratio": "699:2012",
+    "file_size": 125539,
+    "sha256": "d458b6ff27a9e8126b4f71bd7ac0fe61df4d95e8518e692a50b29abf87c94857"
+  },
+  {
+    "asset_id": "RAXI-HQ-EVIDENCE-V03-OPENING",
+    "name": "HQ v0.3 Opening Office",
+    "category": "evidence",
+    "visual_family": "Raxi HQ / Office Evidence",
+    "repo_path": "output/reports/raxi-hq-integration/evidence/v03-opening.jpg",
+    "supermemory_document_id": null,
+    "description": "Vista inicial del pase visual v0.3 con siete habitaciones isométricas, estaciones y avatares chibi.",
+    "recommended_platforms": [
+      "GitHub",
+      "Project documentation"
+    ],
+    "content_level": "public",
+    "qa_status": "APPROVED",
+    "tags": [
+      "raxi-hq",
+      "office",
+      "technical-evidence",
+      "screenshot",
+      "mock-only",
+      "v0.3"
+    ],
+    "usage_notes": "Comparar la apariencia de apertura con v0.2 y el estado final; corresponde a las primeras etapas del escenario mock.",
+    "campaigns_used": [],
+    "version": "1.0",
+    "width": 674,
+    "height": 480,
+    "aspect_ratio": "337:240",
+    "file_size": 29697,
+    "sha256": "fef3c6d98fedebad55430fa36f24d5c5d8303d9abef07f5c01985500934f9a3f"
   }
 ]

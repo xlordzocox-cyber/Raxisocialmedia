@@ -1,0 +1,22 @@
+* { box-sizing: border-box; }
+body { margin: 0; color: var(--ink); background: var(--bg); font-family: 'Segoe UI', sans-serif; }
+main { max-width: 1600px; margin: auto; padding: 24px; }
+header, .controls, .campaign { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+h1 { margin: 0; font-size: 30px; } h1 span { color: var(--accent); font-size: 16px; }
+h2 { font-size: 17px; } p { color: var(--muted); font-size: 13px; }
+button { background: var(--panel); color: var(--ink); border: 1px solid #29364d; border-radius: 8px; padding: 10px; cursor: pointer; text-align: left; }
+button:hover, button[aria-pressed=true] { border-color: var(--accent); }
+button:focus-visible { outline: 2px solid var(--accent); }
+.controls strong { font-size: 12px; color: #5be39a; }
+.campaign { padding: 14px; margin: 20px 0; background: var(--panel); border-radius: 10px; }
+.workspace { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; }
+.office { position: relative; min-width: 0; border: 1px solid #29364d; border-radius: 12px; overflow: hidden; background: radial-gradient(ellipse at center,#182439,#090d18); }
+.office-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; background:#101a2a; font-size:11px; color:var(--muted); }
+.office-toolbar > div { display:flex; align-items:center; gap:8px; }.office-toolbar button { padding:4px 9px; }.office-toolbar output { min-width:38px; text-align:center; }
+.hover-card { position:absolute; left:18px; bottom:18px; display:grid; gap:4px; padding:12px 16px; border:1px solid #496180; background:#101a2aed; border-radius:10px; pointer-events:none; font-size:11px; }.hover-card b { color:var(--accent); }.hover-card span { color:#c4d0e0; }
+.canvas-host { height: 630px; width: 100%; } canvas { display: block; }
+aside { background: var(--panel); padding: 16px; border-radius: 12px; }
+.agent-list { display: grid; gap: 6px; }.agent-list button { display: flex; justify-content: space-between; gap: 8px; }.agent-list span { color: var(--muted); }
+dl { font-size: 12px; } dt { color: var(--muted); margin-top: 10px; } dd { margin: 3px 0; overflow-wrap: anywhere; }
+.events { margin-top: 20px; }.events > div { display: grid; gap: 6px; max-height: 260px; overflow: auto; }.events b { color: var(--accent); margin-right: 12px; }
+@media (max-width: 850px) { main { padding: 12px; }.workspace { grid-template-columns: 1fr; }.canvas-host { height: 480px; }header { align-items: start; flex-direction: column; }.campaign { flex-wrap: wrap; } }
