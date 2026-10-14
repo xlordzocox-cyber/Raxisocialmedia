@@ -8,9 +8,9 @@ Integration branch: `feature/raxi-hq-office-v0.3`.
 
 Verified main/base commit: `6d0988866b33d05a3ccc4604ae5a2ad5ffb95acf`.
 
-The durable clone was verified clean before integration. The application belongs at `apps/raxi-hq/` relative to the repository root. Only 41 application source/configuration/test/documentation files and four selected review screenshots were copied. Source and evidence hashes matched their originals. The previous temporary checkout was retained without modification.
+The durable clone was verified clean before integration. The application belongs at `apps/raxi-hq/` relative to the repository root. As of commit `aa7771c8dc97331c665bf83e00add253d590a407`, the deliverable contains 41 application source/configuration/test/documentation files, this integration note and five evidence screenshots. Four screenshots were retained from the earlier visual passes; the fifth, `RAXI-HQ-EVIDENCE-V03-DURABLE-DEV`, was captured during durable-clone pre-commit validation. Copied source and evidence hashes matched their originals. The previous temporary checkout was retained without modification.
 
-No dependency directories, build output, validation intermediates, environment files, Codex files, MCP proxies, private notes, credentials, local recordings or caches were transferred. Existing repository strategy, campaigns, approved assets and asset catalog were not modified.
+No dependency directories, build output, validation intermediates, environment files, Codex files, MCP proxies, private notes, credentials, local recordings or caches were transferred. Existing repository strategy, campaigns and approved image files were not modified. Commit `aa7771c` did modify `content/asset-library/ASSET_CATALOG.json` to register all five evidence screenshots, bringing the catalog from nine to 14 entries. The nine original entries remain intact; each new entry has `supermemory_document_id: null` and verified dimensions, file size and SHA-256.
 
 ## Run and validate
 
@@ -53,7 +53,7 @@ Except for `RAXI-HQ-EVIDENCE-V03-DURABLE-DEV`, these are historical browser-revi
 
 ## Commit boundary
 
-Only HQ, this integration note and the selected evidence belong to this change. Generated `node_modules/`, `dist/`, `.validation/` and TypeScript outputs remain ignored. Do not commit environment files or host integration data. Navigation is still zone-based BFS without collision avoidance. The app remains a local mock, pending user review before any commit.
+Only HQ, this integration note, the five evidence screenshots and their asset-catalog registrations belong to this change. Generated `node_modules/`, `dist/`, `.validation/` and TypeScript outputs remain ignored. Do not commit environment files or host integration data. Navigation is still zone-based BFS without collision avoidance. The app remains a local mock, committed and pushed on its feature branch, pending PR review before merge.
 
 ## Durable-clone validation — 2026-10-14
 
@@ -62,10 +62,10 @@ Only HQ, this integration note and the selected evidence belong to this change. 
 - `npm run typecheck`: PASS.
 - `npm test`: 9 passed, zero failures.
 - App security scanner: zero findings in 50 application/configuration/build text files.
-- Pre-stage candidate audit: 46 new deliverable files, including 42 text files and four screenshots. Zero detected secrets, zero local absolute paths, zero excluded candidates. Public registry and repository URLs were distinguished from filesystem paths.
+- Deliverable inventory after `aa7771c`: 48 affected repository paths relative to the verified base, comprising 47 added files (41 HQ files, this integration note and five screenshots) and one modified existing asset catalog. The inventory contains 43 text files and five JPEGs. The pre-stage audit detected no secrets, local absolute paths or excluded candidates; public registry and repository URLs were distinguished from filesystem paths.
 - Runtime source/configuration search: no networking calls, hosted memory tools, MCP proxies or external-write operations. Adapter-isolation regressions pass.
-- `main` and integration HEAD remain at the verified base commit. The original temporary clone remains clean, on its original v0.2 branch and at the same commit.
-- Existing tracked repository files have zero modifications. Nothing staged; no commit or push. No memory writes occurred.
+- `main` remains at the verified base commit. Integration commit `01488c8` added HQ and its evidence; `aa7771c` then registered those five screenshots and updated their documentation. The original temporary clone was retained clean, on its original v0.2 branch and at the base commit.
+- After `aa7771c`, only the existing asset catalog is modified relative to the base; all other affected paths are additions. Both feature-branch commits were pushed, and the working tree was clean. No memory writes occurred during integration or the evidence-registration correction.
 
 npm warns that the esbuild postinstall is not listed in the host's allowScripts policy. The installed binary, build and tests work. The host policy was not changed. Lint remains unavailable because no script/configuration exists.
 
@@ -77,8 +77,8 @@ The dev server was launched from this repository's `apps/raxi-hq/`, using `npm r
 
 Visual inspection confirmed seven isometric rooms, role-specific chibi agents, procedural furniture, event-driven movement, handoff packet/indicators, pan, zoom, centering and React inspection panels. Selecting Creative showed ARIA_LINK, task-creative, WRITE_DISABLED and the expected role/capabilities. The mock completed 18 events at 100% MOCK_READY. Browser console had no observed warnings or errors. Fresh evidence from this dev server: Asset ID `RAXI-HQ-EVIDENCE-V03-DURABLE-DEV`, repo path `output/reports/raxi-hq-integration/evidence/v03-durable-dev.jpg`.
 
-One requested repeat passed: build, typecheck, nine tests and `git diff --check`. Final staging is restricted to `apps/raxi-hq/`, this document and `output/reports/raxi-hq-integration/`. No commit, push or memory writes are performed.
+One requested repeat passed: build, typecheck, nine tests and `git diff --check`. The initial pre-commit staged the 47 added files under `apps/raxi-hq/`, this document and `output/reports/raxi-hq-integration/`; they were committed as `01488c8` and pushed. The P1 correction in `aa7771c` subsequently changed only the asset catalog and this document, then was committed and pushed to the same branch. No memory writes were performed.
 
-Technical backlog: keep the host esbuild allowScripts/postinstall warning documented; it does not affect build/tests, and the policy is unchanged. Lint configuration is deferred to v0.4. Neither item is a blocker for this staged mock release.
+Technical backlog: keep the host esbuild allowScripts/postinstall warning documented; it does not affect build/tests, and the policy is unchanged. Lint configuration is deferred to v0.4. Neither item is a blocker for this mock release.
 
 The first cached whitespace check found surplus blank lines at the end of hqStore.ts and hqReducer.ts. Only those trailing blank lines were removed; no functional logic changed. Git's LF-to-CRLF notices are host line-ending normalization warnings; no global settings or broad formatting configuration were changed.
