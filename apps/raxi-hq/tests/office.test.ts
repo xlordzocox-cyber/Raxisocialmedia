@@ -406,6 +406,114 @@ test('LIVE roster [a,b] to [b] frees slot zero and removes the departed motion',
   assert.deepEqual(original.position,original.stationPoint(b.zone));
 });
 
+for(const status of ['BLOCKED','FAILED','QUARANTINED'] as const) {
+  test(`${status} LIVE agent takes its new slot immediately without walking`, () => {
+    const a={...liveAgent,id:'a',zone:'RESEARCH_LAB' as const};
+    const b={...liveAgent,id:'b',zone:'RESEARCH_LAB' as const,status};
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions([b],motions,true);
+    const original=motions.get('b')!;
+    const oldPosition={...original.position};
+    syncAgentMotions([b,a],motions,true);
+    assert.equal(motions.get('b'),original);
+    assert.deepEqual([motions.get('a')!.slot,original.slot],[0,1]);
+    assert.notDeepEqual(original.position,oldPosition);
+    assert.deepEqual(original.position,original.stationPoint('RESEARCH_LAB'));
+    assert.notDeepEqual(original.position,motions.get('a')!.position);
+    assert.equal(original.walking,false);
+    assert.equal(stationLightKey(b,original,true),'RESEARCH_LAB:1');
+    const settled={...original.position};
+    original.update(10000);
+    assert.deepEqual(original.position,settled);
+    original.sync({...b,status:'RUNNING'});
+    assert.equal(original.walking,false,'no impossible route remains after the immobile correction');
+  });
+}
+
+test('immobile LIVE agent returns to the freed slot on [a,b] to [b]', () => {
+  const a={...liveAgent,id:'a',zone:'QA_LAB' as const};
+  const b={...liveAgent,id:'b',zone:'QA_LAB' as const,status:'BLOCKED' as const};
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([a,b],motions,true);
+  const original=motions.get('b')!;
+  assert.equal(original.slot,1);
+  syncAgentMotions([b],motions,true);
+  assert.equal(motions.has('a'),false);
+  assert.equal(original.slot,0);
+  assert.deepEqual(original.position,original.stationPoint('QA_LAB'));
+  assert.equal(original.walking,false);
+  original.update(10000);
+  assert.deepEqual(original.position,original.stationPoint('QA_LAB'));
+});
+
+test('immobile LIVE agent from another current zone takes a unique shared destination slot', () => {
+  const a={...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
+  const b={...liveAgent,id:'b',zone:'QA_LAB' as const,destinationZone:'RESEARCH_LAB' as const,status:'FAILED' as const};
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([b],motions,true);
+  assert.deepEqual(motions.get('b')!.position,zones.QA_LAB.workPoints[0]);
+  syncAgentMotions([b,a],motions,true);
+  const failed=motions.get('b')!;
+  assert.equal(failed.slot,1);
+  assert.deepEqual(failed.position,failed.stationPoint('RESEARCH_LAB'));
+  assert.equal(failed.walking,false);
+  motions.get('a')!.update(10000);
+  assert.deepEqual(motions.get('a')!.position,motions.get('a')!.stationPoint('RESEARCH_LAB'));
+  assert.notDeepEqual(failed.position,motions.get('a')!.position);
+});
+
+test('immobile LIVE agent repositions to an overflow slot without a nonexistent station light', () => {
+  const blocked={...liveAgent,id:'z',zone:'RESEARCH_LAB' as const,status:'QUARANTINED' as const};
+  const others=Array.from({length:5},(_,index)=>({...liveAgent,id:String.fromCharCode(97+index),zone:'RESEARCH_LAB' as const}));
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([blocked],motions,true);
+  syncAgentMotions([blocked,...others],motions,true);
+  const isolated=motions.get('z')!;
+  assert.equal(isolated.slot,5);
+  assert.deepEqual(isolated.position,isolated.stationPoint('RESEARCH_LAB'));
+  assert.equal(isolated.walking,false);
+  assert.equal(stationLightKey(blocked,isolated,true),undefined);
+  const points=[...motions.values()].map(motion=>`${motion.position.x}:${motion.position.y}`);
+  assert.equal(new Set(points).size,6);
+});
+
+for(const status of ['RUNNING','READY'] as const) {
+  test(`${status} LIVE agent keeps the normal animated slot transition`, () => {
+    const a={...liveAgent,id:'a',zone:'RESEARCH_LAB' as const};
+    const b={...liveAgent,id:'b',zone:'RESEARCH_LAB' as const,status};
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions([b],motions,true);
+    const original=motions.get('b')!;
+    const start={...original.position};
+    syncAgentMotions([a,b],motions,true);
+    assert.deepEqual(original.position,start,'movable agents must not teleport');
+    assert.equal(original.walking,true);
+    original.update(10000);
+    assert.deepEqual(original.position,original.stationPoint('RESEARCH_LAB'));
+    assert.equal(original.walking,false);
+  });
+}
+
+test('immobile LIVE roster ordering and reset produce identical unique final positions', () => {
+  const agents=[
+    {...liveAgent,id:'c',zone:'QA_LAB' as const,destinationZone:'RESEARCH_LAB' as const,status:'FAILED' as const},
+    {...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'b',zone:'RESEARCH_LAB' as const,status:'BLOCKED' as const},
+  ];
+  const replay=(input:typeof agents)=>{
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions([agents[2],agents[0]],motions,true);
+    syncAgentMotions(input,motions,true);
+    for(const motion of motions.values()) motion.update(10000);
+    const result=agents.map(agent=>({id:agent.id,slot:motions.get(agent.id)!.slot,position:motions.get(agent.id)!.position}));
+    assert.equal(new Set(result.map(value=>`${value.position.x}:${value.position.y}`)).size,result.length);
+    return result;
+  };
+  const first=replay(agents);
+  assert.deepEqual(replay([...agents].reverse()),first);
+  assert.deepEqual(replay(agents),first);
+});
+
 test('LIVE slots are unique per zone and independent of input order', () => {
   const agents=[
     {...liveAgent,id:'b',zone:'RESEARCH_LAB' as const},

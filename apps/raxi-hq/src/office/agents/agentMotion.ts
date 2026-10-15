@@ -31,6 +31,12 @@ export class AgentMotion {
     if (slot === this.slot) return;
     this.slot = slot;
     const station = this.stationPoint(this.goal);
+    if (this.blocked) {
+      this.position = station;
+      this.route = [];
+      this.zone = this.goal;
+      return;
+    }
     if (this.route.length) this.route[this.route.length - 1] = station;
     else if (this.position.x !== station.x || this.position.y !== station.y) this.route = [station];
   }
@@ -88,8 +94,8 @@ export function syncAgentMotions(agents: readonly AgentSnapshot[], motions: Map<
       motion = new AgentMotion(agent, currentSlot);
       motions.set(agent.id, motion);
     }
-    motion.setSlot(slot);
     motion.sync(agent);
+    motion.setSlot(slot);
   }
   return ordered;
 }
