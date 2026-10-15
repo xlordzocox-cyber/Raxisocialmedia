@@ -11,6 +11,10 @@ const eventTypes = new Set<HQEventType>(['AGENT_REGISTERED','AGENT_STATUS_CHANGE
 
 /** Bound visual objects and roster controls before normalizing a LIVE snapshot. */
 export const MAX_LIVE_AGENTS = 32;
+/** Bound the LIVE task ledger before creating records for the UI. */
+export const MAX_LIVE_TASKS = 256;
+/** Bound per-task dependency work before validating individual IDs. */
+export const MAX_TASK_DEPENDENCIES = 32;
 
 type RecordValue = Record<string, unknown>;
 function record(value: unknown): RecordValue {
@@ -53,6 +57,11 @@ function list(value: unknown): unknown[] {
 }
 function strings(value: unknown): string[] {
   return list(value).map(item => text(item));
+}
+function taskDependencies(value: unknown): string[] {
+  const dependencies = list(value);
+  if (dependencies.length > MAX_TASK_DEPENDENCIES) throw new Error('Task dependency collection exceeds maximum');
+  return dependencies.map(item => id(text(item)));
 }
 function optionalBoolean(value: unknown): boolean | undefined {
   if (value === undefined) return undefined;
@@ -99,13 +108,15 @@ export function normalizeLiveAgents(raw: unknown): AgentSnapshot[] {
 }
 
 export function normalizeLiveTasks(raw: unknown): TaskSnapshot[] {
-  return unique(list(raw).map(value => {
+  const tasks = list(raw);
+  if (tasks.length > MAX_LIVE_TASKS) throw new Error('Live task collection exceeds maximum');
+  return unique(tasks.map(value => {
     const item = record(value);
     if (typeof item.status !== 'string') throw new Error('Invalid task status');
     return {
       id: id(item.id), title: text(item.title), status: text(item.status),
       ownerAgentId: optional(item.ownerAgentId,id), campaignId: optional(item.campaignId,id),
-      dependsOn: item.dependsOn === undefined ? undefined : strings(item.dependsOn).map(id),
+      dependsOn: item.dependsOn === undefined ? undefined : taskDependencies(item.dependsOn),
       approvalRequired: optionalBoolean(item.approvalRequired),
     } satisfies TaskSnapshot;
   })).sort(byId);

@@ -13,7 +13,7 @@ import { zoomAt, clampCamera, advanceCameraFocus } from '../src/office/camera';
 import { OfficeScene } from '../src/office/OfficeScene';
 import { handoffFrame, memoryFrame } from '../src/office/effects/visualTimelines';
 import { PendingMemoryOrigins } from '../src/office/effects/memoryOrigins';
-import { MAX_LIVE_AGENTS, normalizeLiveAgents, normalizeLiveTasks, normalizeLiveEvents } from '../src/adapters/munder/canonicalFeed';
+import { MAX_LIVE_AGENTS, MAX_LIVE_TASKS, MAX_TASK_DEPENDENCIES, normalizeLiveAgents, normalizeLiveTasks, normalizeLiveEvents } from '../src/adapters/munder/canonicalFeed';
 import { HQStore } from '../src/store/hqStore';
 import type { LiveOfficeSource } from '../src/adapters/munder/liveSource';
 import type { Container } from 'pixi.js';
@@ -828,6 +828,80 @@ test('oversized LIVE refresh degrades atomically, never falls back to MOCK, then
   roster=[...valid];
   await store.refreshLive();
   assert.deepEqual(store.getSnapshot(),first);
+  store.stop();
+});
+
+test('LIVE task and dependency limits accept exact bounds and retain deterministic ordering', () => {
+  const tasks=Array.from({length:MAX_LIVE_TASKS},(_,index)=>({...liveTask,id:`task-${String(index).padStart(3,'0')}`}));
+  const ids=tasks.map(task=>task.id);
+  assert.equal(MAX_LIVE_TASKS,256);
+  assert.equal(MAX_TASK_DEPENDENCIES,32);
+  assert.deepEqual(normalizeLiveTasks([...tasks].reverse()).map(task=>task.id),ids);
+  assert.deepEqual(normalizeLiveTasks(tasks).map(task=>task.id),ids);
+  const dependencies=Array.from({length:MAX_TASK_DEPENDENCIES},(_,index)=>`dependency-${index}`);
+  assert.deepEqual(normalizeLiveTasks([{...liveTask,dependsOn:dependencies}])[0].dependsOn,dependencies);
+  assert.deepEqual(normalizeLiveTasks([{...liveTask,dependsOn:[]}])[0].dependsOn,[]);
+  assert.deepEqual(normalizeLiveTasks([liveTask]).map(task=>task.id),['task-01']);
+  assert.deepEqual(normalizeLiveTasks([]),[]);
+});
+
+test('oversized LIVE task ledger is rejected before visiting any task or leaking its data', () => {
+  const tasks=Array.from({length:MAX_LIVE_TASKS+1},(_,index)=>({...liveTask,id:`task-${index}`}));
+  Object.defineProperty(tasks,0,{get(){throw new Error('source-private-task-marker');}});
+  assert.throws(()=>normalizeLiveTasks(tasks),error=>{
+    assert.ok(error instanceof Error);
+    assert.match(error.message,/Live task collection exceeds maximum/);
+    assert.equal(error.message.includes('source-private-task-marker'),false);
+    return true;
+  });
+});
+
+test('oversized task dependencies are rejected before visiting IDs or later tasks', () => {
+  const dependencies=Array.from({length:MAX_TASK_DEPENDENCIES+1},(_,index)=>`dependency-${index}`);
+  Object.defineProperty(dependencies,0,{get(){throw new Error('source-private-dependency-marker');}});
+  const tasks=[{...liveTask,dependsOn:dependencies},{...liveTask,id:'later-task'}];
+  Object.defineProperty(tasks,1,{get(){throw new Error('later-task-was-mapped');}});
+  assert.throws(()=>normalizeLiveTasks(tasks),error=>{
+    assert.ok(error instanceof Error);
+    assert.match(error.message,/Task dependency collection exceeds maximum/);
+    assert.equal(error.message.includes('source-private-dependency-marker'),false);
+    assert.equal(error.message.includes('later-task-was-mapped'),false);
+    return true;
+  });
+});
+
+test('oversized task collections degrade the entire LIVE snapshot and a valid feed recovers', async () => {
+  let tasks:unknown=[liveTask];
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED' as const,lastSuccessfulRead:'2026-01-02T01:04:10Z'};},
+    async readAgents(){return [liveAgent];},
+    async readTasks(){return tasks;},
+    async readEvents(){return [liveEvent];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  const valid=store.getSnapshot();
+  assert.equal(valid.sourceHealth.connection,'CONNECTED');
+  const oversizedTasks=Array.from({length:MAX_LIVE_TASKS+1},(_,index)=>({...liveTask,id:`task-${index}`}));
+  const oversizedDependencies=[{...liveTask,dependsOn:Array.from({length:MAX_TASK_DEPENDENCIES+1},(_,index)=>`dependency-${index}`)}];
+  for(const invalid of [oversizedTasks,oversizedDependencies]) {
+    tasks=invalid;
+    await store.refreshLive();
+    const rejected=store.getSnapshot();
+    assert.equal(rejected.mode,'LIVE_READ_ONLY');
+    assert.equal(rejected.mockMode,false);
+    assert.equal(rejected.sourceHealth.connection,'DEGRADED');
+    assert.equal(rejected.sourceHealth.agentsLoaded,0);
+    assert.equal(rejected.sourceHealth.tasksLoaded,0);
+    assert.equal(rejected.sourceHealth.eventsLoaded,0);
+    assert.deepEqual(rejected.agents,{});
+    assert.deepEqual(rejected.tasks,{});
+    assert.deepEqual(rejected.events,[]);
+    assert.equal(rejected.sourceHealth.message?.includes('dependency-'),false);
+    tasks=[liveTask];
+    await store.refreshLive();
+    assert.deepEqual(store.getSnapshot(),valid);
+  }
   store.stop();
 });
 
