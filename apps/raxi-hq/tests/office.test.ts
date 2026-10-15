@@ -11,12 +11,13 @@ import { stationCapacity, zones, zoneOrder } from '../src/office/zones';
 import { getStatusVisual } from '../src/office/agents/agentVisualState';
 import { zoomAt, clampCamera, advanceCameraFocus } from '../src/office/camera';
 import { OfficeScene } from '../src/office/OfficeScene';
+import type { AgentSprite } from '../src/office/agents/AgentSprite';
 import { handoffFrame, memoryFrame } from '../src/office/effects/visualTimelines';
 import { PendingMemoryOrigins } from '../src/office/effects/memoryOrigins';
 import { MAX_LIVE_AGENTS, MAX_LIVE_TASKS, MAX_TASK_DEPENDENCIES, MAX_LIVE_SOURCE_EVENTS, MAX_AGENT_CAPABILITIES, normalizeLiveAgents, normalizeLiveTasks, normalizeLiveEvents } from '../src/adapters/munder/canonicalFeed';
 import { HQStore } from '../src/store/hqStore';
 import type { LiveOfficeSource } from '../src/adapters/munder/liveSource';
-import type { Container } from 'pixi.js';
+import { Container } from 'pixi.js';
 import type { HQState } from '../src/domain/hq';
 import type { AgentStatus } from '../src/domain/agents';
 
@@ -374,6 +375,90 @@ const liveAgent = {...mockAgents[0],id:'agent-01',displayName:'Observed Agent',s
 const liveTask = {...mockTasks[0],id:'task-01',ownerAgentId:'agent-01'};
 const liveEvent = {...mockTimeline[0].event,id:'event-01',source:'munder' as const,verified:true,
   actorId:'agent-01',taskId:'task-01',timestamp:'2026-01-02T03:04:05+02:00'};
+
+function hoverSceneFixture() {
+  let hoveredId: string | undefined;
+  const hoverChanges: (string | undefined)[]=[];
+  const selected: string[]=[];
+  const scene=Object.assign(Object.create(OfficeScene.prototype),{
+    sprites:new Map(), motions:new Map(), depthLayer:new Container(), seen:new Set(),
+    memoryOrigins:new PendingMemoryOrigins(), effects:[], stationLights:new Map(),
+    zoneHighlight:{clear(){}}, highlightUntil:0, focusTarget:undefined,
+    onHover(id?:string){hoveredId=id;hoverChanges.push(id);},
+    onSelect(id:string){selected.push(id);},
+  }) as OfficeScene;
+  const live=(agents:typeof liveAgent[], selectedAgentId?:string):HQState=>({
+    ...initial(), mode:'LIVE_READ_ONLY', mockMode:false, agents:Object.fromEntries(agents.map(agent=>[agent.id,agent])), selectedAgentId,
+  });
+  const addAgent=(id:string)=>{
+    const sprite=new Container() as AgentSprite;
+    sprite.setHovered=()=>{}; sprite.setSelected=()=>{}; sprite.updateAgent=()=>{};
+    scene['bindAgentEvents'](sprite,id);
+    scene['sprites'].set(id,sprite);
+    return sprite;
+  };
+  return {scene,live,addAgent,hoverChanges,selected,getHovered:()=>hoveredId};
+}
+
+test('removing a hovered LIVE sprite clears hover; the returning ID requires a new pointerover', () => {
+  const {scene,live,addAgent,hoverChanges,selected,getHovered}=hoverSceneFixture();
+  const a={...liveAgent,id:'a'},b={...liveAgent,id:'b'};
+  addAgent('a'); addAgent('b');
+  scene.update(live([a,b],'a'));
+  const original=scene['sprites'].get('a')!;
+  original.emit('pointerover');
+  assert.equal(getHovered(),'a');
+  scene.update(live([a,b],'a'));
+  assert.equal(scene['sprites'].get('a'),original,'stable LIVE refresh retains the sprite and hover');
+  assert.equal(getHovered(),'a');
+  scene.update(live([b],'a'));
+  assert.equal(getHovered(),undefined);
+  assert.deepEqual(hoverChanges,['a',undefined]);
+  assert.equal(scene['state']?.selectedAgentId,'a','hover cleanup does not alter selection');
+  addAgent('a');
+  scene.update(live([a,b],'a'));
+  assert.notEqual(scene['sprites'].get('a'),original);
+  assert.equal(getHovered(),undefined,'reusing an ID cannot restore hover automatically');
+  scene['sprites'].get('a')!.emit('pointerover');
+  assert.equal(getHovered(),'a');
+  scene['sprites'].get('b')!.emit('pointertap');
+  assert.deepEqual(selected,['b'],'click selection still emits its intent');
+  assert.equal(getHovered(),'a','click does not silently change hover');
+  scene['reset']();
+});
+
+test('removing other LIVE agents preserves valid hover, then a multi-removal clears it once', () => {
+  const {scene,live,addAgent,hoverChanges,getHovered}=hoverSceneFixture();
+  const a={...liveAgent,id:'a'},b={...liveAgent,id:'b'},c={...liveAgent,id:'c'};
+  addAgent('a'); addAgent('b'); addAgent('c');
+  scene.update(live([a,b,c]));
+  scene['sprites'].get('b')!.emit('pointerover');
+  scene.update(live([b,c]));
+  assert.equal(getHovered(),'b');
+  assert.deepEqual(hoverChanges,['b']);
+  scene.update(live([]));
+  assert.equal(getHovered(),undefined);
+  assert.deepEqual(hoverChanges,['b',undefined]);
+  scene['reset']();
+});
+
+test('MOCK hover and click remain active, while scene reset clears hover without selection changes', () => {
+  const {scene,addAgent,selected,getHovered}=hoverSceneFixture();
+  const mock={...initial(),selectedAgentId:'research'};
+  for(const agent of mockAgents) addAgent(agent.id);
+  scene.update(mock);
+  scene['sprites'].get('research')!.emit('pointerover');
+  assert.equal(getHovered(),'research');
+  scene['sprites'].get('research')!.emit('pointertap');
+  assert.deepEqual(selected,['research']);
+  scene['reset']();
+  assert.equal(getHovered(),undefined);
+  assert.equal(scene['state']?.selectedAgentId,'research');
+  for(const agent of mockAgents) addAgent(agent.id);
+  scene.update(mock);
+  assert.equal(getHovered(),undefined);
+  scene['reset']();
+});
 
 test('LIVE roster [b] to [a,b] reassigns the existing motion and station slot', () => {
   const a={...liveAgent,id:'a',zone:'RESEARCH_LAB' as const};

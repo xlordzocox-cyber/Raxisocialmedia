@@ -20,6 +20,7 @@ export class OfficeScene {
   private stationLights = createStationLights();
   private sprites = new Map<string, AgentSprite>();
   private motions = new Map<string, AgentMotion>();
+  private hoveredAgentId?: string;
   private effects: (HandoffEffect | MemoryArchiveEffect)[] = [];
   private seen = new Set<string>();
   private memoryOrigins = new PendingMemoryOrigins();
@@ -66,6 +67,12 @@ export class OfficeScene {
 
   private onSelect: (id: string) => void;
 
+  private bindAgentEvents(sprite: AgentSprite, id: string): void {
+    sprite.on('pointertap', () => this.onSelect(id));
+    sprite.on('pointerover',()=>{ sprite.setHovered(true); this.hoveredAgentId=id; this.onHover(id); });
+    sprite.on('pointerout',()=>{ sprite.setHovered(false); if (this.hoveredAgentId === id) { this.hoveredAgentId=undefined; this.onHover(); } });
+  }
+
   private resize(): void {
     const width = Math.max(1, this.host.clientWidth);
     const height = Math.max(1, this.host.clientHeight);
@@ -111,6 +118,7 @@ export class OfficeScene {
     this.state = state;
     for (const [id,sprite] of this.sprites) {
       if (state.agents[id]) continue;
+      if (this.hoveredAgentId === id) { this.hoveredAgentId = undefined; this.onHover(); }
       sprite.destroy({ children: true });
       this.sprites.delete(id);
       this.motions.delete(id);
@@ -120,9 +128,7 @@ export class OfficeScene {
       let sprite = this.sprites.get(agent.id);
       if (!sprite) {
         sprite = new AgentSprite(agent.id, agent, zones[agent.zone].accent);
-        sprite.on('pointertap', () => this.onSelect(agent.id));
-        sprite.on('pointerover',()=>{ sprite!.setHovered(true); this.onHover(agent.id); });
-        sprite.on('pointerout',()=>{ sprite!.setHovered(false); this.onHover(); });
+        this.bindAgentEvents(sprite,agent.id);
         this.depthLayer.addChild(sprite);
         this.sprites.set(agent.id, sprite);
       }
@@ -210,6 +216,7 @@ export class OfficeScene {
   }
 
   private reset(): void {
+    this.hoveredAgentId=undefined;
     this.onHover();
     for (const sprite of this.sprites.values()) sprite.destroy({ children: true });
     for (const effect of this.effects) effect.destroy({ children: true });
