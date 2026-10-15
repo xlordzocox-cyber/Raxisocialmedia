@@ -87,9 +87,10 @@ export class HQStore {
       const status = await this.liveSource.getSourceStatus();
       if (generation !== this.generation || this.state.mode !== 'LIVE_READ_ONLY') return;
       if (!['CONNECTED','DISCONNECTED','DEGRADED'].includes(status.connection)) throw new Error('Invalid source status');
+      const lastRead=status.lastSuccessfulRead === undefined ? undefined : validateSourceTimestamp(status.lastSuccessfulRead);
       if (status.connection !== 'CONNECTED') {
-        this.state = emptyState('LIVE_READ_ONLY',health('LIVE_READ_ONLY',status.connection,
-          status.connection === 'DISCONNECTED' ? 'No hay fuente live configurada.' : 'La fuente live no está disponible.'));
+        this.state = emptyState('LIVE_READ_ONLY',{...health('LIVE_READ_ONLY',status.connection,
+          status.connection === 'DISCONNECTED' ? 'No hay fuente live configurada.' : 'La fuente live no está disponible.'),lastSuccessfulRead:lastRead});
         this.emit();
         return;
       }
@@ -101,7 +102,6 @@ export class HQStore {
       const tasks=normalizeLiveTasks(rawTasks);
       const events=normalizeLiveEvents(rawEvents);
       const visibleEvents=events.slice(0,80);
-      const lastRead=status.lastSuccessfulRead === undefined ? undefined : validateSourceTimestamp(status.lastSuccessfulRead);
       this.state = {
         ...emptyState('LIVE_READ_ONLY',health('LIVE_READ_ONLY','CONNECTED')),
         agents:Object.fromEntries(agents.map(agent=>[agent.id,agent])),

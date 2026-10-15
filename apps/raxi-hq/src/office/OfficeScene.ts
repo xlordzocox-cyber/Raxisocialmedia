@@ -1,5 +1,6 @@
 import { Application, Container, Graphics, Rectangle, type FederatedPointerEvent } from 'pixi.js';
 import type { HQState } from '../domain/hq';
+import { getOwnAgent } from '../domain/agents';
 import { drawOfficeMap, createZoneLabels, createOfficeFurniture, createStationLights } from './map';
 import { AgentSprite } from './agents/AgentSprite';
 import { AgentMotion, stationLightKey, syncAgentMotions } from './agents/agentMotion';
@@ -117,7 +118,7 @@ export class OfficeScene {
     if ((this.state && state.mode !== this.state.mode) || (state.events.length === 0 && this.state?.events.length)) this.reset();
     this.state = state;
     for (const [id,sprite] of this.sprites) {
-      if (state.agents[id]) continue;
+      if (getOwnAgent(state.agents,id)) continue;
       if (this.hoveredAgentId === id) { this.hoveredAgentId = undefined; this.onHover(); }
       sprite.destroy({ children: true });
       this.sprites.delete(id);
@@ -139,11 +140,11 @@ export class OfficeScene {
       if (this.seen.has(event.id)) continue;
       this.seen.add(event.id);
       if (event.type === 'MEMORY_SAVE_REQUESTED') {
-        const origin=this.motions.get(event.actorId ?? '')?.position ?? zones[state.agents[event.actorId ?? '']?.zone ?? 'WAR_ROOM'].anchor;
+        const origin=this.motions.get(event.actorId ?? '')?.position ?? zones[getOwnAgent(state.agents,event.actorId)?.zone ?? 'WAR_ROOM'].anchor;
         this.memoryOrigins.remember(event,origin);
       }
       if (event.type === 'MEMORY_ARCHIVED') {
-        const fallback=this.motions.get(event.actorId ?? '')?.position ?? zones[state.agents[event.actorId ?? '']?.zone ?? 'WAR_ROOM'].anchor;
+        const fallback=this.motions.get(event.actorId ?? '')?.position ?? zones[getOwnAgent(state.agents,event.actorId)?.zone ?? 'WAR_ROOM'].anchor;
         const from=this.memoryOrigins.consume(event,fallback);
         if (event.verified) {
           this.addEffect(new MemoryArchiveEffect(from,zones.SUPERMEMORY_CORE.anchor));
@@ -157,10 +158,10 @@ export class OfficeScene {
           this.sprites.get(event.actorId)?.beginHandoff(this.elapsed);
           this.sprites.get(event.targetId)?.beginHandoff(this.elapsed);
           this.addEffect(new HandoffEffect(event.actorId, event.targetId, { ...from }, { ...to }));
-          this.highlight(state.agents[event.targetId]?.zone ?? 'WAR_ROOM',false);
+          this.highlight(getOwnAgent(state.agents,event.targetId)?.zone ?? 'WAR_ROOM',false);
         }
       }
-      if(event.type==='AGENT_BLOCKED') this.highlight(state.agents[event.actorId ?? '']?.zone ?? 'WAR_ROOM',true);
+      if(event.type==='AGENT_BLOCKED') this.highlight(getOwnAgent(state.agents,event.actorId)?.zone ?? 'WAR_ROOM',true);
     }
   }
 
@@ -197,7 +198,7 @@ export class OfficeScene {
       sprite.position.set(motion.position.x+offset.x,motion.position.y+offset.y);
       sprite.zIndex=sprite.y;
       sprite.faceMovement(motion.position.x-previousX);
-      const agent = this.state?.agents[id];
+      const agent = this.state ? getOwnAgent(this.state.agents,id) : undefined;
       if (agent) {
         applyAgentAnimation(sprite, motion.walking ? 'WALKING' : agent.status === 'WALKING' ? 'IDLE' : agent.status, this.elapsed);
         if(['RUNNING','WORKING','RESEARCHING','QA'].includes(agent.status)) {

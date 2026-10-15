@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { hqStore, useHQState } from './store/hqStore';
 import { OfficeScene } from './office/OfficeScene';
 import { getStatusVisual } from './office/agents/agentVisualState';
+import { getOwnAgent } from './domain/agents';
 
 export default function App() {
   const state = useHQState();
@@ -21,8 +22,8 @@ export default function App() {
     void hqStore.initialize().catch((cause) => setError(String(cause)));
     return () => { unsubscribe(); hqStore.stop(); sceneRef.current=undefined; scene.destroy(); };
   }, []);
-  const selected = state.selectedAgentId ? state.agents[state.selectedAgentId] : undefined;
-  const hovered = hoveredId ? state.agents[hoveredId] : undefined;
+  const selected = getOwnAgent(state.agents,state.selectedAgentId);
+  const hovered = getOwnAgent(state.agents,hoveredId);
   const campaign = Object.values(state.campaigns)[0];
   const connectionLabel = { CONNECTED: 'Conectada', DISCONNECTED: 'Sin conexión', DEGRADED: 'Degradada' }[state.sourceHealth.connection];
   const liveEmptyMessage = state.sourceHealth.connection === 'CONNECTED'
@@ -39,6 +40,6 @@ export default function App() {
         {selected && <section aria-label="Agente seleccionado"><h2>{selected.displayName}</h2><p>{selected.role}</p><dl><dt>Estado</dt><dd>{selected.status}</dd><dt>Zona</dt><dd>{selected.zone}</dd><dt>Destino</dt><dd>{selected.destinationZone ?? '—'}</dd><dt>Seguridad</dt><dd>{selected.securityState}</dd><dt>Esperando</dt><dd>{selected.waitingFor ?? '—'}</dd><dt>Tarea</dt><dd>{selected.currentTaskId ?? '—'}</dd><dt>Proveedor / modelo</dt><dd>{selected.provider ?? '—'} · {selected.model === 'read-only adapter' ? 'adaptador de solo lectura' : selected.model ?? '—'}</dd><dt>Capacidades</dt><dd>{selected.capabilities.join(', ')}</dd></dl></section>}
       </aside></div>
     <section className="source-health" aria-label="Estado de la fuente"><h2>Estado de la fuente</h2><dl><dt>Fuente</dt><dd>{state.sourceHealth.source === 'mock' ? 'MOCK' : 'Munder Difflin'}</dd><dt>Modo</dt><dd>{state.mode}</dd><dt>Conexión</dt><dd>{state.sourceHealth.connection} · {connectionLabel}</dd><dt>Última lectura correcta</dt><dd>{state.mode === 'MOCK' ? 'No aplica · MOCK' : state.sourceHealth.lastSuccessfulRead ?? 'Sin lectura correcta'}</dd><dt>Último evento de fuente</dt><dd>{state.sourceHealth.lastSourceEvent ?? '—'}</dd><dt>Eventos cargados</dt><dd>{state.sourceHealth.eventsLoaded}</dd><dt>Agentes cargados</dt><dd>{state.sourceHealth.agentsLoaded}</dd><dt>Tareas cargadas</dt><dd>{state.sourceHealth.tasksLoaded}</dd></dl>{state.sourceHealth.message && <p role="status">{state.sourceHealth.message} Puedes cambiar manualmente a MOCK.</p>}</section>
-    <section className="events"><h2>{state.mode === 'MOCK' ? 'Motor MOCK' : 'Actividad LIVE'} · {state.events.length} eventos</h2>{state.mode === 'MOCK' ? <p>Aria, GitHub, Munder Difflin y Supermemory: stubs sin conexión ni escrituras.</p> : <p>Solo eventos recibidos de una fuente verificada. Sin conexión no se muestra actividad inventada.</p>}<div>{state.events.map((event) => <button key={event.id} aria-pressed={event.id === state.selectedEventId} onClick={() => hqStore.selectEvent(event.id)}>{state.mode === 'MOCK' ? <><b>{event.type}</b> {event.label.replaceAll('read-only','solo lectura')}</> : <><time dateTime={event.timestamp}>{event.timestamp}</time> · {state.agents[event.actorId ?? '']?.displayName ?? event.actorId ?? '—'} · <b>{event.type}</b> · {event.taskId ?? '—'} · {event.source}</>}</button>)}</div></section>
+    <section className="events"><h2>{state.mode === 'MOCK' ? 'Motor MOCK' : 'Actividad LIVE'} · {state.events.length} eventos</h2>{state.mode === 'MOCK' ? <p>Aria, GitHub, Munder Difflin y Supermemory: stubs sin conexión ni escrituras.</p> : <p>Solo eventos recibidos de una fuente verificada. Sin conexión no se muestra actividad inventada.</p>}<div>{state.events.map((event) => <button key={event.id} aria-pressed={event.id === state.selectedEventId} onClick={() => hqStore.selectEvent(event.id)}>{state.mode === 'MOCK' ? <><b>{event.type}</b> {event.label.replaceAll('read-only','solo lectura')}</> : <><time dateTime={event.timestamp}>{event.timestamp}</time> · {getOwnAgent(state.agents,event.actorId)?.displayName ?? event.actorId ?? '—'} · <b>{event.type}</b> · {event.taskId ?? '—'} · {event.source}</>}</button>)}</div></section>
   </main>;
 }

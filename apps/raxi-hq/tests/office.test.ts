@@ -11,6 +11,7 @@ import { stationCapacity, zones, zoneOrder } from '../src/office/zones';
 import { getStatusVisual } from '../src/office/agents/agentVisualState';
 import { zoomAt, clampCamera, advanceCameraFocus } from '../src/office/camera';
 import { OfficeScene } from '../src/office/OfficeScene';
+import { getOwnAgent } from '../src/domain/agents';
 import type { AgentSprite } from '../src/office/agents/AgentSprite';
 import { handoffFrame, memoryFrame } from '../src/office/effects/visualTimelines';
 import { PendingMemoryOrigins } from '../src/office/effects/memoryOrigins';
@@ -375,6 +376,70 @@ const liveAgent = {...mockAgents[0],id:'agent-01',displayName:'Observed Agent',s
 const liveTask = {...mockTasks[0],id:'task-01',ownerAgentId:'agent-01'};
 const liveEvent = {...mockTimeline[0].event,id:'event-01',source:'munder' as const,verified:true,
   actorId:'agent-01',taskId:'task-01',timestamp:'2026-01-02T03:04:05+02:00'};
+
+test('reserved and missing event actor IDs never select inherited agents or break UI lookup', async () => {
+  const ids=['constructor','toString','valueOf','hasOwnProperty','missing-agent'];
+  const events=ids.map((id,index)=>({...liveEvent,id:`reserved-event-${index}`,actorId:id}));
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED' as const};},
+    async readAgents(){return [liveAgent];},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return events;},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  for(const event of events) {
+    assert.equal(getOwnAgent(store.getSnapshot().agents,event.actorId),undefined);
+    store.selectEvent(event.id);
+    assert.equal(store.getSnapshot().selectedAgentId,event.actorId);
+    assert.equal(getOwnAgent(store.getSnapshot().agents,store.getSnapshot().selectedAgentId),undefined);
+    const orphaned={...store.getSnapshot(),selectedAgentId:event.actorId};
+    assert.equal(getOwnAgent(orphaned.agents,orphaned.selectedAgentId),undefined);
+  }
+  store.selectAgent('__proto__');
+  assert.equal(getOwnAgent(store.getSnapshot().agents,'__proto__'),undefined);
+  assert.equal(getOwnAgent(store.getSnapshot().agents,store.getSnapshot().selectedAgentId),undefined);
+  assert.throws(()=>normalizeLiveEvents([{...liveEvent,actorId:'__proto__'}]));
+  store.stop();
+});
+
+test('a literal constructor agent works only as an own record without prototype pollution', async () => {
+  const agent={...liveAgent,id:'constructor',displayName:'Constructor Agent'};
+  const event={...liveEvent,actorId:'constructor'};
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED' as const};},
+    async readAgents(){return [agent];},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return [event];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent(event.id);
+  const state=store.getSnapshot();
+  assert.equal(Object.hasOwn(state.agents,'constructor'),true);
+  assert.equal(Object.getPrototypeOf(state.agents),Object.prototype);
+  assert.equal(getOwnAgent(state.agents,'constructor')?.displayName,'Constructor Agent');
+  assert.equal(state.selectedAgentId,'constructor');
+  assert.equal(getOwnAgent(state.agents,state.selectedAgentId)?.displayName,'Constructor Agent');
+  assert.throws(()=>normalizeLiveAgents([{...liveAgent,id:'__proto__'}]));
+  const untrustedPayload=JSON.parse('{"__proto__":{"polluted":true}}');
+  assert.equal(normalizeLiveEvents([{...liveEvent,payload:untrustedPayload}])[0].payload,undefined);
+  assert.equal(Object.hasOwn(Object.prototype,'polluted'),false);
+  store.stop();
+});
+
+test('MOCK reducer ignores inherited agent IDs without changing the agent dictionary prototype', () => {
+  const original=initial();
+  for(const id of ['constructor','toString','valueOf','hasOwnProperty','__proto__','missing-agent']) {
+    const event={...mockTimeline[0].event,id:`mock-${id}`,type:'AGENT_STATUS_CHANGED' as const,
+      actorId:id,targetId:undefined,payload:{status:'RUNNING'}};
+    const next=reduceEventToVisualState(event,original);
+    assert.equal(Object.hasOwn(next.agents,id),false);
+    assert.equal(getOwnAgent(next.agents,id),undefined);
+    assert.equal(Object.getPrototypeOf(next.agents),Object.prototype);
+    assert.deepEqual(next.agents,original.agents);
+  }
+});
 
 function hoverSceneFixture() {
   let hoveredId: string | undefined;
@@ -1271,6 +1336,64 @@ test('Source Health rejects impossible lastSuccessfulRead and preserves valid so
   await store.refreshLive();
   assert.deepEqual(store.getSnapshot(),valid);
   assert.equal(clock.mock.callCount(),0);
+  store.stop();
+});
+
+test('DEGRADED and DISCONNECTED preserve only validated source-reported last reads', async () => {
+  let connection:'CONNECTED'|'DEGRADED'|'DISCONNECTED'='CONNECTED';
+  let lastSuccessfulRead:string|undefined='2024-02-29T23:59:59.123+02:00';
+  let reads=0;
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection,lastSuccessfulRead};},
+    async readAgents(){reads++;return [liveAgent];},
+    async readTasks(){reads++;return [liveTask];},
+    async readEvents(){reads++;return [liveEvent];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  assert.equal(store.getSnapshot().sourceHealth.connection,'CONNECTED');
+  assert.equal(store.getSnapshot().sourceHealth.lastSuccessfulRead,lastSuccessfulRead);
+  assert.equal(reads,3);
+  for(const nextConnection of ['DEGRADED','DISCONNECTED'] as const) {
+    connection=nextConnection;
+    await store.refreshLive();
+    const state=store.getSnapshot();
+    assert.equal(state.mode,'LIVE_READ_ONLY');
+    assert.equal(state.sourceHealth.connection,nextConnection);
+    assert.equal(state.sourceHealth.lastSuccessfulRead,lastSuccessfulRead);
+    assert.equal(state.sourceHealth.lastSourceEvent,undefined);
+    assert.equal(state.sourceHealth.agentsLoaded,0);
+    assert.equal(state.sourceHealth.tasksLoaded,0);
+    assert.equal(state.sourceHealth.eventsLoaded,0);
+    assert.deepEqual(state.agents,{});
+    assert.deepEqual(state.tasks,{});
+    assert.deepEqual(state.events,[]);
+    assert.equal(reads,3,'non-connected status must not read the feed');
+  }
+  for(const nextConnection of ['DEGRADED','DISCONNECTED'] as const) {
+    connection=nextConnection;
+    lastSuccessfulRead='2026-02-30T03:04:05Z';
+    await store.refreshLive();
+    const rejected=store.getSnapshot();
+    assert.equal(rejected.sourceHealth.connection,'DEGRADED');
+    assert.equal(rejected.sourceHealth.lastSuccessfulRead,undefined);
+    assert.deepEqual(rejected.agents,{});
+    assert.deepEqual(rejected.events,[]);
+    lastSuccessfulRead=undefined;
+    await store.refreshLive();
+    const absent=store.getSnapshot();
+    assert.equal(absent.sourceHealth.connection,nextConnection);
+    assert.equal(absent.sourceHealth.lastSuccessfulRead,undefined);
+    assert.deepEqual(absent.agents,{});
+  }
+  connection='CONNECTED';
+  lastSuccessfulRead='2026-10-15T10:00:00.0009Z';
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().sourceHealth.connection,'CONNECTED');
+  assert.equal(store.getSnapshot().sourceHealth.lastSuccessfulRead,lastSuccessfulRead);
+  assert.equal(store.getSnapshot().sourceHealth.lastSourceEvent,liveEvent.timestamp);
+  assert.equal(store.getSnapshot().sourceHealth.eventsLoaded,1);
+  assert.equal(reads,6);
   store.stop();
 });
 

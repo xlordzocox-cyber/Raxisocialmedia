@@ -53,3 +53,7 @@ export interface AgentSnapshot {
   securityState: SecurityState;
   lastEventAt?: string;
 }
+
+export function getOwnAgent(agents: Record<string, AgentSnapshot>, id?: string): AgentSnapshot | undefined {
+  return id !== undefined && Object.hasOwn(agents, id) ? agents[id] : undefined;
+}
