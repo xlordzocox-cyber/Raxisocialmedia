@@ -57,6 +57,17 @@ function optionalBoolean(value: unknown): boolean | undefined {
   return value;
 }
 function byId(a: { id: string }, b: { id: string }): number { return a.id < b.id ? -1 : a.id > b.id ? 1 : 0; }
+function compareInstants(a: string, b: string): number {
+  // Date.parse resolves the offset and whole second; compare all fractional digits separately.
+  const wholeSecond = (value: string) => Date.parse(value.replace(/\.\d+(?=Z|[+-]\d\d:\d\d$)/,''));
+  const seconds = wholeSecond(a) - wholeSecond(b);
+  if (seconds) return seconds;
+  const fraction = (value: string) => /\.(\d+)(?:Z|[+-]\d\d:\d\d)$/.exec(value)?.[1] ?? '';
+  const left = fraction(a), right = fraction(b);
+  const width = Math.max(left.length,right.length);
+  const paddedLeft = left.padEnd(width,'0'), paddedRight = right.padEnd(width,'0');
+  return paddedLeft < paddedRight ? -1 : paddedLeft > paddedRight ? 1 : 0;
+}
 function unique<T extends { id: string }>(items: T[]): T[] {
   const seen = new Set<string>();
   for (const item of items) {
@@ -107,7 +118,7 @@ export function normalizeLiveEvents(raw: unknown): HQEvent[] {
       // Never forward unreviewed source payloads or message bodies to the renderer.
     } satisfies HQEvent;
   });
-  items.sort((a,b)=>Date.parse(b.timestamp)-Date.parse(a.timestamp) || byId(a,b));
+  items.sort((a,b)=>compareInstants(b.timestamp,a.timestamp) || byId(a,b));
   const seen = new Map<string,HQEvent>();
   for (const item of items) {
     const earlier = seen.get(item.id);

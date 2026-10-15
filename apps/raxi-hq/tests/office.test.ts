@@ -446,7 +446,7 @@ test('immobile LIVE agent returns to the freed slot on [a,b] to [b]', () => {
   assert.deepEqual(original.position,original.stationPoint('QA_LAB'));
 });
 
-test('immobile LIVE agent from another current zone takes a unique shared destination slot', () => {
+test('immobile LIVE agent from another current zone keeps its position until recovery', () => {
   const a={...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
   const b={...liveAgent,id:'b',zone:'QA_LAB' as const,destinationZone:'RESEARCH_LAB' as const,status:'FAILED' as const};
   const motions=new Map<string,AgentMotion>();
@@ -455,10 +455,15 @@ test('immobile LIVE agent from another current zone takes a unique shared destin
   syncAgentMotions([b,a],motions,true);
   const failed=motions.get('b')!;
   assert.equal(failed.slot,1);
-  assert.deepEqual(failed.position,failed.stationPoint('RESEARCH_LAB'));
+  assert.deepEqual(failed.position,zones.QA_LAB.workPoints[0]);
   assert.equal(failed.walking,false);
+  failed.update(10000);
+  assert.deepEqual(failed.position,zones.QA_LAB.workPoints[0]);
   motions.get('a')!.update(10000);
   assert.deepEqual(motions.get('a')!.position,motions.get('a')!.stationPoint('RESEARCH_LAB'));
+  failed.sync({...b,status:'RUNNING'});
+  failed.update(10000);
+  assert.deepEqual(failed.position,failed.stationPoint('RESEARCH_LAB'));
   assert.notDeepEqual(failed.position,motions.get('a')!.position);
 });
 
@@ -512,6 +517,57 @@ test('immobile LIVE roster ordering and reset produce identical unique final pos
   const first=replay(agents);
   assert.deepEqual(replay([...agents].reverse()),first);
   assert.deepEqual(replay(agents),first);
+});
+
+for(const status of ['BLOCKED','FAILED','QUARANTINED'] as const) {
+  test(`in-flight LIVE agent pauses at its real position on ${status} plus a slot change`, () => {
+    const incoming={...liveAgent,id:'a',zone:'RESEARCH_LAB' as const};
+    const moving={...liveAgent,id:'b',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions([moving],motions,true);
+    const motion=motions.get('b')!;
+    motion.update(350);
+    const midpoint={...motion.position};
+    assert.equal(motion.walking,true);
+    const stopped={...moving,status};
+    syncAgentMotions([stopped,incoming],motions,true);
+    assert.equal(motion.slot,1);
+    assert.deepEqual(motion.position,midpoint,'in-flight agents must not teleport');
+    assert.equal(motion.atStation('RESEARCH_LAB'),false);
+    assert.equal(motion.walking,false);
+    motion.update(10000);
+    assert.deepEqual(motion.position,midpoint,'immobile agents must stay stopped');
+    motion.sync({...moving,status:'RUNNING'});
+    assert.equal(motion.walking,true,'the original route must remain available on recovery');
+    motion.update(10000);
+    assert.deepEqual(motion.position,motion.stationPoint('RESEARCH_LAB'));
+    assert.notDeepEqual(motion.position,motions.get('a')!.position);
+  });
+}
+
+test('in-flight overflow keeps its position and resumes toward a unique deterministic endpoint', () => {
+  const moving={...liveAgent,id:'z',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
+  const residents=Array.from({length:5},(_,index)=>({...liveAgent,id:String.fromCharCode(97+index),zone:'RESEARCH_LAB' as const}));
+  const replay=()=>{
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions([moving],motions,true);
+    const motion=motions.get('z')!;
+    motion.update(350);
+    const midpoint={...motion.position};
+    syncAgentMotions([...residents,{...moving,status:'BLOCKED' as const}],motions,true);
+    assert.equal(motion.slot,5);
+    assert.deepEqual(motion.position,midpoint);
+    assert.equal(motion.atStation('RESEARCH_LAB'),false);
+    assert.equal(stationLightKey(moving,motion,true),undefined);
+    motion.update(10000);
+    assert.deepEqual(motion.position,midpoint);
+    motion.sync(moving);
+    motion.update(10000);
+    const positions=[...motions.values()].map(item=>`${item.position.x}:${item.position.y}`);
+    assert.equal(new Set(positions).size,positions.length);
+    return {slot:motion.slot,position:motion.position,positions};
+  };
+  assert.deepEqual(replay(),replay());
 });
 
 test('LIVE slots are unique per zone and independent of input order', () => {
@@ -731,6 +787,53 @@ test('canonical live events retain source timestamps, deduplicate and order stab
   assert.equal(first[1].timestamp,liveEvent.timestamp);
   assert.equal(clock.mock.callCount(),0);
   assert.equal(first[1].payload,undefined,'unreviewed payloads must not enter the renderer');
+});
+
+test('canonical event ordering preserves sub-millisecond precision and true ties use ID', () => {
+  const early={...liveEvent,id:'a-early',timestamp:'2026-10-15T10:00:00.0001Z'};
+  const late={...liveEvent,id:'z-late',timestamp:'2026-10-15T10:00:00.0009Z'};
+  assert.deepEqual(normalizeLiveEvents([early,late]).map(event=>event.id),['z-late','a-early']);
+  assert.deepEqual(normalizeLiveEvents([late,early]).map(event=>event.id),['z-late','a-early']);
+  const equalA={...liveEvent,id:'a-tie',timestamp:'2026-10-15T10:00:00.1Z'};
+  const equalB={...liveEvent,id:'b-tie',timestamp:'2026-10-15T12:00:00.100+02:00'};
+  assert.deepEqual(normalizeLiveEvents([equalB,equalA]).map(event=>event.id),['a-tie','b-tie']);
+  assert.deepEqual(normalizeLiveEvents([equalA,equalB]).map(event=>event.id),['a-tie','b-tie']);
+  assert.deepEqual(normalizeLiveEvents([
+    {...liveEvent,id:'millis',timestamp:'2026-10-15T10:00:00.123Z'},
+    {...liveEvent,id:'offset',timestamp:'2026-10-15T12:00:00.124+02:00'},
+  ]).map(event=>event.id),['offset','millis']);
+  assert.throws(()=>normalizeLiveEvents([{...early,timestamp:'2026-02-30T10:00:00.0001Z'}]));
+});
+
+test('LIVE Source Health and the 80-event window use full fractional precision', async () => {
+  const older=Array.from({length:79},(_,index)=>({...liveEvent,id:`older-${String(index).padStart(2,'0')}`,
+    timestamp:`2026-10-15T09:${String(index%60).padStart(2,'0')}:00Z`}));
+  const early={...liveEvent,id:'a-early',timestamp:'2026-10-15T10:00:00.0001Z'};
+  const late={...liveEvent,id:'z-late',timestamp:'2026-10-15T10:00:00.0009Z'};
+  let feed=[...older,early,late];
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED',lastSuccessfulRead:'2026-10-15T10:00:01Z'};},
+    async readAgents(){return [liveAgent];},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return feed;},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  const first=store.getSnapshot();
+  assert.equal(first.sourceHealth.lastSourceEvent,late.timestamp);
+  assert.equal(first.sourceHealth.eventsLoaded,81);
+  assert.equal(first.events.length,80);
+  assert.deepEqual(first.events.slice(0,2).map(event=>event.id),['z-late','a-early']);
+  feed=[...feed].reverse();
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot(),first);
+  store.stop();
+
+  const boundaryFeed=[...Array.from({length:79},(_,index)=>({...liveEvent,id:`newer-${index}`,
+    timestamp:`2026-10-15T10:${String(Math.floor((index+1)/60)).padStart(2,'0')}:${String((index+1)%60).padStart(2,'0')}Z`})),early,late];
+  const sorted=normalizeLiveEvents(boundaryFeed).slice(0,80);
+  assert.equal(sorted.some(event=>event.id==='z-late'),true);
+  assert.equal(sorted.some(event=>event.id==='a-early'),false);
 });
 
 test('canonical timestamps reject impossible calendar dates and out-of-range clock fields', () => {

@@ -31,14 +31,17 @@ export class AgentMotion {
     if (slot === this.slot) return;
     this.slot = slot;
     const station = this.stationPoint(this.goal);
+    if (this.route.length) {
+      this.route[this.route.length - 1] = station;
+      return;
+    }
     if (this.blocked) {
       this.position = station;
       this.route = [];
       this.zone = this.goal;
       return;
     }
-    if (this.route.length) this.route[this.route.length - 1] = station;
-    else if (this.position.x !== station.x || this.position.y !== station.y) this.route = [station];
+    if (this.position.x !== station.x || this.position.y !== station.y) this.route = [station];
   }
 
   sync(agent: AgentSnapshot): void {
