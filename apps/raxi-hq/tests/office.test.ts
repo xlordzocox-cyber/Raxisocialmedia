@@ -7,7 +7,7 @@ import { reduceEventToVisualState } from '../src/store/hqReducer';
 import { hqStore } from '../src/store/hqStore';
 import { AgentMotion, stationLightKey, syncAgentMotions } from '../src/office/agents/agentMotion';
 import { routeBetweenZones } from '../src/office/pathfinding';
-import { zones, zoneOrder } from '../src/office/zones';
+import { stationCapacity, zones, zoneOrder } from '../src/office/zones';
 import { getStatusVisual } from '../src/office/agents/agentVisualState';
 import { zoomAt, clampCamera, advanceCameraFocus } from '../src/office/camera';
 import { OfficeScene } from '../src/office/OfficeScene';
@@ -127,11 +127,11 @@ test('blocked agents stop and resume their event route', () => {
   motion.sync({ ...agent,status:'RUNNING' }); motion.update(10000);
   assert.deepEqual(motion.position,zones.ARIA_LINK.workPoints[0]);
 });
-test('agent seats stay bounded in small zones even for higher slot indices', () => {
+test('overflow positions do not recycle small-zone station coordinates', () => {
   const agent={...mockAgents[7],zone:'SUPERMEMORY_CORE' as const};
-  const motion=new AgentMotion(agent,7);
-  assert.ok(Math.abs(motion.position.x-zones.SUPERMEMORY_CORE.workPoints[0].x)<=26);
-  assert.ok(Math.abs(motion.position.y-zones.SUPERMEMORY_CORE.workPoints[0].y)<=32);
+  const points=Array.from({length:8},(_,slot)=>new AgentMotion(agent,slot).position);
+  assert.equal(new Set(points.map(point=>`${point.x}:${point.y}`)).size,points.length);
+  assert.deepEqual(points[0],zones.SUPERMEMORY_CORE.workPoints[0]);
 });
 test('timeline covers IDLE/RUNNING/WAITING/BLOCKED/QA/COMPLETED and preserves read-only invariants', () => {
   let state = initial(); const statuses = new Set(Object.values(state.agents).map(a=>a.status));
@@ -542,6 +542,62 @@ test('LIVE destination slot replay after reset is deterministic and MOCK retains
   assert.equal(stationLightKey(agents[0],mockMotions.get('b')!,false),undefined);
 });
 
+test('five and six LIVE agents in a normal zone have unique deterministic positions', () => {
+  const agents=Array.from({length:6},(_,index)=>({...liveAgent,id:`normal-${index}`,zone:'RESEARCH_LAB' as const}));
+  const positions=(input:typeof agents)=>{
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions(input,motions,true);
+    for(const motion of motions.values()) motion.update(10000);
+    return agents.slice(0,input.length).map(agent=>motions.get(agent.id)!.position);
+  };
+  for(const count of [5,6]) {
+    const expected=positions(agents.slice(0,count));
+    assert.equal(new Set(expected.map(point=>`${point.x}:${point.y}`)).size,count);
+    assert.deepEqual(positions([...agents.slice(0,count)].reverse()),expected);
+    assert.deepEqual(positions(agents.slice(0,count)),expected,'reset must replay identically');
+  }
+});
+
+test('three and four LIVE agents in Supermemory Core have unique overflow positions', () => {
+  const agents=Array.from({length:4},(_,index)=>({...liveAgent,id:`core-${index}`,zone:'SUPERMEMORY_CORE' as const}));
+  for(const count of [3,4]) {
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions(agents.slice(0,count).reverse(),motions,true);
+    for(const motion of motions.values()) motion.update(10000);
+    const points=agents.slice(0,count).map(agent=>motions.get(agent.id)!.position);
+    assert.equal(new Set(points.map(point=>`${point.x}:${point.y}`)).size,count);
+    assert.deepEqual(points,agents.slice(0,count).map((agent,slot)=>new AgentMotion(agent,slot).position));
+  }
+});
+
+test('mixed LIVE destinations keep independent slots and never reference absent station lights', () => {
+  const agents=[
+    ...Array.from({length:6},(_,index)=>({...liveAgent,id:`research-${index}`,zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const})),
+    ...Array.from({length:4},(_,index)=>({...liveAgent,id:`core-${index}`,zone:'QA_LAB' as const,destinationZone:'SUPERMEMORY_CORE' as const})),
+  ];
+  const lightKeys=new Set(zoneOrder.flatMap(zone=>Array.from({length:stationCapacity(zone)},(_,slot)=>`${zone}:${slot}`)));
+  const run=(input:typeof agents)=>{
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions(input,motions,true);
+    for(const motion of motions.values()) motion.update(10000);
+    return agents.map(agent=>{
+      const motion=motions.get(agent.id)!;
+      const key=stationLightKey(agent,motion,true);
+      assert.ok(key===undefined || lightKeys.has(key));
+      assert.equal(key===undefined,motion.slot>=stationCapacity(agent.destinationZone));
+      return {id:agent.id,slot:motion.slot,position:motion.position,key};
+    });
+  };
+  const first=run(agents);
+  assert.deepEqual(run([...agents].reverse()),first);
+  assert.deepEqual(run(agents),first);
+  for(const zone of ['RESEARCH_LAB','SUPERMEMORY_CORE'] as const) {
+    const group=first.filter(value=>agents.find(agent=>agent.id===value.id)!.destinationZone===zone);
+    assert.equal(new Set(group.map(value=>value.slot)).size,group.length);
+    assert.equal(new Set(group.map(value=>`${value.position.x}:${value.position.y}`)).size,group.length);
+  }
+});
+
 test('canonical live agent and task snapshots preserve real IDs, status and optional fields', () => {
   const agents=normalizeLiveAgents([liveAgent]);
   const tasks=normalizeLiveTasks([liveTask]);
@@ -684,6 +740,39 @@ test('Source Health rejects impossible lastSuccessfulRead and preserves valid so
   assert.deepEqual(store.getSnapshot(),valid);
   assert.equal(clock.mock.callCount(),0);
   store.stop();
+});
+
+test('LIVE exposes only the newest 80 canonical events while retaining the deduplicated source count', async () => {
+  const feed=Array.from({length:103},(_,index)=>({...liveEvent,id:`history-${String(index).padStart(3,'0')}`,
+    timestamp:`2026-01-02T${String(Math.floor(index/60)).padStart(2,'0')}:${String(index%60).padStart(2,'0')}:00Z`}));
+  let reverse=false;
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED',lastSuccessfulRead:'2026-01-02T02:00:00Z'};},
+    async readAgents(){return [liveAgent];},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return [...(reverse ? [...feed].reverse() : feed),feed[0]];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  const first=store.getSnapshot();
+  assert.equal(first.events.length,80);
+  assert.equal(first.sourceHealth.eventsLoaded,103);
+  assert.equal(first.events[0].id,'history-102');
+  assert.equal(first.events.at(-1)?.id,'history-023');
+  assert.equal(first.sourceHealth.lastSourceEvent,feed[102].timestamp);
+  reverse=true;
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot(),first);
+  store.stop();
+});
+
+test('MOCK event projection retains its existing 80-event limit', () => {
+  const source=mockTimeline[0].event;
+  let state=initial();
+  for(let index=0;index<103;index++) state=reduceEventToVisualState({...source,id:`mock-history-${index}`},state);
+  assert.equal(state.events.length,80);
+  assert.equal(state.events[0].id,'mock-history-102');
+  assert.equal(state.events.at(-1)?.id,'mock-history-23');
 });
 
 test('live adapter boundary exposes reads only and no transport or write implementation', () => {

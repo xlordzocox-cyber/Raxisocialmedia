@@ -100,12 +100,13 @@ export class HQStore {
       const agents=normalizeLiveAgents(rawAgents);
       const tasks=normalizeLiveTasks(rawTasks);
       const events=normalizeLiveEvents(rawEvents);
+      const visibleEvents=events.slice(0,80);
       const lastRead=status.lastSuccessfulRead === undefined ? undefined : validateSourceTimestamp(status.lastSuccessfulRead);
       this.state = {
         ...emptyState('LIVE_READ_ONLY',health('LIVE_READ_ONLY','CONNECTED')),
         agents:Object.fromEntries(agents.map(agent=>[agent.id,agent])),
         tasks:Object.fromEntries(tasks.map(task=>[task.id,task])),
-        events,
+        events:visibleEvents,
         selectedAgentId:agents[0]?.id,
         sourceHealth:{...health('LIVE_READ_ONLY','CONNECTED'),lastSuccessfulRead:lastRead,
           lastSourceEvent:events[0]?.timestamp,agentsLoaded:agents.length,tasksLoaded:tasks.length,eventsLoaded:events.length},

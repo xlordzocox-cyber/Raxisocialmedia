@@ -1,6 +1,6 @@
 import type { AgentSnapshot, ZoneId } from '../../domain/agents';
 import { routeBetweenZones } from '../pathfinding';
-import { zones, type Point } from '../zones';
+import { stationCapacity, zones, type Point } from '../zones';
 
 /** Coordinates change only in response to a snapshot destination, never randomly. */
 export class AgentMotion {
@@ -16,9 +16,14 @@ export class AgentMotion {
   }
 
   stationPoint(zone: ZoneId): Point {
+    if (this.slot >= stationCapacity(zone)) {
+      const overflow = this.slot - stationCapacity(zone);
+      const anchor = zones[zone].anchor;
+      return { x: anchor.x - 78 + (overflow % 5) * 36, y: anchor.y + 78 + Math.floor(overflow / 5) * 24 };
+    }
     const points = zones[zone].workPoints;
     const point = points[this.slot % points.length];
-    const row = Math.floor(this.slot / points.length) % 2;
+    const row = Math.floor(this.slot / points.length);
     return { x: point.x + row * 26, y: point.y + row * 32 };
   }
 
@@ -91,5 +96,5 @@ export function syncAgentMotions(agents: readonly AgentSnapshot[], motions: Map<
 
 export function stationLightKey(agent: AgentSnapshot, motion: AgentMotion, live: boolean): string | undefined {
   const zone = live ? agent.destinationZone ?? agent.zone : agent.zone;
-  return motion.atStation(zone) ? `${zone}:${motion.slot}` : undefined;
+  return motion.slot < stationCapacity(zone) && motion.atStation(zone) ? `${zone}:${motion.slot}` : undefined;
 }
