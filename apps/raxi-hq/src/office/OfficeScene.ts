@@ -2,7 +2,7 @@ import { Application, Container, Graphics, Rectangle, type FederatedPointerEvent
 import type { HQState } from '../domain/hq';
 import { drawOfficeMap, createZoneLabels, createOfficeFurniture, createStationLights } from './map';
 import { AgentSprite } from './agents/AgentSprite';
-import { AgentMotion } from './agents/agentMotion';
+import { AgentMotion, syncAgentMotions } from './agents/agentMotion';
 import { applyAgentAnimation } from './agents/agentAnimations';
 import { zones } from './zones';
 import { HandoffEffect } from './effects/HandoffEffect';
@@ -115,10 +115,8 @@ export class OfficeScene {
       this.sprites.delete(id);
       this.motions.delete(id);
     }
-    const zoneSlots = new Map<string, number>();
-    Object.values(state.agents).forEach((agent) => {
-      const slot = zoneSlots.get(agent.zone) ?? 0;
-      zoneSlots.set(agent.zone, slot + 1);
+    const orderedAgents = syncAgentMotions(Object.values(state.agents), this.motions, state.mode === 'LIVE_READ_ONLY');
+    orderedAgents.forEach((agent) => {
       let sprite = this.sprites.get(agent.id);
       if (!sprite) {
         sprite = new AgentSprite(agent.id, agent, zones[agent.zone].accent);
@@ -127,9 +125,7 @@ export class OfficeScene {
         sprite.on('pointerout',()=>{ sprite!.setHovered(false); this.onHover(); });
         this.depthLayer.addChild(sprite);
         this.sprites.set(agent.id, sprite);
-        this.motions.set(agent.id, new AgentMotion(agent, slot));
       }
-      this.motions.get(agent.id)!.sync(agent);
       sprite.updateAgent(agent);
       sprite.setSelected(state.selectedAgentId === agent.id);
     });

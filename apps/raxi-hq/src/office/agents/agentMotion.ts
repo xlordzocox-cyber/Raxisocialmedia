@@ -10,7 +10,7 @@ export class AgentMotion {
   private goal: ZoneId;
   private blocked = false;
 
-  constructor(agent: AgentSnapshot, readonly slot: number) {
+  constructor(agent: AgentSnapshot, public slot: number) {
     this.zone = this.goal = agent.zone;
     this.position = this.stationPoint(agent.zone);
   }
@@ -20,6 +20,14 @@ export class AgentMotion {
     const point = points[this.slot % points.length];
     const row = Math.floor(this.slot / points.length) % 2;
     return { x: point.x + row * 26, y: point.y + row * 32 };
+  }
+
+  setSlot(slot: number): void {
+    if (slot === this.slot) return;
+    this.slot = slot;
+    const station = this.stationPoint(this.goal);
+    if (this.route.length) this.route[this.route.length - 1] = station;
+    else if (this.position.x !== station.x || this.position.y !== station.y) this.route = [station];
   }
 
   sync(agent: AgentSnapshot): void {
@@ -55,4 +63,23 @@ export class AgentMotion {
     }
     if (this.route.length === 0) this.zone = this.goal;
   }
+}
+
+/** Keep existing motions while reconciling every station slot on each roster refresh. */
+export function syncAgentMotions(agents: readonly AgentSnapshot[], motions: Map<string, AgentMotion>, sortById: boolean): AgentSnapshot[] {
+  const ordered = sortById ? [...agents].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : [...agents];
+  const active = new Set(ordered.map(agent => agent.id));
+  for (const id of motions.keys()) if (!active.has(id)) motions.delete(id);
+  const zoneSlots = new Map<ZoneId, number>();
+  for (const agent of ordered) {
+    const slot = zoneSlots.get(agent.zone) ?? 0;
+    zoneSlots.set(agent.zone, slot + 1);
+    let motion = motions.get(agent.id);
+    if (!motion) {
+      motion = new AgentMotion(agent, slot);
+      motions.set(agent.id, motion);
+    } else motion.setSlot(slot);
+    motion.sync(agent);
+  }
+  return ordered;
 }

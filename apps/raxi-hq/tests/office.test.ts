@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { mockAgents, mockTimeline, mockTasks, mockCampaign } from '../src/adapters/mock/mockScenario';
 import { reduceEventToVisualState } from '../src/store/hqReducer';
 import { hqStore } from '../src/store/hqStore';
-import { AgentMotion } from '../src/office/agents/agentMotion';
+import { AgentMotion, syncAgentMotions } from '../src/office/agents/agentMotion';
 import { routeBetweenZones } from '../src/office/pathfinding';
 import { zones, zoneOrder } from '../src/office/zones';
 import { getStatusVisual } from '../src/office/agents/agentVisualState';
@@ -375,6 +375,89 @@ const liveTask = {...mockTasks[0],id:'task-01',ownerAgentId:'agent-01'};
 const liveEvent = {...mockTimeline[0].event,id:'event-01',source:'munder' as const,verified:true,
   actorId:'agent-01',taskId:'task-01',timestamp:'2026-01-02T03:04:05+02:00'};
 
+test('LIVE roster [b] to [a,b] reassigns the existing motion and station slot', () => {
+  const a={...liveAgent,id:'a',zone:'RESEARCH_LAB' as const};
+  const b={...liveAgent,id:'b',zone:'RESEARCH_LAB' as const};
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([b],motions,true);
+  const original=motions.get('b')!;
+  assert.equal(original.slot,0);
+  syncAgentMotions([b,a],motions,true);
+  assert.equal(motions.get('b'),original,'existing motion must be retained');
+  assert.equal(motions.get('a')!.slot,0);
+  assert.equal(original.slot,1);
+  original.update(10000);
+  assert.deepEqual(original.position,original.stationPoint(b.zone));
+  assert.equal(original.atStation(b.zone),true);
+  assert.equal(new Set([...motions.values()].map(motion=>motion.slot)).size,2);
+});
+
+test('LIVE roster [a,b] to [b] frees slot zero and removes the departed motion', () => {
+  const a={...liveAgent,id:'a',zone:'QA_LAB' as const};
+  const b={...liveAgent,id:'b',zone:'QA_LAB' as const};
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([a,b],motions,true);
+  const original=motions.get('b')!;
+  syncAgentMotions([b],motions,true);
+  assert.equal(motions.has('a'),false);
+  assert.equal(motions.get('b'),original);
+  assert.equal(original.slot,0);
+  original.update(10000);
+  assert.deepEqual(original.position,original.stationPoint(b.zone));
+});
+
+test('LIVE slots are unique per zone and independent of input order', () => {
+  const agents=[
+    {...liveAgent,id:'b',zone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'a',zone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'d',zone:'QA_LAB' as const},
+    {...liveAgent,id:'c',zone:'QA_LAB' as const},
+  ];
+  const snapshot=(input:typeof agents)=>{
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions(input,motions,true);
+    return Object.fromEntries([...motions].sort(([a],[b])=>a.localeCompare(b)).map(([id,motion])=>[id,{slot:motion.slot,station:motion.stationPoint(agents.find(agent=>agent.id===id)!.zone)}]));
+  };
+  assert.deepEqual(snapshot(agents),snapshot([...agents].reverse()));
+  assert.deepEqual(Object.fromEntries(Object.entries(snapshot(agents)).map(([id,value])=>[id,value.slot])),{a:0,b:1,c:0,d:1});
+  for (const zone of ['RESEARCH_LAB','QA_LAB'] as const) {
+    const slots=agents.filter(agent=>agent.zone===zone).map(agent=>snapshot(agents)[agent.id].slot);
+    assert.equal(new Set(slots).size,slots.length);
+  }
+});
+
+test('slot reassignment preserves an in-flight route and MOCK keeps its input-order slots', () => {
+  const a={...liveAgent,id:'a',zone:'RESEARCH_LAB' as const};
+  const b={...liveAgent,id:'b',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([b],motions,true);
+  const moving=motions.get('b')!;
+  moving.update(250);
+  syncAgentMotions([a,{...b,zone:'RESEARCH_LAB' as const}],motions,true);
+  assert.equal(moving.slot,1);
+  moving.update(10000);
+  assert.deepEqual(moving.position,moving.stationPoint('RESEARCH_LAB'));
+  const mockMotions=new Map<string,AgentMotion>();
+  const mockOrder=[mockAgents[1],mockAgents[0]];
+  syncAgentMotions(mockOrder,mockMotions,false);
+  assert.deepEqual(mockOrder.map(agent=>mockMotions.get(agent.id)!.slot),[0,1]);
+  assert.deepEqual(mockMotions.get(mockOrder[0].id)!.position,new AgentMotion(mockOrder[0],0).position);
+});
+
+test('LIVE roster replay after reset assigns the same slots and station positions', () => {
+  const a={...liveAgent,id:'a',zone:'RESEARCH_LAB' as const};
+  const b={...liveAgent,id:'b',zone:'RESEARCH_LAB' as const};
+  const run=()=>{
+    const motions=new Map<string,AgentMotion>();
+    for(const roster of [[b],[a,b],[b]]) {
+      syncAgentMotions(roster,motions,true);
+      for(const motion of motions.values()) motion.update(10000);
+    }
+    return [...motions].map(([id,motion])=>({id,slot:motion.slot,position:motion.position}));
+  };
+  assert.deepEqual(run(),run());
+});
+
 test('canonical live agent and task snapshots preserve real IDs, status and optional fields', () => {
   const agents=normalizeLiveAgents([liveAgent]);
   const tasks=normalizeLiveTasks([liveTask]);
@@ -400,6 +483,30 @@ test('canonical live events retain source timestamps, deduplicate and order stab
   assert.equal(first[1].timestamp,liveEvent.timestamp);
   assert.equal(clock.mock.callCount(),0);
   assert.equal(first[1].payload,undefined,'unreviewed payloads must not enter the renderer');
+});
+
+test('canonical timestamps reject impossible calendar dates and out-of-range clock fields', () => {
+  const invalid=[
+    '2026-02-30T03:04:05Z','2026-04-31T03:04:05Z','2025-02-29T03:04:05Z',
+    '2026-00-01T03:04:05Z','2026-13-01T03:04:05Z','2026-01-00T03:04:05Z',
+    '2026-01-01T24:04:05Z','2026-01-01T03:60:05Z','2026-01-01T03:04:60Z',
+    '2026-01-01T03:04:05+24:00','2026-01-01T03:04:05+02:60',
+  ];
+  for(const value of invalid) {
+    assert.throws(()=>normalizeLiveEvents([{...liveEvent,timestamp:value}]),undefined,value);
+    assert.throws(()=>normalizeLiveAgents([{...liveAgent,lastEventAt:value}]),undefined,value);
+  }
+});
+
+test('canonical timestamps accept valid leap days and preserve the exact source representation', () => {
+  for(const value of ['2026-01-02T03:04:05+02:00','2024-02-29T23:59:59.123Z']) {
+    assert.equal(normalizeLiveEvents([{...liveEvent,timestamp:value}])[0].timestamp,value);
+    assert.equal(normalizeLiveAgents([{...liveAgent,lastEventAt:value}])[0].lastEventAt,value);
+  }
+  const earlier={...liveEvent,id:'event-earlier',timestamp:'2024-02-29T23:59:59Z'};
+  const later={...liveEvent,id:'event-later',timestamp:'2024-03-01T00:00:00Z'};
+  assert.deepEqual(normalizeLiveEvents([earlier,later,earlier]).map(event=>event.id),['event-later','event-earlier']);
+  assert.deepEqual(normalizeLiveEvents([later,earlier,earlier]).map(event=>event.id),['event-later','event-earlier']);
 });
 
 test('canonical live boundary rejects malformed records, unknown events and conflicting IDs', () => {
