@@ -448,7 +448,7 @@ function hoverSceneFixture() {
   const scene=Object.assign(Object.create(OfficeScene.prototype),{
     sprites:new Map(), motions:new Map(), depthLayer:new Container(), seen:new Set(),
     memoryOrigins:new PendingMemoryOrigins(), effects:[], stationLights:new Map(),
-    zoneHighlight:{clear(){}}, highlightUntil:0, focusTarget:undefined,
+    zoneHighlight:{clear(){}}, highlightUntil:0, focusTarget:undefined, elapsed:0,
     onHover(id?:string){hoveredId=id;hoverChanges.push(id);},
     onSelect(id:string){selected.push(id);},
   }) as OfficeScene;
@@ -458,12 +458,70 @@ function hoverSceneFixture() {
   const addAgent=(id:string)=>{
     const sprite=new Container() as AgentSprite;
     sprite.setHovered=()=>{}; sprite.setSelected=()=>{}; sprite.updateAgent=()=>{};
+    sprite.faceMovement=()=>{}; sprite.animate=()=>{};
     scene['bindAgentEvents'](sprite,id);
     scene['sprites'].set(id,sprite);
     return sprite;
   };
   return {scene,live,addAgent,hoverChanges,selected,getHovered:()=>hoveredId};
 }
+
+test('LIVE empty event history preserves in-flight sprite, motion, hover, selection, and effect expiry', () => {
+  const {scene,live,addAgent,hoverChanges,getHovered}=hoverSceneFixture();
+  const traveler={...liveAgent,id:'traveler',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
+  const sprite=addAgent(traveler.id);
+  const withEvents={...live([traveler],traveler.id),events:[liveEvent]};
+  scene.update(withEvents);
+  sprite.emit('pointerover');
+  const motion=scene['motions'].get(traveler.id)!;
+  motion.update(200);
+  const midway={...motion.position};
+  assert.equal(motion.walking,true);
+  let expired=0;
+  scene['effects'].push({update:()=>true,destroy:()=>{expired++;}} as never);
+  scene.update({...withEvents,events:[]});
+  assert.equal(scene['sprites'].get(traveler.id),sprite);
+  assert.equal(scene['motions'].get(traveler.id),motion);
+  assert.deepEqual(motion.position,midway);
+  assert.equal(getHovered(),traveler.id);
+  assert.deepEqual(hoverChanges,[traveler.id]);
+  assert.equal(scene['state']?.selectedAgentId,traveler.id);
+  scene['tick'](16);
+  assert.equal(expired,1,'old visual effects still expire on their normal timeline');
+  assert.equal(scene['effects'].length,0);
+  assert.notDeepEqual(motion.position,midway,'the same motion continues its route');
+  assert.equal(getHovered(),traveler.id);
+  scene['reset']();
+  assert.equal(getHovered(),undefined);
+  assert.equal(scene['sprites'].size,0);
+  assert.equal(scene['motions'].size,0);
+});
+
+test('LIVE first empty history is stable, disconnect removes agents, and MOCK empty history still resets', () => {
+  const {scene,live,addAgent}=hoverSceneFixture();
+  const sprite=addAgent(liveAgent.id);
+  const empty=live([liveAgent],liveAgent.id);
+  scene.update({...empty,events:[]});
+  const motion=scene['motions'].get(liveAgent.id);
+  scene.update({...empty,events:[]});
+  assert.equal(scene['sprites'].get(liveAgent.id),sprite);
+  assert.equal(scene['motions'].get(liveAgent.id),motion);
+  scene.update({...empty,agents:{},events:[]});
+  assert.equal(scene['sprites'].size,0);
+  assert.equal(scene['motions'].size,0);
+  scene['reset']();
+
+  const mock=hoverSceneFixture();
+  const mockSprite=mock.addAgent('research');
+  const mockState={...initial(),agents:{research:initial().agents.research}};
+  mock.scene.update({...mockState,events:[mockTimeline[0].event]});
+  assert.equal(mock.scene['seen'].size,1);
+  mock.scene.update({...mockState,agents:{},events:[]});
+  assert.equal(mock.scene['sprites'].size,0);
+  assert.equal(mock.scene['motions'].size,0);
+  assert.equal(mock.scene['seen'].size,0,'MOCK empty history still invokes scene reset');
+  assert.equal(mockSprite.destroyed,true,'MOCK restart still destroys the previous sprite');
+});
 
 test('removing a hovered LIVE sprite clears hover; the returning ID requires a new pointerover', () => {
   const {scene,live,addAgent,hoverChanges,selected,getHovered}=hoverSceneFixture();
@@ -1394,6 +1452,60 @@ test('DEGRADED and DISCONNECTED preserve only validated source-reported last rea
   assert.equal(store.getSnapshot().sourceHealth.lastSourceEvent,liveEvent.timestamp);
   assert.equal(store.getSnapshot().sourceHealth.eventsLoaded,1);
   assert.equal(reads,6);
+  store.stop();
+});
+
+test('CONNECTED feed failures retain only the current validated source read and never publish partial snapshots', async () => {
+  type Failure='readAgents'|'readTasks'|'readEvents'|'normalizeAgents'|'normalizeTasks'|'normalizeEvents'|undefined;
+  let failure:Failure;
+  let lastSuccessfulRead:string|undefined='2026-10-15T10:00:00.0009Z';
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED',lastSuccessfulRead};},
+    async readAgents(){
+      if(failure==='readAgents') throw new Error('private agent payload');
+      return failure==='normalizeAgents' ? [{...liveAgent,status:'INVALID'}] : [liveAgent];
+    },
+    async readTasks(){
+      if(failure==='readTasks') throw new Error('private task payload');
+      return failure==='normalizeTasks' ? [{...liveTask,id:'invalid task id'}] : [liveTask];
+    },
+    async readEvents(){
+      if(failure==='readEvents') throw new Error('private event payload');
+      return failure==='normalizeEvents' ? [{...liveEvent,timestamp:'2026-02-30T03:04:05Z'}] : [liveEvent];
+    },
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  assert.equal(store.getSnapshot().sourceHealth.connection,'CONNECTED');
+  for(const nextFailure of ['readAgents','readTasks','readEvents','normalizeAgents','normalizeTasks','normalizeEvents'] as const) {
+    failure=nextFailure;
+    await store.refreshLive();
+    const state=store.getSnapshot();
+    assert.equal(state.mode,'LIVE_READ_ONLY');
+    assert.equal(state.sourceHealth.connection,'DEGRADED',nextFailure);
+    assert.equal(state.sourceHealth.lastSuccessfulRead,lastSuccessfulRead,nextFailure);
+    assert.equal(state.sourceHealth.lastSourceEvent,undefined,nextFailure);
+    assert.deepEqual(state.agents,{},nextFailure);
+    assert.deepEqual(state.tasks,{},nextFailure);
+    assert.deepEqual(state.events,[],nextFailure);
+    assert.equal(state.sourceHealth.agentsLoaded,0,nextFailure);
+    assert.equal(state.sourceHealth.tasksLoaded,0,nextFailure);
+    assert.equal(state.sourceHealth.eventsLoaded,0,nextFailure);
+    assert.doesNotMatch(state.sourceHealth.message ?? '',/private .* payload/);
+    failure=undefined;
+    await store.refreshLive();
+    assert.equal(store.getSnapshot().sourceHealth.connection,'CONNECTED','a subsequent valid feed recovers');
+    assert.equal(store.getSnapshot().sourceHealth.lastSourceEvent,liveEvent.timestamp);
+  }
+  failure='readAgents';
+  lastSuccessfulRead='2026-02-30T03:04:05Z';
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().sourceHealth.connection,'DEGRADED');
+  assert.equal(store.getSnapshot().sourceHealth.lastSuccessfulRead,undefined,'invalid source time is rejected');
+  lastSuccessfulRead=undefined;
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().sourceHealth.connection,'DEGRADED');
+  assert.equal(store.getSnapshot().sourceHealth.lastSuccessfulRead,undefined,'prior store time is not reused');
   store.stop();
 });
 

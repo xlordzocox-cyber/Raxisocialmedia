@@ -83,11 +83,12 @@ export class HQStore {
   async refreshLive(): Promise<void> {
     if (this.state.mode !== 'LIVE_READ_ONLY') return;
     const generation = ++this.generation;
+    let lastRead: string | undefined;
     try {
       const status = await this.liveSource.getSourceStatus();
       if (generation !== this.generation || this.state.mode !== 'LIVE_READ_ONLY') return;
       if (!['CONNECTED','DISCONNECTED','DEGRADED'].includes(status.connection)) throw new Error('Invalid source status');
-      const lastRead=status.lastSuccessfulRead === undefined ? undefined : validateSourceTimestamp(status.lastSuccessfulRead);
+      lastRead=status.lastSuccessfulRead === undefined ? undefined : validateSourceTimestamp(status.lastSuccessfulRead);
       if (status.connection !== 'CONNECTED') {
         this.state = emptyState('LIVE_READ_ONLY',{...health('LIVE_READ_ONLY',status.connection,
           status.connection === 'DISCONNECTED' ? 'No hay fuente live configurada.' : 'La fuente live no está disponible.'),lastSuccessfulRead:lastRead});
@@ -115,7 +116,7 @@ export class HQStore {
       this.emit();
     } catch {
       if (generation !== this.generation || this.state.mode !== 'LIVE_READ_ONLY') return;
-      this.state = emptyState('LIVE_READ_ONLY',health('LIVE_READ_ONLY','DEGRADED','La lectura live falló o devolvió datos inválidos.'));
+      this.state = emptyState('LIVE_READ_ONLY',{...health('LIVE_READ_ONLY','DEGRADED','La lectura live falló o devolvió datos inválidos.'),lastSuccessfulRead:lastRead});
       this.emit();
     }
   }

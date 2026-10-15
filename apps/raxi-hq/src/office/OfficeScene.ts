@@ -115,7 +115,8 @@ export class OfficeScene {
   }
 
   update(state: HQState): void {
-    if ((this.state && state.mode !== this.state.mode) || (state.events.length === 0 && this.state?.events.length)) this.reset();
+    if ((this.state && state.mode !== this.state.mode) ||
+        (state.mode === 'MOCK' && state.events.length === 0 && this.state?.events.length)) this.reset();
     this.state = state;
     for (const [id,sprite] of this.sprites) {
       if (getOwnAgent(state.agents,id)) continue;
