@@ -13,7 +13,7 @@ import { zoomAt, clampCamera, advanceCameraFocus } from '../src/office/camera';
 import { OfficeScene } from '../src/office/OfficeScene';
 import { handoffFrame, memoryFrame } from '../src/office/effects/visualTimelines';
 import { PendingMemoryOrigins } from '../src/office/effects/memoryOrigins';
-import { normalizeLiveAgents, normalizeLiveTasks, normalizeLiveEvents } from '../src/adapters/munder/canonicalFeed';
+import { MAX_LIVE_AGENTS, normalizeLiveAgents, normalizeLiveTasks, normalizeLiveEvents } from '../src/adapters/munder/canonicalFeed';
 import { HQStore } from '../src/store/hqStore';
 import type { LiveOfficeSource } from '../src/adapters/munder/liveSource';
 import type { Container } from 'pixi.js';
@@ -775,6 +775,60 @@ test('canonical live agent and task snapshots preserve real IDs, status and opti
   const minimalTask={id:'task-min',title:'Observed task',status:'open'};
   assert.equal(normalizeLiveAgents([minimalAgent])[0].currentTaskId,undefined);
   assert.equal(normalizeLiveTasks([minimalTask])[0].dependsOn,undefined);
+});
+
+test('LIVE roster accepts its exact bound, empty and small feeds, and retains ID ordering', () => {
+  const roster=Array.from({length:MAX_LIVE_AGENTS},(_,index)=>({...liveAgent,id:`agent-${String(index).padStart(2,'0')}`}));
+  const expected=roster.map(agent=>agent.id);
+  assert.equal(MAX_LIVE_AGENTS,32);
+  assert.deepEqual(normalizeLiveAgents([...roster].reverse()).map(agent=>agent.id),expected);
+  assert.deepEqual(normalizeLiveAgents(roster).map(agent=>agent.id),expected);
+  assert.deepEqual(normalizeLiveAgents([]),[]);
+  assert.deepEqual(normalizeLiveAgents([liveAgent]).map(agent=>agent.id),['agent-01']);
+});
+
+test('oversized LIVE roster is rejected before visiting agent records without exposing source data', () => {
+  const roster=Array.from({length:MAX_LIVE_AGENTS+1},(_,index)=>({...liveAgent,id:`agent-${index}`}));
+  Object.defineProperty(roster,0,{get(){throw new Error('source-private-payload-marker');}});
+  assert.throws(()=>normalizeLiveAgents(roster),error=>{
+    assert.ok(error instanceof Error);
+    assert.match(error.message,/Live agent roster exceeds maximum/);
+    assert.equal(error.message.includes('source-private-payload-marker'),false);
+    return true;
+  });
+});
+
+test('oversized LIVE refresh degrades atomically, never falls back to MOCK, then recovers', async () => {
+  const valid=[liveAgent];
+  let roster=[...valid];
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED' as const,lastSuccessfulRead:'2026-01-02T01:04:10Z'};},
+    async readAgents(){return roster;},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return [liveEvent];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  const first=store.getSnapshot();
+  assert.equal(first.sourceHealth.connection,'CONNECTED');
+  assert.deepEqual(Object.keys(first.agents),['agent-01']);
+  roster=Array.from({length:MAX_LIVE_AGENTS+1},(_,index)=>({...liveAgent,id:`oversized-${index}`}));
+  await store.refreshLive();
+  const rejected=store.getSnapshot();
+  assert.equal(rejected.mode,'LIVE_READ_ONLY');
+  assert.equal(rejected.mockMode,false);
+  assert.equal(rejected.sourceHealth.connection,'DEGRADED');
+  assert.equal(rejected.sourceHealth.agentsLoaded,0);
+  assert.equal(rejected.sourceHealth.tasksLoaded,0);
+  assert.equal(rejected.sourceHealth.eventsLoaded,0);
+  assert.deepEqual(rejected.agents,{});
+  assert.deepEqual(rejected.tasks,{});
+  assert.deepEqual(rejected.events,[]);
+  assert.equal(rejected.sourceHealth.message?.includes('oversized-'),false);
+  roster=[...valid];
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot(),first);
+  store.stop();
 });
 
 test('canonical live events retain source timestamps, deduplicate and order stably', (t) => {

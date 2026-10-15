@@ -9,6 +9,9 @@ const zones = new Set<ZoneId>(['WAR_ROOM','RESEARCH_LAB','ARIA_LINK','QA_LAB','G
 const securityStates = new Set<SecurityState>(['READ_ONLY','WRITE_DISABLED','APPROVAL_REQUIRED','AUTH_REQUIRED','RATE_LIMITED','CIRCUIT_BREAKER_OPEN','VISUAL_REVIEW_REQUIRED','PUBLISH_BLOCKED','QUARANTINED']);
 const eventTypes = new Set<HQEventType>(['AGENT_REGISTERED','AGENT_STATUS_CHANGED','TASK_ASSIGNED','TASK_STARTED','TASK_COMPLETED','AGENT_BLOCKED','HANDOFF_SENT','HANDOFF_RECEIVED','ASSET_REQUESTED','ASSET_RECEIVED','QA_REQUESTED','QA_PASS','QA_FAIL','VISUAL_REVIEW_REQUIRED','APPROVAL_REQUIRED','APPROVAL_GRANTED','PUBLISH_SCHEDULED','MEMORY_SAVE_REQUESTED','MEMORY_ARCHIVED','MEMORY_SAVE_FAILED','SECURITY_STATE_CHANGED']);
 
+/** Bound visual objects and roster controls before normalizing a LIVE snapshot. */
+export const MAX_LIVE_AGENTS = 32;
+
 type RecordValue = Record<string, unknown>;
 function record(value: unknown): RecordValue {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid source record');
@@ -78,7 +81,9 @@ function unique<T extends { id: string }>(items: T[]): T[] {
 }
 
 export function normalizeLiveAgents(raw: unknown): AgentSnapshot[] {
-  return unique(list(raw).map(value => {
+  const agents = list(raw);
+  if (agents.length > MAX_LIVE_AGENTS) throw new Error('Live agent roster exceeds maximum');
+  return unique(agents.map(value => {
     const item = record(value);
     return {
       id: id(item.id), displayName: text(item.displayName), role: text(item.role),
