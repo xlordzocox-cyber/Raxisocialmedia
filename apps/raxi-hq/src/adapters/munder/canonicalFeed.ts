@@ -15,6 +15,10 @@ export const MAX_LIVE_AGENTS = 32;
 export const MAX_LIVE_TASKS = 256;
 /** Bound per-task dependency work before validating individual IDs. */
 export const MAX_TASK_DEPENDENCIES = 32;
+/** Bound raw event validation before the store projects its newest 80 events. */
+export const MAX_LIVE_SOURCE_EVENTS = 1000;
+/** Bound per-agent detail before it is retained and displayed. */
+export const MAX_AGENT_CAPABILITIES = 32;
 
 type RecordValue = Record<string, unknown>;
 function record(value: unknown): RecordValue {
@@ -55,8 +59,10 @@ function list(value: unknown): unknown[] {
   if (!Array.isArray(value)) throw new Error('Invalid source collection');
   return value;
 }
-function strings(value: unknown): string[] {
-  return list(value).map(item => text(item));
+function agentCapabilities(value: unknown): string[] {
+  const capabilities = list(value);
+  if (capabilities.length > MAX_AGENT_CAPABILITIES) throw new Error('Agent capability collection exceeds maximum');
+  return capabilities.map(item => text(item));
 }
 function taskDependencies(value: unknown): string[] {
   const dependencies = list(value);
@@ -100,7 +106,7 @@ export function normalizeLiveAgents(raw: unknown): AgentSnapshot[] {
       status: member(item.status,statuses), zone: member(item.zone,zones),
       destinationZone: item.destinationZone === undefined ? undefined : member(item.destinationZone,zones),
       currentTaskId: optional(item.currentTaskId,id), campaignId: optional(item.campaignId,id),
-      waitingFor: optional(item.waitingFor,text), capabilities: strings(item.capabilities),
+      waitingFor: optional(item.waitingFor,text), capabilities: agentCapabilities(item.capabilities),
       securityState: member(item.securityState,securityStates),
       lastEventAt: optional(item.lastEventAt,validateSourceTimestamp),
     } satisfies AgentSnapshot;
@@ -123,7 +129,9 @@ export function normalizeLiveTasks(raw: unknown): TaskSnapshot[] {
 }
 
 export function normalizeLiveEvents(raw: unknown): HQEvent[] {
-  const items = list(raw).map(value => {
+  const events = list(raw);
+  if (events.length > MAX_LIVE_SOURCE_EVENTS) throw new Error('Live event collection exceeds maximum');
+  const items = events.map(value => {
     const item = record(value);
     if (item.source !== 'munder' || typeof item.verified !== 'boolean') throw new Error('Invalid event provenance');
     return {

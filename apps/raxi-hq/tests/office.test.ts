@@ -13,7 +13,7 @@ import { zoomAt, clampCamera, advanceCameraFocus } from '../src/office/camera';
 import { OfficeScene } from '../src/office/OfficeScene';
 import { handoffFrame, memoryFrame } from '../src/office/effects/visualTimelines';
 import { PendingMemoryOrigins } from '../src/office/effects/memoryOrigins';
-import { MAX_LIVE_AGENTS, MAX_LIVE_TASKS, MAX_TASK_DEPENDENCIES, normalizeLiveAgents, normalizeLiveTasks, normalizeLiveEvents } from '../src/adapters/munder/canonicalFeed';
+import { MAX_LIVE_AGENTS, MAX_LIVE_TASKS, MAX_TASK_DEPENDENCIES, MAX_LIVE_SOURCE_EVENTS, MAX_AGENT_CAPABILITIES, normalizeLiveAgents, normalizeLiveTasks, normalizeLiveEvents } from '../src/adapters/munder/canonicalFeed';
 import { HQStore } from '../src/store/hqStore';
 import type { LiveOfficeSource } from '../src/adapters/munder/liveSource';
 import type { Container } from 'pixi.js';
@@ -902,6 +902,114 @@ test('oversized task collections degrade the entire LIVE snapshot and a valid fe
     await store.refreshLive();
     assert.deepEqual(store.getSnapshot(),valid);
   }
+  store.stop();
+});
+
+test('LIVE event input accepts its exact bound with deterministic ordering', () => {
+  const events=Array.from({length:MAX_LIVE_SOURCE_EVENTS},(_,index)=>({...liveEvent,id:`event-${String(index).padStart(4,'0')}`,
+    timestamp:`2026-01-02T01:${String(Math.floor(index/60)).padStart(2,'0')}:${String(index%60).padStart(2,'0')}Z`}));
+  assert.equal(MAX_LIVE_SOURCE_EVENTS,1000);
+  const expected=events.map(event=>event.id).reverse();
+  assert.deepEqual(normalizeLiveEvents(events).map(event=>event.id),expected);
+  assert.deepEqual(normalizeLiveEvents([...events].reverse()).map(event=>event.id),expected);
+  assert.deepEqual(normalizeLiveEvents([]),[]);
+});
+
+test('oversized LIVE event input is rejected before visiting or sorting source records', () => {
+  const events=Array.from({length:MAX_LIVE_SOURCE_EVENTS+1},(_,index)=>({...liveEvent,id:`event-${index}`}));
+  Object.defineProperty(events,0,{get(){throw new Error('source-private-event-marker');}});
+  assert.throws(()=>normalizeLiveEvents(events),error=>{
+    assert.ok(error instanceof Error);
+    assert.match(error.message,/Live event collection exceeds maximum/);
+    assert.equal(error.message.includes('source-private-event-marker'),false);
+    return true;
+  });
+});
+
+test('oversized event feed clears LIVE projection and a valid feed restores the 80-event window', async () => {
+  const valid=Array.from({length:82},(_,index)=>({...liveEvent,id:`event-${index}`,
+    timestamp:`2026-01-02T01:01:${String(index%60).padStart(2,'0')}.${String(index).padStart(4,'0')}Z`}));
+  let feed=valid;
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED' as const,lastSuccessfulRead:'2026-01-02T01:04:10Z'};},
+    async readAgents(){return [liveAgent];},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return feed;},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  const first=store.getSnapshot();
+  assert.equal(first.sourceHealth.connection,'CONNECTED');
+  assert.equal(first.sourceHealth.eventsLoaded,82);
+  assert.equal(first.events.length,80);
+  assert.equal(first.sourceHealth.lastSourceEvent,normalizeLiveEvents(valid)[0].timestamp);
+  feed=Array.from({length:MAX_LIVE_SOURCE_EVENTS+1},(_,index)=>({...liveEvent,id:`oversized-${index}`}));
+  await store.refreshLive();
+  const rejected=store.getSnapshot();
+  assert.equal(rejected.mode,'LIVE_READ_ONLY');
+  assert.equal(rejected.mockMode,false);
+  assert.equal(rejected.sourceHealth.connection,'DEGRADED');
+  assert.equal(rejected.sourceHealth.eventsLoaded,0);
+  assert.deepEqual(rejected.events,[]);
+  assert.deepEqual(rejected.agents,{});
+  assert.deepEqual(rejected.tasks,{});
+  assert.equal(rejected.sourceHealth.message?.includes('oversized-'),false);
+  feed=valid;
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot(),first);
+  store.stop();
+});
+
+test('LIVE agent capabilities accept the exact bound without truncation and remain deterministic', () => {
+  const capabilities=Array.from({length:MAX_AGENT_CAPABILITIES},(_,index)=>`capability-${index}`);
+  assert.equal(MAX_AGENT_CAPABILITIES,32);
+  const agents=[{...liveAgent,id:'b',capabilities},{...liveAgent,id:'a',capabilities:[]}];
+  const expected=normalizeLiveAgents(agents);
+  assert.deepEqual(expected.map(agent=>agent.id),['a','b']);
+  assert.deepEqual(expected[0].capabilities,[]);
+  assert.deepEqual(expected[1].capabilities,capabilities);
+  assert.deepEqual(normalizeLiveAgents([...agents].reverse()),expected);
+});
+
+test('oversized agent capabilities are rejected before visiting any capability value', () => {
+  const capabilities=Array.from({length:MAX_AGENT_CAPABILITIES+1},(_,index)=>`capability-${index}`);
+  Object.defineProperty(capabilities,0,{get(){throw new Error('source-private-capability-marker');}});
+  assert.throws(()=>normalizeLiveAgents([{...liveAgent,capabilities}]),error=>{
+    assert.ok(error instanceof Error);
+    assert.match(error.message,/Agent capability collection exceeds maximum/);
+    assert.equal(error.message.includes('source-private-capability-marker'),false);
+    return true;
+  });
+});
+
+test('one oversized capability list invalidates the full LIVE snapshot and valid detail recovers', async () => {
+  const capabilities=Array.from({length:MAX_AGENT_CAPABILITIES},(_,index)=>`capability-${index}`);
+  const valid=[{...liveAgent,id:'a',capabilities}, {...liveAgent,id:'b',capabilities:[]}];
+  let agents=valid;
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED' as const,lastSuccessfulRead:'2026-01-02T01:04:10Z'};},
+    async readAgents(){return agents;},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return [liveEvent];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  const first=store.getSnapshot();
+  assert.deepEqual(first.agents.a.capabilities,capabilities);
+  agents=[valid[0],{...valid[1],capabilities:[...capabilities,'extra']}];
+  await store.refreshLive();
+  const rejected=store.getSnapshot();
+  assert.equal(rejected.mode,'LIVE_READ_ONLY');
+  assert.equal(rejected.mockMode,false);
+  assert.equal(rejected.sourceHealth.connection,'DEGRADED');
+  assert.equal(rejected.sourceHealth.agentsLoaded,0);
+  assert.deepEqual(rejected.agents,{});
+  assert.deepEqual(rejected.tasks,{});
+  assert.deepEqual(rejected.events,[]);
+  assert.equal(rejected.sourceHealth.message?.includes('capability-'),false);
+  agents=valid;
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot(),first);
   store.stop();
 });
 
