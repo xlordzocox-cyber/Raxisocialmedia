@@ -874,6 +874,122 @@ test('LIVE exposes only the newest 80 canonical events while retaining the dedup
   store.stop();
 });
 
+function liveSelectionFixture() {
+  const first={...liveAgent,id:'agent-01'};
+  const second={...liveAgent,id:'agent-02'};
+  const firstEvent={...liveEvent,id:'event-01',actorId:first.id};
+  const secondEvent={...liveEvent,id:'event-02',actorId:second.id,timestamp:'2026-01-02T03:04:06+02:00'};
+  const feed={
+    connection:'CONNECTED' as 'CONNECTED'|'DISCONNECTED',
+    agents:[first,second],
+    events:[firstEvent,secondEvent],
+  };
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:feed.connection,lastSuccessfulRead:'2026-01-02T01:04:10Z'};},
+    async readAgents(){return feed.agents;},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return feed.events;},
+  };
+  return {store:new HQStore(source),feed,first,second,firstEvent,secondEvent};
+}
+
+test('LIVE refresh preserves a selected agent that still exists', async () => {
+  const {store}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectAgent('agent-02');
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().selectedAgentId,'agent-02');
+  assert.equal(store.getSnapshot().selectedEventId,undefined);
+  store.stop();
+});
+
+test('LIVE refresh preserves a selected event that still exists', async () => {
+  const {store}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent('event-02');
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().selectedEventId,'event-02');
+  store.stop();
+});
+
+test('LIVE refresh preserves agent and event selections independently', async () => {
+  const {store}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent('event-01');
+  store.selectAgent('agent-02');
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().selectedAgentId,'agent-02');
+  assert.equal(store.getSnapshot().selectedEventId,'event-01');
+  store.stop();
+});
+
+test('LIVE refresh falls back to the first canonical agent when the selected agent disappears', async () => {
+  const {store,feed,first}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent('event-01');
+  store.selectAgent('agent-02');
+  feed.agents=[first];
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().selectedAgentId,first.id);
+  assert.equal(store.getSnapshot().selectedEventId,'event-01');
+  store.stop();
+});
+
+test('LIVE refresh clears only a selected event that disappears', async () => {
+  const {store,feed,firstEvent}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent('event-02');
+  feed.events=[firstEvent];
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().selectedEventId,undefined);
+  assert.equal(store.getSnapshot().selectedAgentId,'agent-02');
+  store.stop();
+});
+
+test('LIVE event selection survives a changed feed order', async () => {
+  const {store,feed,firstEvent,secondEvent}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent('event-01');
+  feed.events=[
+    {...firstEvent,timestamp:'2026-01-02T03:04:09+02:00'},
+    {...secondEvent,timestamp:'2026-01-02T03:04:08+02:00'},
+  ];
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot().events.map(event=>event.id),['event-01','event-02']);
+  assert.equal(store.getSnapshot().selectedEventId,'event-01');
+  store.stop();
+});
+
+test('LIVE empty feed clears both selections without inventing a fallback', async () => {
+  const {store,feed}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent('event-02');
+  feed.agents=[];
+  feed.events=[];
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().selectedAgentId,undefined);
+  assert.equal(store.getSnapshot().selectedEventId,undefined);
+  assert.deepEqual(store.getSnapshot().agents,{});
+  assert.deepEqual(store.getSnapshot().events,[]);
+  store.stop();
+});
+
+test('LIVE disconnect clears selections and recovery uses current fallback without hidden persistence', async () => {
+  const {store,feed}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent('event-02');
+  feed.connection='DISCONNECTED';
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().sourceHealth.connection,'DISCONNECTED');
+  assert.equal(store.getSnapshot().selectedAgentId,undefined);
+  assert.equal(store.getSnapshot().selectedEventId,undefined);
+  feed.connection='CONNECTED';
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().selectedAgentId,'agent-01');
+  assert.equal(store.getSnapshot().selectedEventId,undefined);
+  store.stop();
+});
+
 test('MOCK event projection retains its existing 80-event limit', () => {
   const source=mockTimeline[0].event;
   let state=initial();

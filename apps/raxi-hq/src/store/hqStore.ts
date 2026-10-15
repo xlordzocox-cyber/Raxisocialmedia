@@ -107,7 +107,8 @@ export class HQStore {
         agents:Object.fromEntries(agents.map(agent=>[agent.id,agent])),
         tasks:Object.fromEntries(tasks.map(task=>[task.id,task])),
         events:visibleEvents,
-        selectedAgentId:agents[0]?.id,
+        selectedAgentId:agents.some(agent=>agent.id===this.state.selectedAgentId) ? this.state.selectedAgentId : agents[0]?.id,
+        selectedEventId:visibleEvents.some(event=>event.id===this.state.selectedEventId) ? this.state.selectedEventId : undefined,
         sourceHealth:{...health('LIVE_READ_ONLY','CONNECTED'),lastSuccessfulRead:lastRead,
           lastSourceEvent:events[0]?.timestamp,agentsLoaded:agents.length,tasksLoaded:tasks.length,eventsLoaded:events.length},
       };
