@@ -13,12 +13,15 @@ import { zoomAt, clampCamera, advanceCameraFocus } from '../src/office/camera';
 import { OfficeScene } from '../src/office/OfficeScene';
 import { handoffFrame, memoryFrame } from '../src/office/effects/visualTimelines';
 import { PendingMemoryOrigins } from '../src/office/effects/memoryOrigins';
+import { normalizeLiveAgents, normalizeLiveTasks, normalizeLiveEvents } from '../src/adapters/munder/canonicalFeed';
+import { HQStore } from '../src/store/hqStore';
+import type { LiveOfficeSource } from '../src/adapters/munder/liveSource';
 import type { Container } from 'pixi.js';
 import type { HQState } from '../src/domain/hq';
 import type { AgentStatus } from '../src/domain/agents';
 
 function initial(): HQState {
-  return { agents: Object.fromEntries(structuredClone(mockAgents).map(a => [a.id, a])), tasks: Object.fromEntries(mockTasks.map(t => [t.id,t])), campaigns: { [mockCampaign.id]: mockCampaign }, events: [], handoffs: [], memorySignals: [], readOnly: true, mockMode: true };
+  return { agents: Object.fromEntries(structuredClone(mockAgents).map(a => [a.id, a])), tasks: Object.fromEntries(mockTasks.map(t => [t.id,t])), campaigns: { [mockCampaign.id]: mockCampaign }, events: [], handoffs: [], memorySignals: [], readOnly: true, mockMode: true, mode:'MOCK', sourceHealth:{source:'mock',mode:'MOCK',connection:'CONNECTED',eventsLoaded:0,agentsLoaded:0,tasksLoaded:0} };
 }
 test('camera zoom preserves pointer anchor and clamps zoom/pan bounds', () => {
   const camera={x:20,y:30,scale:{x:0.5,y:0.5,set(value:number){this.x=value;this.y=value;}}};
@@ -364,4 +367,102 @@ test('demo reset reconstructs the same stations and event-driven route', () => {
     return {positions,state};
   };
   assert.deepEqual(run(),run());
+});
+
+const liveAgent = {...mockAgents[0],id:'agent-01',displayName:'Observed Agent',status:'RUNNING' as const,
+  lastEventAt:'2026-01-02T03:04:05+02:00'};
+const liveTask = {...mockTasks[0],id:'task-01',ownerAgentId:'agent-01'};
+const liveEvent = {...mockTimeline[0].event,id:'event-01',source:'munder' as const,verified:true,
+  actorId:'agent-01',taskId:'task-01',timestamp:'2026-01-02T03:04:05+02:00'};
+
+test('canonical live agent and task snapshots preserve real IDs, status and optional fields', () => {
+  const agents=normalizeLiveAgents([liveAgent]);
+  const tasks=normalizeLiveTasks([liveTask]);
+  assert.equal(agents[0].id,'agent-01');
+  assert.equal(agents[0].status,'RUNNING');
+  assert.equal(agents[0].lastEventAt,'2026-01-02T03:04:05+02:00');
+  assert.equal(tasks[0].id,'task-01');
+  assert.equal(tasks[0].ownerAgentId,'agent-01');
+  const minimalAgent={id:'agent-min',displayName:'Agent',role:'Observer',status:'IDLE',zone:'WAR_ROOM',
+    capabilities:[],securityState:'READ_ONLY'};
+  const minimalTask={id:'task-min',title:'Observed task',status:'open'};
+  assert.equal(normalizeLiveAgents([minimalAgent])[0].currentTaskId,undefined);
+  assert.equal(normalizeLiveTasks([minimalTask])[0].dependsOn,undefined);
+});
+
+test('canonical live events retain source timestamps, deduplicate and order stably', (t) => {
+  const clock=t.mock.method(Date,'now',()=>987654321);
+  const later={...liveEvent,id:'event-02',timestamp:'2026-01-02T03:04:06+02:00'};
+  const first=normalizeLiveEvents([liveEvent,later,{...liveEvent}]);
+  const second=normalizeLiveEvents([later,{...liveEvent},liveEvent]);
+  assert.deepEqual(first,second);
+  assert.deepEqual(first.map(event=>event.id),['event-02','event-01']);
+  assert.equal(first[1].timestamp,liveEvent.timestamp);
+  assert.equal(clock.mock.callCount(),0);
+  assert.equal(first[1].payload,undefined,'unreviewed payloads must not enter the renderer');
+});
+
+test('canonical live boundary rejects malformed records, unknown events and conflicting IDs', () => {
+  assert.throws(()=>normalizeLiveAgents([{...liveAgent,id:undefined}]));
+  assert.throws(()=>normalizeLiveAgents([{...liveAgent,status:'IMAGINARY'}]));
+  assert.throws(()=>normalizeLiveAgents([liveAgent,liveAgent]));
+  assert.throws(()=>normalizeLiveTasks([{...liveTask,approvalRequired:'yes'}]));
+  assert.throws(()=>normalizeLiveTasks([{...liveTask,id:''}]));
+  assert.throws(()=>normalizeLiveEvents([{...liveEvent,type:'UNKNOWN_EVENT'}]));
+  assert.throws(()=>normalizeLiveEvents([{...liveEvent,timestamp:'yesterday'}]));
+  assert.throws(()=>normalizeLiveEvents([liveEvent,{...liveEvent,label:'conflict'}]));
+  assert.throws(()=>normalizeLiveEvents([{...liveEvent,source:'mock'}]));
+});
+
+test('LIVE disconnects without mock fallback, recovers from a canonical fixture and resets deterministically', async () => {
+  let connected=false;
+  let failRead=false;
+  let reads=0;
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:connected ? 'CONNECTED' : 'DISCONNECTED',lastSuccessfulRead:connected ? '2026-01-02T01:04:10Z' : undefined};},
+    async readAgents(){reads++;if(failRead) throw new Error('private source detail');return [liveAgent];},
+    async readTasks(){reads++;return [liveTask];},
+    async readEvents(){reads++;return [liveEvent];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  assert.equal(store.getSnapshot().sourceHealth.connection,'DISCONNECTED');
+  assert.equal(store.getSnapshot().mode,'LIVE_READ_ONLY');
+  assert.deepEqual(Object.values(store.getSnapshot().agents),[]);
+  assert.deepEqual(store.getSnapshot().events,[]);
+  assert.equal(reads,0,'disconnected source must not be read');
+  connected=true;
+  await store.refreshLive();
+  const connectedState=store.getSnapshot();
+  assert.equal(connectedState.sourceHealth.connection,'CONNECTED');
+  assert.equal(connectedState.sourceHealth.agentsLoaded,1);
+  assert.equal(connectedState.sourceHealth.tasksLoaded,1);
+  assert.equal(connectedState.sourceHealth.eventsLoaded,1);
+  assert.equal(connectedState.sourceHealth.lastSourceEvent,liveEvent.timestamp);
+  assert.equal(connectedState.agents['agent-01'].status,'RUNNING');
+  failRead=true;
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().sourceHealth.connection,'DEGRADED');
+  assert.equal(store.getSnapshot().sourceHealth.message?.includes('private source detail'),false);
+  assert.deepEqual(store.getSnapshot().agents,{});
+  failRead=false;
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot(),connectedState);
+  connected=false;
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().sourceHealth.connection,'DISCONNECTED');
+  assert.deepEqual(store.getSnapshot().agents,{});
+  await store.switchMode('MOCK');
+  const firstMock=store.getSnapshot();
+  assert.equal(firstMock.mode,'MOCK');
+  assert.equal(Object.keys(firstMock.agents).length,mockAgents.length);
+  await store.switchMode('MOCK');
+  assert.deepEqual(store.getSnapshot(),firstMock);
+  store.stop();
+});
+
+test('live adapter boundary exposes reads only and no transport or write implementation', () => {
+  const boundary=readFileSync('src/adapters/munder/liveSource.ts','utf8');
+  assert.doesNotMatch(boundary,/\b(?:fetch|WebSocket|XMLHttpRequest|writeFile|unlink|rmSync|sendMessage|publish|deleteTask)\s*\(/i);
+  assert.doesNotMatch(boundary,/OfficeScene|pixi|node:fs|process\.env/i);
 });

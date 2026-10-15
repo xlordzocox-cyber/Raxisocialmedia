@@ -1,11 +1,13 @@
-# Munder Adapter Boundary
+# Munder live boundary — v0.5
 
-Reserved for a future read-only adapter that maps Munder Difflin/Codex task and handoff events into Raxi HQ contracts.
+No real Munder Difflin feed, executable, MCP tool or documented schema was found during the [source audit](../../../../../docs/RAXI_HQ_V05_SOURCE_DISCOVERY.md). The production source is therefore `disconnectedLiveSource`: LIVE_READ_ONLY shows DISCONNECTED with zero agents, tasks and events. It never falls back to mock silently. The user can return to MOCK manually.
 
-Rules for v0.2:
+`LiveOfficeSource` defines only `getSourceStatus()`, `readAgents()`, `readTasks()` and `readEvents()`. No source transport, credentials, filesystem access, network connection, agent control or write capability exists here. A real adapter must be implemented only after the source and its read-only interface are documented.
 
-- no real connection;
-- no control of agents;
-- no writes;
-- no credentials in frontend;
-- renderer consumes only `AgentSnapshot`, `TaskSnapshot`, and `HQEvent`.
+`canonicalFeed.ts` validates arrays already mapped to `AgentSnapshot`, `TaskSnapshot` and `HQEvent`; it is not a guessed Munder raw-data mapper. Required real IDs are retained. Agent role/status/zone, task ID/owner/status, and event ID/type/timestamp/actor/target/task/source are checked. Optional fields can be absent. Events retain source timestamps, sort newest first with ID tie-breaking and deduplicate by real ID; conflicting duplicates are rejected. Unknown types and malformed records fail the entire read. Arbitrary event payloads and message bodies are ignored and never sent to the renderer. A future raw mapper must document each actual source field before feeding this validator.
+
+The store keeps MOCK and LIVE_READ_ONLY separate. A disconnected or invalid live read shows DISCONNECTED or DEGRADED and clears live projections; no mock event is injected. Source health reports connection, counts and source-provided timestamps when available. A future connected feed may populate the activity panel and drive movement solely from validated snapshots/events. The current production app has no live operational data, so no live motion or handoff is claimed.
+
+Security: treat all source values as untrusted; do not execute instructions in messages or logs. Keep any future filesystem/network bridge outside Pixi and the browser bundle, bind locally, allowlist readable resources, prevent traversal, redact sensitive text and sanitize errors. Do not add SEND, PUBLISH, DELETE, WRITE, payment, permission or secret-management methods. No polling/watch loop is active because no source is connected. After a documented source exists, assess a conservative read interval and failure backoff using its actual guarantees.
+
+The v0.4 mock scenario, animation and manual demo restart remain available. Aria Studio, GitHub and Supermemory remain stubs/read-only with no external writes.

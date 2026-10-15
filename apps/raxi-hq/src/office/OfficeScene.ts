@@ -107,8 +107,14 @@ export class OfficeScene {
   }
 
   update(state: HQState): void {
-    if (state.events.length === 0 && this.state?.events.length) this.reset();
+    if ((this.state && state.mode !== this.state.mode) || (state.events.length === 0 && this.state?.events.length)) this.reset();
     this.state = state;
+    for (const [id,sprite] of this.sprites) {
+      if (state.agents[id]) continue;
+      sprite.destroy({ children: true });
+      this.sprites.delete(id);
+      this.motions.delete(id);
+    }
     const zoneSlots = new Map<string, number>();
     Object.values(state.agents).forEach((agent) => {
       const slot = zoneSlots.get(agent.zone) ?? 0;
