@@ -30,7 +30,7 @@ function member<T extends string>(value: unknown, allowed: Set<T>): T {
   if (typeof value !== 'string' || !allowed.has(value as T)) throw new Error('Unknown source value');
   return value as T;
 }
-function timestamp(value: unknown): string {
+export function validateSourceTimestamp(value: unknown): string {
   const result = text(value,40);
   const parts = /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.\d+)?(?:Z|[+-](\d\d):(\d\d))$/.exec(result);
   if (!parts) throw new Error('Invalid source timestamp');
@@ -77,7 +77,7 @@ export function normalizeLiveAgents(raw: unknown): AgentSnapshot[] {
       currentTaskId: optional(item.currentTaskId,id), campaignId: optional(item.campaignId,id),
       waitingFor: optional(item.waitingFor,text), capabilities: strings(item.capabilities),
       securityState: member(item.securityState,securityStates),
-      lastEventAt: optional(item.lastEventAt,timestamp),
+      lastEventAt: optional(item.lastEventAt,validateSourceTimestamp),
     } satisfies AgentSnapshot;
   })).sort(byId);
 }
@@ -100,7 +100,7 @@ export function normalizeLiveEvents(raw: unknown): HQEvent[] {
     const item = record(value);
     if (item.source !== 'munder' || typeof item.verified !== 'boolean') throw new Error('Invalid event provenance');
     return {
-      id: id(item.id), timestamp: timestamp(item.timestamp), type: member(item.type,eventTypes),
+      id: id(item.id), timestamp: validateSourceTimestamp(item.timestamp), type: member(item.type,eventTypes),
       label: text(item.label), actorId: optional(item.actorId,id), targetId: optional(item.targetId,id),
       campaignId: optional(item.campaignId,id), taskId: optional(item.taskId,id), assetId: optional(item.assetId,id),
       source: 'munder' as const, verified: item.verified,

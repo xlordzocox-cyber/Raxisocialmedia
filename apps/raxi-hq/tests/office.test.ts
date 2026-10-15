@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { mockAgents, mockTimeline, mockTasks, mockCampaign } from '../src/adapters/mock/mockScenario';
 import { reduceEventToVisualState } from '../src/store/hqReducer';
 import { hqStore } from '../src/store/hqStore';
-import { AgentMotion, syncAgentMotions } from '../src/office/agents/agentMotion';
+import { AgentMotion, stationLightKey, syncAgentMotions } from '../src/office/agents/agentMotion';
 import { routeBetweenZones } from '../src/office/pathfinding';
 import { zones, zoneOrder } from '../src/office/zones';
 import { getStatusVisual } from '../src/office/agents/agentVisualState';
@@ -458,6 +458,90 @@ test('LIVE roster replay after reset assigns the same slots and station position
   assert.deepEqual(run(),run());
 });
 
+test('LIVE agents from two origin zones reserve different slots in one destination', () => {
+  const a={...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
+  const b={...liveAgent,id:'b',zone:'QA_LAB' as const,destinationZone:'RESEARCH_LAB' as const};
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([b,a],motions,true);
+  assert.deepEqual([motions.get('a')!.slot,motions.get('b')!.slot],[0,1]);
+  assert.deepEqual(motions.get('a')!.position,zones.WAR_ROOM.workPoints[0]);
+  assert.deepEqual(motions.get('b')!.position,zones.QA_LAB.workPoints[0]);
+  for(const motion of motions.values()) motion.update(10000);
+  assert.notDeepEqual(motions.get('a')!.position,motions.get('b')!.position);
+  assert.deepEqual(motions.get('a')!.position,motions.get('a')!.stationPoint('RESEARCH_LAB'));
+  assert.deepEqual(motions.get('b')!.position,motions.get('b')!.stationPoint('RESEARCH_LAB'));
+  assert.equal(stationLightKey(a,motions.get('a')!,true),'RESEARCH_LAB:0');
+  assert.equal(stationLightKey(b,motions.get('b')!,true),'RESEARCH_LAB:1');
+});
+
+test('a LIVE resident moves to its reserved destination slot when an incoming agent sorts first', () => {
+  const incoming={...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
+  const resident={...liveAgent,id:'b',zone:'RESEARCH_LAB' as const};
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([resident,incoming],motions,true);
+  const stationed=motions.get('b')!;
+  assert.equal(stationed.slot,1);
+  assert.equal(stationed.atStation('RESEARCH_LAB'),false);
+  stationed.update(10000);
+  assert.deepEqual(stationed.position,stationed.stationPoint('RESEARCH_LAB'));
+  assert.equal(stationLightKey(resident,stationed,true),'RESEARCH_LAB:1');
+  motions.get('a')!.update(10000);
+  assert.notDeepEqual(stationed.position,motions.get('a')!.position);
+});
+
+test('three LIVE origins sharing a destination have unique target slots and station lights', () => {
+  const agents=[
+    {...liveAgent,id:'c',zone:'GITHUB_HUB' as const,destinationZone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'b',zone:'QA_LAB' as const,destinationZone:'RESEARCH_LAB' as const},
+  ];
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions(agents,motions,true);
+  assert.deepEqual(['a','b','c'].map(id=>motions.get(id)!.slot),[0,1,2]);
+  for(const motion of motions.values()) motion.update(10000);
+  const keys=agents.map(agent=>stationLightKey(agent,motions.get(agent.id)!,true));
+  assert.equal(new Set(keys).size,3);
+  assert.deepEqual(new Set(keys),new Set(['RESEARCH_LAB:0','RESEARCH_LAB:1','RESEARCH_LAB:2']));
+});
+
+test('LIVE destination slots are independent across zones and input order', () => {
+  const agents=[
+    {...liveAgent,id:'d',zone:'WAR_ROOM' as const,destinationZone:'QA_LAB' as const},
+    {...liveAgent,id:'b',zone:'GITHUB_HUB' as const,destinationZone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'c',zone:'PUBLISHING' as const,destinationZone:'QA_LAB' as const},
+  ];
+  const snapshot=(input:typeof agents)=>{
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions(input,motions,true);
+    return Object.fromEntries([...motions].map(([id,motion])=>[id,motion.slot]).sort(([a],[b])=>a.localeCompare(b)));
+  };
+  assert.deepEqual(snapshot(agents),snapshot([...agents].reverse()));
+  assert.deepEqual(snapshot(agents),{a:0,b:1,c:0,d:1});
+  for(const destination of ['RESEARCH_LAB','QA_LAB']) {
+    const slots=agents.filter(agent=>agent.destinationZone===destination).map(agent=>snapshot(agents)[agent.id]);
+    assert.equal(new Set(slots).size,slots.length);
+  }
+});
+
+test('LIVE destination slot replay after reset is deterministic and MOCK retains current-zone placement', () => {
+  const agents=[
+    {...liveAgent,id:'b',zone:'QA_LAB' as const,destinationZone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const},
+  ];
+  const run=()=>{
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions(agents,motions,true);
+    for(const motion of motions.values()) motion.update(10000);
+    return [...motions].map(([id,motion])=>({id,slot:motion.slot,position:motion.position}));
+  };
+  assert.deepEqual(run(),run());
+  const mockMotions=new Map<string,AgentMotion>();
+  syncAgentMotions(agents,mockMotions,false);
+  assert.deepEqual(agents.map(agent=>mockMotions.get(agent.id)!.slot),[0,0]);
+  assert.equal(stationLightKey(agents[0],mockMotions.get('b')!,false),undefined);
+});
+
 test('canonical live agent and task snapshots preserve real IDs, status and optional fields', () => {
   const agents=normalizeLiveAgents([liveAgent]);
   const tasks=normalizeLiveTasks([liveTask]);
@@ -565,6 +649,40 @@ test('LIVE disconnects without mock fallback, recovers from a canonical fixture 
   assert.equal(Object.keys(firstMock.agents).length,mockAgents.length);
   await store.switchMode('MOCK');
   assert.deepEqual(store.getSnapshot(),firstMock);
+  store.stop();
+});
+
+test('Source Health rejects impossible lastSuccessfulRead and preserves valid source text', async (t) => {
+  const clock=t.mock.method(Date,'now',()=>987654321);
+  let timestamp='2026-02-30T03:04:05Z';
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED',lastSuccessfulRead:timestamp};},
+    async readAgents(){return [liveAgent];},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return [liveEvent];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  for(const invalid of [
+    '2026-02-30T03:04:05Z','2026-04-31T03:04:05Z','2025-02-29T03:04:05Z',
+    '2026-01-01T24:04:05Z','2026-01-01T03:60:05Z','2026-01-01T03:04:60Z',
+  ]) {
+    timestamp=invalid;
+    await store.refreshLive();
+    const state=store.getSnapshot();
+    assert.equal(state.mode,'LIVE_READ_ONLY');
+    assert.equal(state.sourceHealth.connection,'DEGRADED');
+    assert.equal(state.sourceHealth.lastSuccessfulRead,undefined);
+    assert.deepEqual(state.agents,{});
+  }
+  timestamp='2024-02-29T23:59:59.123+02:00';
+  await store.refreshLive();
+  const valid=store.getSnapshot();
+  assert.equal(valid.sourceHealth.connection,'CONNECTED');
+  assert.equal(valid.sourceHealth.lastSuccessfulRead,timestamp);
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot(),valid);
+  assert.equal(clock.mock.callCount(),0);
   store.stop();
 });
 

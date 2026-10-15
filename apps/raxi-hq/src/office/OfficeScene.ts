@@ -2,7 +2,7 @@ import { Application, Container, Graphics, Rectangle, type FederatedPointerEvent
 import type { HQState } from '../domain/hq';
 import { drawOfficeMap, createZoneLabels, createOfficeFurniture, createStationLights } from './map';
 import { AgentSprite } from './agents/AgentSprite';
-import { AgentMotion, syncAgentMotions } from './agents/agentMotion';
+import { AgentMotion, stationLightKey, syncAgentMotions } from './agents/agentMotion';
 import { applyAgentAnimation } from './agents/agentAnimations';
 import { zones } from './zones';
 import { HandoffEffect } from './effects/HandoffEffect';
@@ -194,8 +194,9 @@ export class OfficeScene {
       const agent = this.state?.agents[id];
       if (agent) {
         applyAgentAnimation(sprite, motion.walking ? 'WALKING' : agent.status === 'WALKING' ? 'IDLE' : agent.status, this.elapsed);
-        if(motion.atStation(agent.zone) && ['RUNNING','WORKING','RESEARCHING','QA'].includes(agent.status)) {
-          const light=this.stationLights.get(`${agent.zone}:${motion.slot}`);
+        if(['RUNNING','WORKING','RESEARCHING','QA'].includes(agent.status)) {
+          const key=stationLightKey(agent,motion,this.state?.mode === 'LIVE_READ_ONLY');
+          const light=key ? this.stationLights.get(key) : undefined;
           if(light) light.alpha=0.52+Math.sin(this.elapsed*0.006)*0.12;
         }
       }

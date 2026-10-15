@@ -5,7 +5,7 @@ import type { HQState } from '../domain/hq';
 import { mockAdapter } from '../adapters/mock/mockAdapter';
 import type { TimedMockEvent } from '../adapters/mock/mockScenario';
 import { disconnectedLiveSource, type LiveOfficeSource } from '../adapters/munder/liveSource';
-import { normalizeLiveAgents, normalizeLiveTasks, normalizeLiveEvents } from '../adapters/munder/canonicalFeed';
+import { normalizeLiveAgents, normalizeLiveTasks, normalizeLiveEvents, validateSourceTimestamp } from '../adapters/munder/canonicalFeed';
 import type { OfficeMode, SourceConnection, SourceHealth } from '../domain/source';
 
 function health(mode: OfficeMode, connection: SourceConnection, message?: string): SourceHealth {
@@ -100,8 +100,7 @@ export class HQStore {
       const agents=normalizeLiveAgents(rawAgents);
       const tasks=normalizeLiveTasks(rawTasks);
       const events=normalizeLiveEvents(rawEvents);
-      const lastRead=status.lastSuccessfulRead;
-      if (lastRead !== undefined && !Number.isFinite(Date.parse(lastRead))) throw new Error('Invalid source time');
+      const lastRead=status.lastSuccessfulRead === undefined ? undefined : validateSourceTimestamp(status.lastSuccessfulRead);
       this.state = {
         ...emptyState('LIVE_READ_ONLY',health('LIVE_READ_ONLY','CONNECTED')),
         agents:Object.fromEntries(agents.map(agent=>[agent.id,agent])),

@@ -66,20 +66,30 @@ export class AgentMotion {
 }
 
 /** Keep existing motions while reconciling every station slot on each roster refresh. */
-export function syncAgentMotions(agents: readonly AgentSnapshot[], motions: Map<string, AgentMotion>, sortById: boolean): AgentSnapshot[] {
-  const ordered = sortById ? [...agents].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : [...agents];
+export function syncAgentMotions(agents: readonly AgentSnapshot[], motions: Map<string, AgentMotion>, live: boolean): AgentSnapshot[] {
+  const ordered = live ? [...agents].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : [...agents];
   const active = new Set(ordered.map(agent => agent.id));
   for (const id of motions.keys()) if (!active.has(id)) motions.delete(id);
-  const zoneSlots = new Map<ZoneId, number>();
+  const currentSlots = new Map<ZoneId, number>();
+  const destinationSlots = new Map<ZoneId, number>();
   for (const agent of ordered) {
-    const slot = zoneSlots.get(agent.zone) ?? 0;
-    zoneSlots.set(agent.zone, slot + 1);
+    const currentSlot = currentSlots.get(agent.zone) ?? 0;
+    currentSlots.set(agent.zone, currentSlot + 1);
+    const destination = live ? agent.destinationZone ?? agent.zone : agent.zone;
+    const slot = live ? destinationSlots.get(destination) ?? 0 : currentSlot;
+    if (live) destinationSlots.set(destination, slot + 1);
     let motion = motions.get(agent.id);
     if (!motion) {
-      motion = new AgentMotion(agent, slot);
+      motion = new AgentMotion(agent, currentSlot);
       motions.set(agent.id, motion);
-    } else motion.setSlot(slot);
+    }
+    motion.setSlot(slot);
     motion.sync(agent);
   }
   return ordered;
+}
+
+export function stationLightKey(agent: AgentSnapshot, motion: AgentMotion, live: boolean): string | undefined {
+  const zone = live ? agent.destinationZone ?? agent.zone : agent.zone;
+  return motion.atStation(zone) ? `${zone}:${motion.slot}` : undefined;
 }
