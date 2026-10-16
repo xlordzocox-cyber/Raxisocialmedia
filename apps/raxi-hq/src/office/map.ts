@@ -1,5 +1,5 @@
 import { Container, Graphics, Text, TextStyle } from 'pixi.js';
-import { zoneOrder, zones, type Zone } from './zones';
+import { stationCapacity, zoneOrder, zones, type Zone } from './zones';
 
 // Original procedural artwork. Dimensions use screen-space isometric projection.
 function polygon(g: Graphics, points: number[], color: number, alpha = 1): void {
@@ -112,7 +112,7 @@ export function createOfficeFurniture():Container[] {
   const props:Container[]=[];
   for(const id of zoneOrder) {
     const z=zones[id],{x,y}=z.anchor; props.push(wallDisplay(z),plant(x+92,y+32));
-    for(let slot=0;slot<(id==='SUPERMEMORY_CORE'?2:4);slot++) {
+    for(let slot=0;slot<stationCapacity(id);slot++) {
       const p=z.workPoints[slot%z.workPoints.length],row=Math.floor(slot/z.workPoints.length)%2;
       props.push(...station(p.x+row*26,p.y+row*32,z.accent,id));
     }
@@ -152,7 +152,7 @@ export function createStationLights():Map<string,Graphics> {
   const lights=new Map<string,Graphics>();
   for(const id of zoneOrder) {
     const z=zones[id];
-    for(let slot=0;slot<(id==='SUPERMEMORY_CORE'?2:4);slot++) {
+    for(let slot=0;slot<stationCapacity(id);slot++) {
       const p=z.workPoints[slot%z.workPoints.length],row=Math.floor(slot/z.workPoints.length)%2;
       const light=new Graphics();
       light.position.set(p.x+row*26,p.y+row*32-12);

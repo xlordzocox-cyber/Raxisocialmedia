@@ -98,3 +98,7 @@ export const zoneOrder: ZoneId[] = [
   'GITHUB_HUB',
   'PUBLISHING',
 ];
+
+export function stationCapacity(zone: ZoneId): number {
+  return zone === 'SUPERMEMORY_CORE' ? 2 : 4;
+}

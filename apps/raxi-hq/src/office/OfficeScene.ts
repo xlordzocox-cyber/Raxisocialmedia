@@ -1,8 +1,9 @@
 import { Application, Container, Graphics, Rectangle, type FederatedPointerEvent } from 'pixi.js';
 import type { HQState } from '../domain/hq';
+import { getOwnAgent } from '../domain/agents';
 import { drawOfficeMap, createZoneLabels, createOfficeFurniture, createStationLights } from './map';
 import { AgentSprite } from './agents/AgentSprite';
-import { AgentMotion } from './agents/agentMotion';
+import { AgentMotion, stationLightKey, syncAgentMotions } from './agents/agentMotion';
 import { applyAgentAnimation } from './agents/agentAnimations';
 import { zones } from './zones';
 import { HandoffEffect } from './effects/HandoffEffect';
@@ -20,6 +21,7 @@ export class OfficeScene {
   private stationLights = createStationLights();
   private sprites = new Map<string, AgentSprite>();
   private motions = new Map<string, AgentMotion>();
+  private hoveredAgentId?: string;
   private effects: (HandoffEffect | MemoryArchiveEffect)[] = [];
   private seen = new Set<string>();
   private memoryOrigins = new PendingMemoryOrigins();
@@ -66,6 +68,12 @@ export class OfficeScene {
 
   private onSelect: (id: string) => void;
 
+  private bindAgentEvents(sprite: AgentSprite, id: string): void {
+    sprite.on('pointertap', () => this.onSelect(id));
+    sprite.on('pointerover',()=>{ sprite.setHovered(true); this.hoveredAgentId=id; this.onHover(id); });
+    sprite.on('pointerout',()=>{ sprite.setHovered(false); if (this.hoveredAgentId === id) { this.hoveredAgentId=undefined; this.onHover(); } });
+  }
+
   private resize(): void {
     const width = Math.max(1, this.host.clientWidth);
     const height = Math.max(1, this.host.clientHeight);
@@ -107,23 +115,25 @@ export class OfficeScene {
   }
 
   update(state: HQState): void {
-    if (state.events.length === 0 && this.state?.events.length) this.reset();
+    if ((this.state && state.mode !== this.state.mode) ||
+        (state.mode === 'MOCK' && state.events.length === 0 && this.state?.events.length)) this.reset();
     this.state = state;
-    const zoneSlots = new Map<string, number>();
-    Object.values(state.agents).forEach((agent) => {
-      const slot = zoneSlots.get(agent.zone) ?? 0;
-      zoneSlots.set(agent.zone, slot + 1);
+    for (const [id,sprite] of this.sprites) {
+      if (getOwnAgent(state.agents,id)) continue;
+      if (this.hoveredAgentId === id) { this.hoveredAgentId = undefined; this.onHover(); }
+      sprite.destroy({ children: true });
+      this.sprites.delete(id);
+      this.motions.delete(id);
+    }
+    const orderedAgents = syncAgentMotions(Object.values(state.agents), this.motions, state.mode === 'LIVE_READ_ONLY');
+    orderedAgents.forEach((agent) => {
       let sprite = this.sprites.get(agent.id);
       if (!sprite) {
         sprite = new AgentSprite(agent.id, agent, zones[agent.zone].accent);
-        sprite.on('pointertap', () => this.onSelect(agent.id));
-        sprite.on('pointerover',()=>{ sprite!.setHovered(true); this.onHover(agent.id); });
-        sprite.on('pointerout',()=>{ sprite!.setHovered(false); this.onHover(); });
+        this.bindAgentEvents(sprite,agent.id);
         this.depthLayer.addChild(sprite);
         this.sprites.set(agent.id, sprite);
-        this.motions.set(agent.id, new AgentMotion(agent, slot));
       }
-      this.motions.get(agent.id)!.sync(agent);
       sprite.updateAgent(agent);
       sprite.setSelected(state.selectedAgentId === agent.id);
     });
@@ -131,11 +141,11 @@ export class OfficeScene {
       if (this.seen.has(event.id)) continue;
       this.seen.add(event.id);
       if (event.type === 'MEMORY_SAVE_REQUESTED') {
-        const origin=this.motions.get(event.actorId ?? '')?.position ?? zones[state.agents[event.actorId ?? '']?.zone ?? 'WAR_ROOM'].anchor;
+        const origin=this.motions.get(event.actorId ?? '')?.position ?? zones[getOwnAgent(state.agents,event.actorId)?.zone ?? 'WAR_ROOM'].anchor;
         this.memoryOrigins.remember(event,origin);
       }
       if (event.type === 'MEMORY_ARCHIVED') {
-        const fallback=this.motions.get(event.actorId ?? '')?.position ?? zones[state.agents[event.actorId ?? '']?.zone ?? 'WAR_ROOM'].anchor;
+        const fallback=this.motions.get(event.actorId ?? '')?.position ?? zones[getOwnAgent(state.agents,event.actorId)?.zone ?? 'WAR_ROOM'].anchor;
         const from=this.memoryOrigins.consume(event,fallback);
         if (event.verified) {
           this.addEffect(new MemoryArchiveEffect(from,zones.SUPERMEMORY_CORE.anchor));
@@ -149,10 +159,10 @@ export class OfficeScene {
           this.sprites.get(event.actorId)?.beginHandoff(this.elapsed);
           this.sprites.get(event.targetId)?.beginHandoff(this.elapsed);
           this.addEffect(new HandoffEffect(event.actorId, event.targetId, { ...from }, { ...to }));
-          this.highlight(state.agents[event.targetId]?.zone ?? 'WAR_ROOM',false);
+          this.highlight(getOwnAgent(state.agents,event.targetId)?.zone ?? 'WAR_ROOM',false);
         }
       }
-      if(event.type==='AGENT_BLOCKED') this.highlight(state.agents[event.actorId ?? '']?.zone ?? 'WAR_ROOM',true);
+      if(event.type==='AGENT_BLOCKED') this.highlight(getOwnAgent(state.agents,event.actorId)?.zone ?? 'WAR_ROOM',true);
     }
   }
 
@@ -189,11 +199,12 @@ export class OfficeScene {
       sprite.position.set(motion.position.x+offset.x,motion.position.y+offset.y);
       sprite.zIndex=sprite.y;
       sprite.faceMovement(motion.position.x-previousX);
-      const agent = this.state?.agents[id];
+      const agent = this.state ? getOwnAgent(this.state.agents,id) : undefined;
       if (agent) {
         applyAgentAnimation(sprite, motion.walking ? 'WALKING' : agent.status === 'WALKING' ? 'IDLE' : agent.status, this.elapsed);
-        if(motion.atStation(agent.zone) && ['RUNNING','WORKING','RESEARCHING','QA'].includes(agent.status)) {
-          const light=this.stationLights.get(`${agent.zone}:${motion.slot}`);
+        if(['RUNNING','WORKING','RESEARCHING','QA'].includes(agent.status)) {
+          const key=stationLightKey(agent,motion,this.state?.mode === 'LIVE_READ_ONLY');
+          const light=key ? this.stationLights.get(key) : undefined;
           if(light) light.alpha=0.52+Math.sin(this.elapsed*0.006)*0.12;
         }
       }
@@ -207,6 +218,7 @@ export class OfficeScene {
   }
 
   private reset(): void {
+    this.hoveredAgentId=undefined;
     this.onHover();
     for (const sprite of this.sprites.values()) sprite.destroy({ children: true });
     for (const effect of this.effects) effect.destroy({ children: true });

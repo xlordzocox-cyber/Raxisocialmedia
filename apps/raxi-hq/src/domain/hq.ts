@@ -3,6 +3,7 @@ import type { CampaignSnapshot } from './campaigns';
 import type { HQEvent } from './events';
 import type { MemorySignal } from './memory';
 import type { TaskSnapshot } from './tasks';
+import type { OfficeMode, SourceHealth } from './source';
 
 export interface HandoffVisual {
   id: string;
@@ -23,5 +24,7 @@ export interface HQState {
   handoffs: HandoffVisual[];
   memorySignals: MemorySignal[];
   readOnly: true;
-  mockMode: true;
+  mockMode: boolean;
+  mode: OfficeMode;
+  sourceHealth: SourceHealth;
 }

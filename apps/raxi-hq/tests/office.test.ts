@@ -5,20 +5,25 @@ import { join } from 'node:path';
 import { mockAgents, mockTimeline, mockTasks, mockCampaign } from '../src/adapters/mock/mockScenario';
 import { reduceEventToVisualState } from '../src/store/hqReducer';
 import { hqStore } from '../src/store/hqStore';
-import { AgentMotion } from '../src/office/agents/agentMotion';
+import { AgentMotion, stationLightKey, syncAgentMotions } from '../src/office/agents/agentMotion';
 import { routeBetweenZones } from '../src/office/pathfinding';
-import { zones, zoneOrder } from '../src/office/zones';
+import { stationCapacity, zones, zoneOrder } from '../src/office/zones';
 import { getStatusVisual } from '../src/office/agents/agentVisualState';
 import { zoomAt, clampCamera, advanceCameraFocus } from '../src/office/camera';
 import { OfficeScene } from '../src/office/OfficeScene';
+import { getOwnAgent } from '../src/domain/agents';
+import type { AgentSprite } from '../src/office/agents/AgentSprite';
 import { handoffFrame, memoryFrame } from '../src/office/effects/visualTimelines';
 import { PendingMemoryOrigins } from '../src/office/effects/memoryOrigins';
-import type { Container } from 'pixi.js';
+import { MAX_LIVE_AGENTS, MAX_LIVE_TASKS, MAX_TASK_DEPENDENCIES, MAX_LIVE_SOURCE_EVENTS, MAX_AGENT_CAPABILITIES, normalizeLiveAgents, normalizeLiveTasks, normalizeLiveEvents } from '../src/adapters/munder/canonicalFeed';
+import { HQStore } from '../src/store/hqStore';
+import type { LiveOfficeSource } from '../src/adapters/munder/liveSource';
+import { Container } from 'pixi.js';
 import type { HQState } from '../src/domain/hq';
 import type { AgentStatus } from '../src/domain/agents';
 
 function initial(): HQState {
-  return { agents: Object.fromEntries(structuredClone(mockAgents).map(a => [a.id, a])), tasks: Object.fromEntries(mockTasks.map(t => [t.id,t])), campaigns: { [mockCampaign.id]: mockCampaign }, events: [], handoffs: [], memorySignals: [], readOnly: true, mockMode: true };
+  return { agents: Object.fromEntries(structuredClone(mockAgents).map(a => [a.id, a])), tasks: Object.fromEntries(mockTasks.map(t => [t.id,t])), campaigns: { [mockCampaign.id]: mockCampaign }, events: [], handoffs: [], memorySignals: [], readOnly: true, mockMode: true, mode:'MOCK', sourceHealth:{source:'mock',mode:'MOCK',connection:'CONNECTED',eventsLoaded:0,agentsLoaded:0,tasksLoaded:0} };
 }
 test('camera zoom preserves pointer anchor and clamps zoom/pan bounds', () => {
   const camera={x:20,y:30,scale:{x:0.5,y:0.5,set(value:number){this.x=value;this.y=value;}}};
@@ -124,11 +129,11 @@ test('blocked agents stop and resume their event route', () => {
   motion.sync({ ...agent,status:'RUNNING' }); motion.update(10000);
   assert.deepEqual(motion.position,zones.ARIA_LINK.workPoints[0]);
 });
-test('agent seats stay bounded in small zones even for higher slot indices', () => {
+test('overflow positions do not recycle small-zone station coordinates', () => {
   const agent={...mockAgents[7],zone:'SUPERMEMORY_CORE' as const};
-  const motion=new AgentMotion(agent,7);
-  assert.ok(Math.abs(motion.position.x-zones.SUPERMEMORY_CORE.workPoints[0].x)<=26);
-  assert.ok(Math.abs(motion.position.y-zones.SUPERMEMORY_CORE.workPoints[0].y)<=32);
+  const points=Array.from({length:8},(_,slot)=>new AgentMotion(agent,slot).position);
+  assert.equal(new Set(points.map(point=>`${point.x}:${point.y}`)).size,points.length);
+  assert.deepEqual(points[0],zones.SUPERMEMORY_CORE.workPoints[0]);
 });
 test('timeline covers IDLE/RUNNING/WAITING/BLOCKED/QA/COMPLETED and preserves read-only invariants', () => {
   let state = initial(); const statuses = new Set(Object.values(state.agents).map(a=>a.status));
@@ -364,4 +369,1297 @@ test('demo reset reconstructs the same stations and event-driven route', () => {
     return {positions,state};
   };
   assert.deepEqual(run(),run());
+});
+
+const liveAgent = {...mockAgents[0],id:'agent-01',displayName:'Observed Agent',status:'RUNNING' as const,
+  lastEventAt:'2026-01-02T03:04:05+02:00'};
+const liveTask = {...mockTasks[0],id:'task-01',ownerAgentId:'agent-01'};
+const liveEvent = {...mockTimeline[0].event,id:'event-01',source:'munder' as const,verified:true,
+  actorId:'agent-01',taskId:'task-01',timestamp:'2026-01-02T03:04:05+02:00'};
+
+test('reserved and missing event actor IDs never select inherited agents or break UI lookup', async () => {
+  const ids=['constructor','toString','valueOf','hasOwnProperty','missing-agent'];
+  const events=ids.map((id,index)=>({...liveEvent,id:`reserved-event-${index}`,actorId:id}));
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED' as const};},
+    async readAgents(){return [liveAgent];},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return events;},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  for(const event of events) {
+    assert.equal(getOwnAgent(store.getSnapshot().agents,event.actorId),undefined);
+    store.selectEvent(event.id);
+    assert.equal(store.getSnapshot().selectedAgentId,event.actorId);
+    assert.equal(getOwnAgent(store.getSnapshot().agents,store.getSnapshot().selectedAgentId),undefined);
+    const orphaned={...store.getSnapshot(),selectedAgentId:event.actorId};
+    assert.equal(getOwnAgent(orphaned.agents,orphaned.selectedAgentId),undefined);
+  }
+  store.selectAgent('__proto__');
+  assert.equal(getOwnAgent(store.getSnapshot().agents,'__proto__'),undefined);
+  assert.equal(getOwnAgent(store.getSnapshot().agents,store.getSnapshot().selectedAgentId),undefined);
+  assert.throws(()=>normalizeLiveEvents([{...liveEvent,actorId:'__proto__'}]));
+  store.stop();
+});
+
+test('a literal constructor agent works only as an own record without prototype pollution', async () => {
+  const agent={...liveAgent,id:'constructor',displayName:'Constructor Agent'};
+  const event={...liveEvent,actorId:'constructor'};
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED' as const};},
+    async readAgents(){return [agent];},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return [event];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent(event.id);
+  const state=store.getSnapshot();
+  assert.equal(Object.hasOwn(state.agents,'constructor'),true);
+  assert.equal(Object.getPrototypeOf(state.agents),Object.prototype);
+  assert.equal(getOwnAgent(state.agents,'constructor')?.displayName,'Constructor Agent');
+  assert.equal(state.selectedAgentId,'constructor');
+  assert.equal(getOwnAgent(state.agents,state.selectedAgentId)?.displayName,'Constructor Agent');
+  assert.throws(()=>normalizeLiveAgents([{...liveAgent,id:'__proto__'}]));
+  const untrustedPayload=JSON.parse('{"__proto__":{"polluted":true}}');
+  assert.equal(normalizeLiveEvents([{...liveEvent,payload:untrustedPayload}])[0].payload,undefined);
+  assert.equal(Object.hasOwn(Object.prototype,'polluted'),false);
+  store.stop();
+});
+
+test('MOCK reducer ignores inherited agent IDs without changing the agent dictionary prototype', () => {
+  const original=initial();
+  for(const id of ['constructor','toString','valueOf','hasOwnProperty','__proto__','missing-agent']) {
+    const event={...mockTimeline[0].event,id:`mock-${id}`,type:'AGENT_STATUS_CHANGED' as const,
+      actorId:id,targetId:undefined,payload:{status:'RUNNING'}};
+    const next=reduceEventToVisualState(event,original);
+    assert.equal(Object.hasOwn(next.agents,id),false);
+    assert.equal(getOwnAgent(next.agents,id),undefined);
+    assert.equal(Object.getPrototypeOf(next.agents),Object.prototype);
+    assert.deepEqual(next.agents,original.agents);
+  }
+});
+
+function hoverSceneFixture() {
+  let hoveredId: string | undefined;
+  const hoverChanges: (string | undefined)[]=[];
+  const selected: string[]=[];
+  const scene=Object.assign(Object.create(OfficeScene.prototype),{
+    sprites:new Map(), motions:new Map(), depthLayer:new Container(), seen:new Set(),
+    memoryOrigins:new PendingMemoryOrigins(), effects:[], stationLights:new Map(),
+    zoneHighlight:{clear(){}}, highlightUntil:0, focusTarget:undefined, elapsed:0,
+    onHover(id?:string){hoveredId=id;hoverChanges.push(id);},
+    onSelect(id:string){selected.push(id);},
+  }) as OfficeScene;
+  const live=(agents:typeof liveAgent[], selectedAgentId?:string):HQState=>({
+    ...initial(), mode:'LIVE_READ_ONLY', mockMode:false, agents:Object.fromEntries(agents.map(agent=>[agent.id,agent])), selectedAgentId,
+  });
+  const addAgent=(id:string)=>{
+    const sprite=new Container() as AgentSprite;
+    sprite.setHovered=()=>{}; sprite.setSelected=()=>{}; sprite.updateAgent=()=>{};
+    sprite.faceMovement=()=>{}; sprite.animate=()=>{};
+    scene['bindAgentEvents'](sprite,id);
+    scene['sprites'].set(id,sprite);
+    return sprite;
+  };
+  return {scene,live,addAgent,hoverChanges,selected,getHovered:()=>hoveredId};
+}
+
+test('LIVE empty event history preserves in-flight sprite, motion, hover, selection, and effect expiry', () => {
+  const {scene,live,addAgent,hoverChanges,getHovered}=hoverSceneFixture();
+  const traveler={...liveAgent,id:'traveler',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
+  const sprite=addAgent(traveler.id);
+  const withEvents={...live([traveler],traveler.id),events:[liveEvent]};
+  scene.update(withEvents);
+  sprite.emit('pointerover');
+  const motion=scene['motions'].get(traveler.id)!;
+  motion.update(200);
+  const midway={...motion.position};
+  assert.equal(motion.walking,true);
+  let expired=0;
+  scene['effects'].push({update:()=>true,destroy:()=>{expired++;}} as never);
+  scene.update({...withEvents,events:[]});
+  assert.equal(scene['sprites'].get(traveler.id),sprite);
+  assert.equal(scene['motions'].get(traveler.id),motion);
+  assert.deepEqual(motion.position,midway);
+  assert.equal(getHovered(),traveler.id);
+  assert.deepEqual(hoverChanges,[traveler.id]);
+  assert.equal(scene['state']?.selectedAgentId,traveler.id);
+  scene['tick'](16);
+  assert.equal(expired,1,'old visual effects still expire on their normal timeline');
+  assert.equal(scene['effects'].length,0);
+  assert.notDeepEqual(motion.position,midway,'the same motion continues its route');
+  assert.equal(getHovered(),traveler.id);
+  scene['reset']();
+  assert.equal(getHovered(),undefined);
+  assert.equal(scene['sprites'].size,0);
+  assert.equal(scene['motions'].size,0);
+});
+
+test('LIVE first empty history is stable, disconnect removes agents, and MOCK empty history still resets', () => {
+  const {scene,live,addAgent}=hoverSceneFixture();
+  const sprite=addAgent(liveAgent.id);
+  const empty=live([liveAgent],liveAgent.id);
+  scene.update({...empty,events:[]});
+  const motion=scene['motions'].get(liveAgent.id);
+  scene.update({...empty,events:[]});
+  assert.equal(scene['sprites'].get(liveAgent.id),sprite);
+  assert.equal(scene['motions'].get(liveAgent.id),motion);
+  scene.update({...empty,agents:{},events:[]});
+  assert.equal(scene['sprites'].size,0);
+  assert.equal(scene['motions'].size,0);
+  scene['reset']();
+
+  const mock=hoverSceneFixture();
+  const mockSprite=mock.addAgent('research');
+  const mockState={...initial(),agents:{research:initial().agents.research}};
+  mock.scene.update({...mockState,events:[mockTimeline[0].event]});
+  assert.equal(mock.scene['seen'].size,1);
+  mock.scene.update({...mockState,agents:{},events:[]});
+  assert.equal(mock.scene['sprites'].size,0);
+  assert.equal(mock.scene['motions'].size,0);
+  assert.equal(mock.scene['seen'].size,0,'MOCK empty history still invokes scene reset');
+  assert.equal(mockSprite.destroyed,true,'MOCK restart still destroys the previous sprite');
+});
+
+test('removing a hovered LIVE sprite clears hover; the returning ID requires a new pointerover', () => {
+  const {scene,live,addAgent,hoverChanges,selected,getHovered}=hoverSceneFixture();
+  const a={...liveAgent,id:'a'},b={...liveAgent,id:'b'};
+  addAgent('a'); addAgent('b');
+  scene.update(live([a,b],'a'));
+  const original=scene['sprites'].get('a')!;
+  original.emit('pointerover');
+  assert.equal(getHovered(),'a');
+  scene.update(live([a,b],'a'));
+  assert.equal(scene['sprites'].get('a'),original,'stable LIVE refresh retains the sprite and hover');
+  assert.equal(getHovered(),'a');
+  scene.update(live([b],'a'));
+  assert.equal(getHovered(),undefined);
+  assert.deepEqual(hoverChanges,['a',undefined]);
+  assert.equal(scene['state']?.selectedAgentId,'a','hover cleanup does not alter selection');
+  addAgent('a');
+  scene.update(live([a,b],'a'));
+  assert.notEqual(scene['sprites'].get('a'),original);
+  assert.equal(getHovered(),undefined,'reusing an ID cannot restore hover automatically');
+  scene['sprites'].get('a')!.emit('pointerover');
+  assert.equal(getHovered(),'a');
+  scene['sprites'].get('b')!.emit('pointertap');
+  assert.deepEqual(selected,['b'],'click selection still emits its intent');
+  assert.equal(getHovered(),'a','click does not silently change hover');
+  scene['reset']();
+});
+
+test('removing other LIVE agents preserves valid hover, then a multi-removal clears it once', () => {
+  const {scene,live,addAgent,hoverChanges,getHovered}=hoverSceneFixture();
+  const a={...liveAgent,id:'a'},b={...liveAgent,id:'b'},c={...liveAgent,id:'c'};
+  addAgent('a'); addAgent('b'); addAgent('c');
+  scene.update(live([a,b,c]));
+  scene['sprites'].get('b')!.emit('pointerover');
+  scene.update(live([b,c]));
+  assert.equal(getHovered(),'b');
+  assert.deepEqual(hoverChanges,['b']);
+  scene.update(live([]));
+  assert.equal(getHovered(),undefined);
+  assert.deepEqual(hoverChanges,['b',undefined]);
+  scene['reset']();
+});
+
+test('MOCK hover and click remain active, while scene reset clears hover without selection changes', () => {
+  const {scene,addAgent,selected,getHovered}=hoverSceneFixture();
+  const mock={...initial(),selectedAgentId:'research'};
+  for(const agent of mockAgents) addAgent(agent.id);
+  scene.update(mock);
+  scene['sprites'].get('research')!.emit('pointerover');
+  assert.equal(getHovered(),'research');
+  scene['sprites'].get('research')!.emit('pointertap');
+  assert.deepEqual(selected,['research']);
+  scene['reset']();
+  assert.equal(getHovered(),undefined);
+  assert.equal(scene['state']?.selectedAgentId,'research');
+  for(const agent of mockAgents) addAgent(agent.id);
+  scene.update(mock);
+  assert.equal(getHovered(),undefined);
+  scene['reset']();
+});
+
+test('LIVE roster [b] to [a,b] reassigns the existing motion and station slot', () => {
+  const a={...liveAgent,id:'a',zone:'RESEARCH_LAB' as const};
+  const b={...liveAgent,id:'b',zone:'RESEARCH_LAB' as const};
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([b],motions,true);
+  const original=motions.get('b')!;
+  assert.equal(original.slot,0);
+  syncAgentMotions([b,a],motions,true);
+  assert.equal(motions.get('b'),original,'existing motion must be retained');
+  assert.equal(motions.get('a')!.slot,0);
+  assert.equal(original.slot,1);
+  original.update(10000);
+  assert.deepEqual(original.position,original.stationPoint(b.zone));
+  assert.equal(original.atStation(b.zone),true);
+  assert.equal(new Set([...motions.values()].map(motion=>motion.slot)).size,2);
+});
+
+test('LIVE roster [a,b] to [b] frees slot zero and removes the departed motion', () => {
+  const a={...liveAgent,id:'a',zone:'QA_LAB' as const};
+  const b={...liveAgent,id:'b',zone:'QA_LAB' as const};
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([a,b],motions,true);
+  const original=motions.get('b')!;
+  syncAgentMotions([b],motions,true);
+  assert.equal(motions.has('a'),false);
+  assert.equal(motions.get('b'),original);
+  assert.equal(original.slot,0);
+  original.update(10000);
+  assert.deepEqual(original.position,original.stationPoint(b.zone));
+});
+
+for(const status of ['BLOCKED','FAILED','QUARANTINED'] as const) {
+  test(`${status} LIVE agent takes its new slot immediately without walking`, () => {
+    const a={...liveAgent,id:'a',zone:'RESEARCH_LAB' as const};
+    const b={...liveAgent,id:'b',zone:'RESEARCH_LAB' as const,status};
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions([b],motions,true);
+    const original=motions.get('b')!;
+    const oldPosition={...original.position};
+    syncAgentMotions([b,a],motions,true);
+    assert.equal(motions.get('b'),original);
+    assert.deepEqual([motions.get('a')!.slot,original.slot],[0,1]);
+    assert.notDeepEqual(original.position,oldPosition);
+    assert.deepEqual(original.position,original.stationPoint('RESEARCH_LAB'));
+    assert.notDeepEqual(original.position,motions.get('a')!.position);
+    assert.equal(original.walking,false);
+    assert.equal(stationLightKey(b,original,true),'RESEARCH_LAB:1');
+    const settled={...original.position};
+    original.update(10000);
+    assert.deepEqual(original.position,settled);
+    original.sync({...b,status:'RUNNING'});
+    assert.equal(original.walking,false,'no impossible route remains after the immobile correction');
+  });
+}
+
+test('immobile LIVE agent returns to the freed slot on [a,b] to [b]', () => {
+  const a={...liveAgent,id:'a',zone:'QA_LAB' as const};
+  const b={...liveAgent,id:'b',zone:'QA_LAB' as const,status:'BLOCKED' as const};
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([a,b],motions,true);
+  const original=motions.get('b')!;
+  assert.equal(original.slot,1);
+  syncAgentMotions([b],motions,true);
+  assert.equal(motions.has('a'),false);
+  assert.equal(original.slot,0);
+  assert.deepEqual(original.position,original.stationPoint('QA_LAB'));
+  assert.equal(original.walking,false);
+  original.update(10000);
+  assert.deepEqual(original.position,original.stationPoint('QA_LAB'));
+});
+
+test('immobile LIVE agent from another current zone keeps its position until recovery', () => {
+  const a={...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
+  const b={...liveAgent,id:'b',zone:'QA_LAB' as const,destinationZone:'RESEARCH_LAB' as const,status:'FAILED' as const};
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([b],motions,true);
+  assert.deepEqual(motions.get('b')!.position,zones.QA_LAB.workPoints[0]);
+  syncAgentMotions([b,a],motions,true);
+  const failed=motions.get('b')!;
+  assert.equal(failed.slot,1);
+  assert.deepEqual(failed.position,zones.QA_LAB.workPoints[0]);
+  assert.equal(failed.walking,false);
+  failed.update(10000);
+  assert.deepEqual(failed.position,zones.QA_LAB.workPoints[0]);
+  motions.get('a')!.update(10000);
+  assert.deepEqual(motions.get('a')!.position,motions.get('a')!.stationPoint('RESEARCH_LAB'));
+  failed.sync({...b,status:'RUNNING'});
+  failed.update(10000);
+  assert.deepEqual(failed.position,failed.stationPoint('RESEARCH_LAB'));
+  assert.notDeepEqual(failed.position,motions.get('a')!.position);
+});
+
+test('immobile LIVE agent repositions to an overflow slot without a nonexistent station light', () => {
+  const blocked={...liveAgent,id:'z',zone:'RESEARCH_LAB' as const,status:'QUARANTINED' as const};
+  const others=Array.from({length:5},(_,index)=>({...liveAgent,id:String.fromCharCode(97+index),zone:'RESEARCH_LAB' as const}));
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([blocked],motions,true);
+  syncAgentMotions([blocked,...others],motions,true);
+  const isolated=motions.get('z')!;
+  assert.equal(isolated.slot,5);
+  assert.deepEqual(isolated.position,isolated.stationPoint('RESEARCH_LAB'));
+  assert.equal(isolated.walking,false);
+  assert.equal(stationLightKey(blocked,isolated,true),undefined);
+  const points=[...motions.values()].map(motion=>`${motion.position.x}:${motion.position.y}`);
+  assert.equal(new Set(points).size,6);
+});
+
+for(const status of ['RUNNING','READY'] as const) {
+  test(`${status} LIVE agent keeps the normal animated slot transition`, () => {
+    const a={...liveAgent,id:'a',zone:'RESEARCH_LAB' as const};
+    const b={...liveAgent,id:'b',zone:'RESEARCH_LAB' as const,status};
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions([b],motions,true);
+    const original=motions.get('b')!;
+    const start={...original.position};
+    syncAgentMotions([a,b],motions,true);
+    assert.deepEqual(original.position,start,'movable agents must not teleport');
+    assert.equal(original.walking,true);
+    original.update(10000);
+    assert.deepEqual(original.position,original.stationPoint('RESEARCH_LAB'));
+    assert.equal(original.walking,false);
+  });
+}
+
+test('immobile LIVE roster ordering and reset produce identical unique final positions', () => {
+  const agents=[
+    {...liveAgent,id:'c',zone:'QA_LAB' as const,destinationZone:'RESEARCH_LAB' as const,status:'FAILED' as const},
+    {...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'b',zone:'RESEARCH_LAB' as const,status:'BLOCKED' as const},
+  ];
+  const replay=(input:typeof agents)=>{
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions([agents[2],agents[0]],motions,true);
+    syncAgentMotions(input,motions,true);
+    for(const motion of motions.values()) motion.update(10000);
+    const result=agents.map(agent=>({id:agent.id,slot:motions.get(agent.id)!.slot,position:motions.get(agent.id)!.position}));
+    assert.equal(new Set(result.map(value=>`${value.position.x}:${value.position.y}`)).size,result.length);
+    return result;
+  };
+  const first=replay(agents);
+  assert.deepEqual(replay([...agents].reverse()),first);
+  assert.deepEqual(replay(agents),first);
+});
+
+for(const status of ['BLOCKED','FAILED','QUARANTINED'] as const) {
+  test(`in-flight LIVE agent pauses at its real position on ${status} plus a slot change`, () => {
+    const incoming={...liveAgent,id:'a',zone:'RESEARCH_LAB' as const};
+    const moving={...liveAgent,id:'b',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions([moving],motions,true);
+    const motion=motions.get('b')!;
+    motion.update(350);
+    const midpoint={...motion.position};
+    assert.equal(motion.walking,true);
+    const stopped={...moving,status};
+    syncAgentMotions([stopped,incoming],motions,true);
+    assert.equal(motion.slot,1);
+    assert.deepEqual(motion.position,midpoint,'in-flight agents must not teleport');
+    assert.equal(motion.atStation('RESEARCH_LAB'),false);
+    assert.equal(motion.walking,false);
+    motion.update(10000);
+    assert.deepEqual(motion.position,midpoint,'immobile agents must stay stopped');
+    motion.sync({...moving,status:'RUNNING'});
+    assert.equal(motion.walking,true,'the original route must remain available on recovery');
+    motion.update(10000);
+    assert.deepEqual(motion.position,motion.stationPoint('RESEARCH_LAB'));
+    assert.notDeepEqual(motion.position,motions.get('a')!.position);
+  });
+}
+
+test('in-flight overflow keeps its position and resumes toward a unique deterministic endpoint', () => {
+  const moving={...liveAgent,id:'z',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
+  const residents=Array.from({length:5},(_,index)=>({...liveAgent,id:String.fromCharCode(97+index),zone:'RESEARCH_LAB' as const}));
+  const replay=()=>{
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions([moving],motions,true);
+    const motion=motions.get('z')!;
+    motion.update(350);
+    const midpoint={...motion.position};
+    syncAgentMotions([...residents,{...moving,status:'BLOCKED' as const}],motions,true);
+    assert.equal(motion.slot,5);
+    assert.deepEqual(motion.position,midpoint);
+    assert.equal(motion.atStation('RESEARCH_LAB'),false);
+    assert.equal(stationLightKey(moving,motion,true),undefined);
+    motion.update(10000);
+    assert.deepEqual(motion.position,midpoint);
+    motion.sync(moving);
+    motion.update(10000);
+    const positions=[...motions.values()].map(item=>`${item.position.x}:${item.position.y}`);
+    assert.equal(new Set(positions).size,positions.length);
+    return {slot:motion.slot,position:motion.position,positions};
+  };
+  assert.deepEqual(replay(),replay());
+});
+
+test('LIVE slots are unique per zone and independent of input order', () => {
+  const agents=[
+    {...liveAgent,id:'b',zone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'a',zone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'d',zone:'QA_LAB' as const},
+    {...liveAgent,id:'c',zone:'QA_LAB' as const},
+  ];
+  const snapshot=(input:typeof agents)=>{
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions(input,motions,true);
+    return Object.fromEntries([...motions].sort(([a],[b])=>a.localeCompare(b)).map(([id,motion])=>[id,{slot:motion.slot,station:motion.stationPoint(agents.find(agent=>agent.id===id)!.zone)}]));
+  };
+  assert.deepEqual(snapshot(agents),snapshot([...agents].reverse()));
+  assert.deepEqual(Object.fromEntries(Object.entries(snapshot(agents)).map(([id,value])=>[id,value.slot])),{a:0,b:1,c:0,d:1});
+  for (const zone of ['RESEARCH_LAB','QA_LAB'] as const) {
+    const slots=agents.filter(agent=>agent.zone===zone).map(agent=>snapshot(agents)[agent.id].slot);
+    assert.equal(new Set(slots).size,slots.length);
+  }
+});
+
+test('slot reassignment preserves an in-flight route and MOCK keeps its input-order slots', () => {
+  const a={...liveAgent,id:'a',zone:'RESEARCH_LAB' as const};
+  const b={...liveAgent,id:'b',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([b],motions,true);
+  const moving=motions.get('b')!;
+  moving.update(250);
+  syncAgentMotions([a,{...b,zone:'RESEARCH_LAB' as const}],motions,true);
+  assert.equal(moving.slot,1);
+  moving.update(10000);
+  assert.deepEqual(moving.position,moving.stationPoint('RESEARCH_LAB'));
+  const mockMotions=new Map<string,AgentMotion>();
+  const mockOrder=[mockAgents[1],mockAgents[0]];
+  syncAgentMotions(mockOrder,mockMotions,false);
+  assert.deepEqual(mockOrder.map(agent=>mockMotions.get(agent.id)!.slot),[0,1]);
+  assert.deepEqual(mockMotions.get(mockOrder[0].id)!.position,new AgentMotion(mockOrder[0],0).position);
+});
+
+test('LIVE roster replay after reset assigns the same slots and station positions', () => {
+  const a={...liveAgent,id:'a',zone:'RESEARCH_LAB' as const};
+  const b={...liveAgent,id:'b',zone:'RESEARCH_LAB' as const};
+  const run=()=>{
+    const motions=new Map<string,AgentMotion>();
+    for(const roster of [[b],[a,b],[b]]) {
+      syncAgentMotions(roster,motions,true);
+      for(const motion of motions.values()) motion.update(10000);
+    }
+    return [...motions].map(([id,motion])=>({id,slot:motion.slot,position:motion.position}));
+  };
+  assert.deepEqual(run(),run());
+});
+
+test('LIVE agents from two origin zones reserve different slots in one destination', () => {
+  const a={...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
+  const b={...liveAgent,id:'b',zone:'QA_LAB' as const,destinationZone:'RESEARCH_LAB' as const};
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([b,a],motions,true);
+  assert.deepEqual([motions.get('a')!.slot,motions.get('b')!.slot],[0,1]);
+  assert.deepEqual(motions.get('a')!.position,zones.WAR_ROOM.workPoints[0]);
+  assert.deepEqual(motions.get('b')!.position,zones.QA_LAB.workPoints[0]);
+  for(const motion of motions.values()) motion.update(10000);
+  assert.notDeepEqual(motions.get('a')!.position,motions.get('b')!.position);
+  assert.deepEqual(motions.get('a')!.position,motions.get('a')!.stationPoint('RESEARCH_LAB'));
+  assert.deepEqual(motions.get('b')!.position,motions.get('b')!.stationPoint('RESEARCH_LAB'));
+  assert.equal(stationLightKey(a,motions.get('a')!,true),'RESEARCH_LAB:0');
+  assert.equal(stationLightKey(b,motions.get('b')!,true),'RESEARCH_LAB:1');
+});
+
+test('a LIVE resident moves to its reserved destination slot when an incoming agent sorts first', () => {
+  const incoming={...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const};
+  const resident={...liveAgent,id:'b',zone:'RESEARCH_LAB' as const};
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions([resident,incoming],motions,true);
+  const stationed=motions.get('b')!;
+  assert.equal(stationed.slot,1);
+  assert.equal(stationed.atStation('RESEARCH_LAB'),false);
+  stationed.update(10000);
+  assert.deepEqual(stationed.position,stationed.stationPoint('RESEARCH_LAB'));
+  assert.equal(stationLightKey(resident,stationed,true),'RESEARCH_LAB:1');
+  motions.get('a')!.update(10000);
+  assert.notDeepEqual(stationed.position,motions.get('a')!.position);
+});
+
+test('three LIVE origins sharing a destination have unique target slots and station lights', () => {
+  const agents=[
+    {...liveAgent,id:'c',zone:'GITHUB_HUB' as const,destinationZone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'b',zone:'QA_LAB' as const,destinationZone:'RESEARCH_LAB' as const},
+  ];
+  const motions=new Map<string,AgentMotion>();
+  syncAgentMotions(agents,motions,true);
+  assert.deepEqual(['a','b','c'].map(id=>motions.get(id)!.slot),[0,1,2]);
+  for(const motion of motions.values()) motion.update(10000);
+  const keys=agents.map(agent=>stationLightKey(agent,motions.get(agent.id)!,true));
+  assert.equal(new Set(keys).size,3);
+  assert.deepEqual(new Set(keys),new Set(['RESEARCH_LAB:0','RESEARCH_LAB:1','RESEARCH_LAB:2']));
+});
+
+test('LIVE destination slots are independent across zones and input order', () => {
+  const agents=[
+    {...liveAgent,id:'d',zone:'WAR_ROOM' as const,destinationZone:'QA_LAB' as const},
+    {...liveAgent,id:'b',zone:'GITHUB_HUB' as const,destinationZone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'c',zone:'PUBLISHING' as const,destinationZone:'QA_LAB' as const},
+  ];
+  const snapshot=(input:typeof agents)=>{
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions(input,motions,true);
+    return Object.fromEntries([...motions].map(([id,motion])=>[id,motion.slot]).sort(([a],[b])=>a.localeCompare(b)));
+  };
+  assert.deepEqual(snapshot(agents),snapshot([...agents].reverse()));
+  assert.deepEqual(snapshot(agents),{a:0,b:1,c:0,d:1});
+  for(const destination of ['RESEARCH_LAB','QA_LAB']) {
+    const slots=agents.filter(agent=>agent.destinationZone===destination).map(agent=>snapshot(agents)[agent.id]);
+    assert.equal(new Set(slots).size,slots.length);
+  }
+});
+
+test('LIVE destination slot replay after reset is deterministic and MOCK retains current-zone placement', () => {
+  const agents=[
+    {...liveAgent,id:'b',zone:'QA_LAB' as const,destinationZone:'RESEARCH_LAB' as const},
+    {...liveAgent,id:'a',zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const},
+  ];
+  const run=()=>{
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions(agents,motions,true);
+    for(const motion of motions.values()) motion.update(10000);
+    return [...motions].map(([id,motion])=>({id,slot:motion.slot,position:motion.position}));
+  };
+  assert.deepEqual(run(),run());
+  const mockMotions=new Map<string,AgentMotion>();
+  syncAgentMotions(agents,mockMotions,false);
+  assert.deepEqual(agents.map(agent=>mockMotions.get(agent.id)!.slot),[0,0]);
+  assert.equal(stationLightKey(agents[0],mockMotions.get('b')!,false),undefined);
+});
+
+test('five and six LIVE agents in a normal zone have unique deterministic positions', () => {
+  const agents=Array.from({length:6},(_,index)=>({...liveAgent,id:`normal-${index}`,zone:'RESEARCH_LAB' as const}));
+  const positions=(input:typeof agents)=>{
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions(input,motions,true);
+    for(const motion of motions.values()) motion.update(10000);
+    return agents.slice(0,input.length).map(agent=>motions.get(agent.id)!.position);
+  };
+  for(const count of [5,6]) {
+    const expected=positions(agents.slice(0,count));
+    assert.equal(new Set(expected.map(point=>`${point.x}:${point.y}`)).size,count);
+    assert.deepEqual(positions([...agents.slice(0,count)].reverse()),expected);
+    assert.deepEqual(positions(agents.slice(0,count)),expected,'reset must replay identically');
+  }
+});
+
+test('three and four LIVE agents in Supermemory Core have unique overflow positions', () => {
+  const agents=Array.from({length:4},(_,index)=>({...liveAgent,id:`core-${index}`,zone:'SUPERMEMORY_CORE' as const}));
+  for(const count of [3,4]) {
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions(agents.slice(0,count).reverse(),motions,true);
+    for(const motion of motions.values()) motion.update(10000);
+    const points=agents.slice(0,count).map(agent=>motions.get(agent.id)!.position);
+    assert.equal(new Set(points.map(point=>`${point.x}:${point.y}`)).size,count);
+    assert.deepEqual(points,agents.slice(0,count).map((agent,slot)=>new AgentMotion(agent,slot).position));
+  }
+});
+
+test('mixed LIVE destinations keep independent slots and never reference absent station lights', () => {
+  const agents=[
+    ...Array.from({length:6},(_,index)=>({...liveAgent,id:`research-${index}`,zone:'WAR_ROOM' as const,destinationZone:'RESEARCH_LAB' as const})),
+    ...Array.from({length:4},(_,index)=>({...liveAgent,id:`core-${index}`,zone:'QA_LAB' as const,destinationZone:'SUPERMEMORY_CORE' as const})),
+  ];
+  const lightKeys=new Set(zoneOrder.flatMap(zone=>Array.from({length:stationCapacity(zone)},(_,slot)=>`${zone}:${slot}`)));
+  const run=(input:typeof agents)=>{
+    const motions=new Map<string,AgentMotion>();
+    syncAgentMotions(input,motions,true);
+    for(const motion of motions.values()) motion.update(10000);
+    return agents.map(agent=>{
+      const motion=motions.get(agent.id)!;
+      const key=stationLightKey(agent,motion,true);
+      assert.ok(key===undefined || lightKeys.has(key));
+      assert.equal(key===undefined,motion.slot>=stationCapacity(agent.destinationZone));
+      return {id:agent.id,slot:motion.slot,position:motion.position,key};
+    });
+  };
+  const first=run(agents);
+  assert.deepEqual(run([...agents].reverse()),first);
+  assert.deepEqual(run(agents),first);
+  for(const zone of ['RESEARCH_LAB','SUPERMEMORY_CORE'] as const) {
+    const group=first.filter(value=>agents.find(agent=>agent.id===value.id)!.destinationZone===zone);
+    assert.equal(new Set(group.map(value=>value.slot)).size,group.length);
+    assert.equal(new Set(group.map(value=>`${value.position.x}:${value.position.y}`)).size,group.length);
+  }
+});
+
+test('canonical live agent and task snapshots preserve real IDs, status and optional fields', () => {
+  const agents=normalizeLiveAgents([liveAgent]);
+  const tasks=normalizeLiveTasks([liveTask]);
+  assert.equal(agents[0].id,'agent-01');
+  assert.equal(agents[0].status,'RUNNING');
+  assert.equal(agents[0].lastEventAt,'2026-01-02T03:04:05+02:00');
+  assert.equal(tasks[0].id,'task-01');
+  assert.equal(tasks[0].ownerAgentId,'agent-01');
+  const minimalAgent={id:'agent-min',displayName:'Agent',role:'Observer',status:'IDLE',zone:'WAR_ROOM',
+    capabilities:[],securityState:'READ_ONLY'};
+  const minimalTask={id:'task-min',title:'Observed task',status:'open'};
+  assert.equal(normalizeLiveAgents([minimalAgent])[0].currentTaskId,undefined);
+  assert.equal(normalizeLiveTasks([minimalTask])[0].dependsOn,undefined);
+});
+
+test('LIVE roster accepts its exact bound, empty and small feeds, and retains ID ordering', () => {
+  const roster=Array.from({length:MAX_LIVE_AGENTS},(_,index)=>({...liveAgent,id:`agent-${String(index).padStart(2,'0')}`}));
+  const expected=roster.map(agent=>agent.id);
+  assert.equal(MAX_LIVE_AGENTS,32);
+  assert.deepEqual(normalizeLiveAgents([...roster].reverse()).map(agent=>agent.id),expected);
+  assert.deepEqual(normalizeLiveAgents(roster).map(agent=>agent.id),expected);
+  assert.deepEqual(normalizeLiveAgents([]),[]);
+  assert.deepEqual(normalizeLiveAgents([liveAgent]).map(agent=>agent.id),['agent-01']);
+});
+
+test('oversized LIVE roster is rejected before visiting agent records without exposing source data', () => {
+  const roster=Array.from({length:MAX_LIVE_AGENTS+1},(_,index)=>({...liveAgent,id:`agent-${index}`}));
+  Object.defineProperty(roster,0,{get(){throw new Error('source-private-payload-marker');}});
+  assert.throws(()=>normalizeLiveAgents(roster),error=>{
+    assert.ok(error instanceof Error);
+    assert.match(error.message,/Live agent roster exceeds maximum/);
+    assert.equal(error.message.includes('source-private-payload-marker'),false);
+    return true;
+  });
+});
+
+test('oversized LIVE refresh degrades atomically, never falls back to MOCK, then recovers', async () => {
+  const valid=[liveAgent];
+  let roster=[...valid];
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED' as const,lastSuccessfulRead:'2026-01-02T01:04:10Z'};},
+    async readAgents(){return roster;},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return [liveEvent];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  const first=store.getSnapshot();
+  assert.equal(first.sourceHealth.connection,'CONNECTED');
+  assert.deepEqual(Object.keys(first.agents),['agent-01']);
+  roster=Array.from({length:MAX_LIVE_AGENTS+1},(_,index)=>({...liveAgent,id:`oversized-${index}`}));
+  await store.refreshLive();
+  const rejected=store.getSnapshot();
+  assert.equal(rejected.mode,'LIVE_READ_ONLY');
+  assert.equal(rejected.mockMode,false);
+  assert.equal(rejected.sourceHealth.connection,'DEGRADED');
+  assert.equal(rejected.sourceHealth.agentsLoaded,0);
+  assert.equal(rejected.sourceHealth.tasksLoaded,0);
+  assert.equal(rejected.sourceHealth.eventsLoaded,0);
+  assert.deepEqual(rejected.agents,{});
+  assert.deepEqual(rejected.tasks,{});
+  assert.deepEqual(rejected.events,[]);
+  assert.equal(rejected.sourceHealth.message?.includes('oversized-'),false);
+  roster=[...valid];
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot(),first);
+  store.stop();
+});
+
+test('LIVE task and dependency limits accept exact bounds and retain deterministic ordering', () => {
+  const tasks=Array.from({length:MAX_LIVE_TASKS},(_,index)=>({...liveTask,id:`task-${String(index).padStart(3,'0')}`}));
+  const ids=tasks.map(task=>task.id);
+  assert.equal(MAX_LIVE_TASKS,256);
+  assert.equal(MAX_TASK_DEPENDENCIES,32);
+  assert.deepEqual(normalizeLiveTasks([...tasks].reverse()).map(task=>task.id),ids);
+  assert.deepEqual(normalizeLiveTasks(tasks).map(task=>task.id),ids);
+  const dependencies=Array.from({length:MAX_TASK_DEPENDENCIES},(_,index)=>`dependency-${index}`);
+  assert.deepEqual(normalizeLiveTasks([{...liveTask,dependsOn:dependencies}])[0].dependsOn,dependencies);
+  assert.deepEqual(normalizeLiveTasks([{...liveTask,dependsOn:[]}])[0].dependsOn,[]);
+  assert.deepEqual(normalizeLiveTasks([liveTask]).map(task=>task.id),['task-01']);
+  assert.deepEqual(normalizeLiveTasks([]),[]);
+});
+
+test('oversized LIVE task ledger is rejected before visiting any task or leaking its data', () => {
+  const tasks=Array.from({length:MAX_LIVE_TASKS+1},(_,index)=>({...liveTask,id:`task-${index}`}));
+  Object.defineProperty(tasks,0,{get(){throw new Error('source-private-task-marker');}});
+  assert.throws(()=>normalizeLiveTasks(tasks),error=>{
+    assert.ok(error instanceof Error);
+    assert.match(error.message,/Live task collection exceeds maximum/);
+    assert.equal(error.message.includes('source-private-task-marker'),false);
+    return true;
+  });
+});
+
+test('oversized task dependencies are rejected before visiting IDs or later tasks', () => {
+  const dependencies=Array.from({length:MAX_TASK_DEPENDENCIES+1},(_,index)=>`dependency-${index}`);
+  Object.defineProperty(dependencies,0,{get(){throw new Error('source-private-dependency-marker');}});
+  const tasks=[{...liveTask,dependsOn:dependencies},{...liveTask,id:'later-task'}];
+  Object.defineProperty(tasks,1,{get(){throw new Error('later-task-was-mapped');}});
+  assert.throws(()=>normalizeLiveTasks(tasks),error=>{
+    assert.ok(error instanceof Error);
+    assert.match(error.message,/Task dependency collection exceeds maximum/);
+    assert.equal(error.message.includes('source-private-dependency-marker'),false);
+    assert.equal(error.message.includes('later-task-was-mapped'),false);
+    return true;
+  });
+});
+
+test('oversized task collections degrade the entire LIVE snapshot and a valid feed recovers', async () => {
+  let tasks:unknown=[liveTask];
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED' as const,lastSuccessfulRead:'2026-01-02T01:04:10Z'};},
+    async readAgents(){return [liveAgent];},
+    async readTasks(){return tasks;},
+    async readEvents(){return [liveEvent];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  const valid=store.getSnapshot();
+  assert.equal(valid.sourceHealth.connection,'CONNECTED');
+  const oversizedTasks=Array.from({length:MAX_LIVE_TASKS+1},(_,index)=>({...liveTask,id:`task-${index}`}));
+  const oversizedDependencies=[{...liveTask,dependsOn:Array.from({length:MAX_TASK_DEPENDENCIES+1},(_,index)=>`dependency-${index}`)}];
+  for(const invalid of [oversizedTasks,oversizedDependencies]) {
+    tasks=invalid;
+    await store.refreshLive();
+    const rejected=store.getSnapshot();
+    assert.equal(rejected.mode,'LIVE_READ_ONLY');
+    assert.equal(rejected.mockMode,false);
+    assert.equal(rejected.sourceHealth.connection,'DEGRADED');
+    assert.equal(rejected.sourceHealth.agentsLoaded,0);
+    assert.equal(rejected.sourceHealth.tasksLoaded,0);
+    assert.equal(rejected.sourceHealth.eventsLoaded,0);
+    assert.deepEqual(rejected.agents,{});
+    assert.deepEqual(rejected.tasks,{});
+    assert.deepEqual(rejected.events,[]);
+    assert.equal(rejected.sourceHealth.message?.includes('dependency-'),false);
+    tasks=[liveTask];
+    await store.refreshLive();
+    assert.deepEqual(store.getSnapshot(),valid);
+  }
+  store.stop();
+});
+
+test('LIVE event input accepts its exact bound with deterministic ordering', () => {
+  const events=Array.from({length:MAX_LIVE_SOURCE_EVENTS},(_,index)=>({...liveEvent,id:`event-${String(index).padStart(4,'0')}`,
+    timestamp:`2026-01-02T01:${String(Math.floor(index/60)).padStart(2,'0')}:${String(index%60).padStart(2,'0')}Z`}));
+  assert.equal(MAX_LIVE_SOURCE_EVENTS,1000);
+  const expected=events.map(event=>event.id).reverse();
+  assert.deepEqual(normalizeLiveEvents(events).map(event=>event.id),expected);
+  assert.deepEqual(normalizeLiveEvents([...events].reverse()).map(event=>event.id),expected);
+  assert.deepEqual(normalizeLiveEvents([]),[]);
+});
+
+test('oversized LIVE event input is rejected before visiting or sorting source records', () => {
+  const events=Array.from({length:MAX_LIVE_SOURCE_EVENTS+1},(_,index)=>({...liveEvent,id:`event-${index}`}));
+  Object.defineProperty(events,0,{get(){throw new Error('source-private-event-marker');}});
+  assert.throws(()=>normalizeLiveEvents(events),error=>{
+    assert.ok(error instanceof Error);
+    assert.match(error.message,/Live event collection exceeds maximum/);
+    assert.equal(error.message.includes('source-private-event-marker'),false);
+    return true;
+  });
+});
+
+test('oversized event feed clears LIVE projection and a valid feed restores the 80-event window', async () => {
+  const valid=Array.from({length:82},(_,index)=>({...liveEvent,id:`event-${index}`,
+    timestamp:`2026-01-02T01:01:${String(index%60).padStart(2,'0')}.${String(index).padStart(4,'0')}Z`}));
+  let feed=valid;
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED' as const,lastSuccessfulRead:'2026-01-02T01:04:10Z'};},
+    async readAgents(){return [liveAgent];},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return feed;},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  const first=store.getSnapshot();
+  assert.equal(first.sourceHealth.connection,'CONNECTED');
+  assert.equal(first.sourceHealth.eventsLoaded,82);
+  assert.equal(first.events.length,80);
+  assert.equal(first.sourceHealth.lastSourceEvent,normalizeLiveEvents(valid)[0].timestamp);
+  feed=Array.from({length:MAX_LIVE_SOURCE_EVENTS+1},(_,index)=>({...liveEvent,id:`oversized-${index}`}));
+  await store.refreshLive();
+  const rejected=store.getSnapshot();
+  assert.equal(rejected.mode,'LIVE_READ_ONLY');
+  assert.equal(rejected.mockMode,false);
+  assert.equal(rejected.sourceHealth.connection,'DEGRADED');
+  assert.equal(rejected.sourceHealth.eventsLoaded,0);
+  assert.deepEqual(rejected.events,[]);
+  assert.deepEqual(rejected.agents,{});
+  assert.deepEqual(rejected.tasks,{});
+  assert.equal(rejected.sourceHealth.message?.includes('oversized-'),false);
+  feed=valid;
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot(),first);
+  store.stop();
+});
+
+test('LIVE agent capabilities accept the exact bound without truncation and remain deterministic', () => {
+  const capabilities=Array.from({length:MAX_AGENT_CAPABILITIES},(_,index)=>`capability-${index}`);
+  assert.equal(MAX_AGENT_CAPABILITIES,32);
+  const agents=[{...liveAgent,id:'b',capabilities},{...liveAgent,id:'a',capabilities:[]}];
+  const expected=normalizeLiveAgents(agents);
+  assert.deepEqual(expected.map(agent=>agent.id),['a','b']);
+  assert.deepEqual(expected[0].capabilities,[]);
+  assert.deepEqual(expected[1].capabilities,capabilities);
+  assert.deepEqual(normalizeLiveAgents([...agents].reverse()),expected);
+});
+
+test('oversized agent capabilities are rejected before visiting any capability value', () => {
+  const capabilities=Array.from({length:MAX_AGENT_CAPABILITIES+1},(_,index)=>`capability-${index}`);
+  Object.defineProperty(capabilities,0,{get(){throw new Error('source-private-capability-marker');}});
+  assert.throws(()=>normalizeLiveAgents([{...liveAgent,capabilities}]),error=>{
+    assert.ok(error instanceof Error);
+    assert.match(error.message,/Agent capability collection exceeds maximum/);
+    assert.equal(error.message.includes('source-private-capability-marker'),false);
+    return true;
+  });
+});
+
+test('one oversized capability list invalidates the full LIVE snapshot and valid detail recovers', async () => {
+  const capabilities=Array.from({length:MAX_AGENT_CAPABILITIES},(_,index)=>`capability-${index}`);
+  const valid=[{...liveAgent,id:'a',capabilities}, {...liveAgent,id:'b',capabilities:[]}];
+  let agents=valid;
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED' as const,lastSuccessfulRead:'2026-01-02T01:04:10Z'};},
+    async readAgents(){return agents;},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return [liveEvent];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  const first=store.getSnapshot();
+  assert.deepEqual(first.agents.a.capabilities,capabilities);
+  agents=[valid[0],{...valid[1],capabilities:[...capabilities,'extra']}];
+  await store.refreshLive();
+  const rejected=store.getSnapshot();
+  assert.equal(rejected.mode,'LIVE_READ_ONLY');
+  assert.equal(rejected.mockMode,false);
+  assert.equal(rejected.sourceHealth.connection,'DEGRADED');
+  assert.equal(rejected.sourceHealth.agentsLoaded,0);
+  assert.deepEqual(rejected.agents,{});
+  assert.deepEqual(rejected.tasks,{});
+  assert.deepEqual(rejected.events,[]);
+  assert.equal(rejected.sourceHealth.message?.includes('capability-'),false);
+  agents=valid;
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot(),first);
+  store.stop();
+});
+
+test('canonical live events retain source timestamps, deduplicate and order stably', (t) => {
+  const clock=t.mock.method(Date,'now',()=>987654321);
+  const later={...liveEvent,id:'event-02',timestamp:'2026-01-02T03:04:06+02:00'};
+  const first=normalizeLiveEvents([liveEvent,later,{...liveEvent}]);
+  const second=normalizeLiveEvents([later,{...liveEvent},liveEvent]);
+  assert.deepEqual(first,second);
+  assert.deepEqual(first.map(event=>event.id),['event-02','event-01']);
+  assert.equal(first[1].timestamp,liveEvent.timestamp);
+  assert.equal(clock.mock.callCount(),0);
+  assert.equal(first[1].payload,undefined,'unreviewed payloads must not enter the renderer');
+});
+
+test('canonical event ordering preserves sub-millisecond precision and true ties use ID', () => {
+  const early={...liveEvent,id:'a-early',timestamp:'2026-10-15T10:00:00.0001Z'};
+  const late={...liveEvent,id:'z-late',timestamp:'2026-10-15T10:00:00.0009Z'};
+  assert.deepEqual(normalizeLiveEvents([early,late]).map(event=>event.id),['z-late','a-early']);
+  assert.deepEqual(normalizeLiveEvents([late,early]).map(event=>event.id),['z-late','a-early']);
+  const equalA={...liveEvent,id:'a-tie',timestamp:'2026-10-15T10:00:00.1Z'};
+  const equalB={...liveEvent,id:'b-tie',timestamp:'2026-10-15T12:00:00.100+02:00'};
+  assert.deepEqual(normalizeLiveEvents([equalB,equalA]).map(event=>event.id),['a-tie','b-tie']);
+  assert.deepEqual(normalizeLiveEvents([equalA,equalB]).map(event=>event.id),['a-tie','b-tie']);
+  assert.deepEqual(normalizeLiveEvents([
+    {...liveEvent,id:'millis',timestamp:'2026-10-15T10:00:00.123Z'},
+    {...liveEvent,id:'offset',timestamp:'2026-10-15T12:00:00.124+02:00'},
+  ]).map(event=>event.id),['offset','millis']);
+  assert.throws(()=>normalizeLiveEvents([{...early,timestamp:'2026-02-30T10:00:00.0001Z'}]));
+});
+
+test('LIVE Source Health and the 80-event window use full fractional precision', async () => {
+  const older=Array.from({length:79},(_,index)=>({...liveEvent,id:`older-${String(index).padStart(2,'0')}`,
+    timestamp:`2026-10-15T09:${String(index%60).padStart(2,'0')}:00Z`}));
+  const early={...liveEvent,id:'a-early',timestamp:'2026-10-15T10:00:00.0001Z'};
+  const late={...liveEvent,id:'z-late',timestamp:'2026-10-15T10:00:00.0009Z'};
+  let feed=[...older,early,late];
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED',lastSuccessfulRead:'2026-10-15T10:00:01Z'};},
+    async readAgents(){return [liveAgent];},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return feed;},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  const first=store.getSnapshot();
+  assert.equal(first.sourceHealth.lastSourceEvent,late.timestamp);
+  assert.equal(first.sourceHealth.eventsLoaded,81);
+  assert.equal(first.events.length,80);
+  assert.deepEqual(first.events.slice(0,2).map(event=>event.id),['z-late','a-early']);
+  feed=[...feed].reverse();
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot(),first);
+  store.stop();
+
+  const boundaryFeed=[...Array.from({length:79},(_,index)=>({...liveEvent,id:`newer-${index}`,
+    timestamp:`2026-10-15T10:${String(Math.floor((index+1)/60)).padStart(2,'0')}:${String((index+1)%60).padStart(2,'0')}Z`})),early,late];
+  const sorted=normalizeLiveEvents(boundaryFeed).slice(0,80);
+  assert.equal(sorted.some(event=>event.id==='z-late'),true);
+  assert.equal(sorted.some(event=>event.id==='a-early'),false);
+});
+
+test('canonical timestamps reject impossible calendar dates and out-of-range clock fields', () => {
+  const invalid=[
+    '2026-02-30T03:04:05Z','2026-04-31T03:04:05Z','2025-02-29T03:04:05Z',
+    '2026-00-01T03:04:05Z','2026-13-01T03:04:05Z','2026-01-00T03:04:05Z',
+    '2026-01-01T24:04:05Z','2026-01-01T03:60:05Z','2026-01-01T03:04:60Z',
+    '2026-01-01T03:04:05+24:00','2026-01-01T03:04:05+02:60',
+  ];
+  for(const value of invalid) {
+    assert.throws(()=>normalizeLiveEvents([{...liveEvent,timestamp:value}]),undefined,value);
+    assert.throws(()=>normalizeLiveAgents([{...liveAgent,lastEventAt:value}]),undefined,value);
+  }
+});
+
+test('canonical timestamps accept valid leap days and preserve the exact source representation', () => {
+  for(const value of ['2026-01-02T03:04:05+02:00','2024-02-29T23:59:59.123Z']) {
+    assert.equal(normalizeLiveEvents([{...liveEvent,timestamp:value}])[0].timestamp,value);
+    assert.equal(normalizeLiveAgents([{...liveAgent,lastEventAt:value}])[0].lastEventAt,value);
+  }
+  const earlier={...liveEvent,id:'event-earlier',timestamp:'2024-02-29T23:59:59Z'};
+  const later={...liveEvent,id:'event-later',timestamp:'2024-03-01T00:00:00Z'};
+  assert.deepEqual(normalizeLiveEvents([earlier,later,earlier]).map(event=>event.id),['event-later','event-earlier']);
+  assert.deepEqual(normalizeLiveEvents([later,earlier,earlier]).map(event=>event.id),['event-later','event-earlier']);
+});
+
+test('canonical live boundary rejects malformed records, unknown events and conflicting IDs', () => {
+  assert.throws(()=>normalizeLiveAgents([{...liveAgent,id:undefined}]));
+  assert.throws(()=>normalizeLiveAgents([{...liveAgent,status:'IMAGINARY'}]));
+  assert.throws(()=>normalizeLiveAgents([liveAgent,liveAgent]));
+  assert.throws(()=>normalizeLiveTasks([{...liveTask,approvalRequired:'yes'}]));
+  assert.throws(()=>normalizeLiveTasks([{...liveTask,id:''}]));
+  assert.throws(()=>normalizeLiveEvents([{...liveEvent,type:'UNKNOWN_EVENT'}]));
+  assert.throws(()=>normalizeLiveEvents([{...liveEvent,timestamp:'yesterday'}]));
+  assert.throws(()=>normalizeLiveEvents([liveEvent,{...liveEvent,label:'conflict'}]));
+  assert.throws(()=>normalizeLiveEvents([{...liveEvent,source:'mock'}]));
+});
+
+test('LIVE disconnects without mock fallback, recovers from a canonical fixture and resets deterministically', async () => {
+  let connected=false;
+  let failRead=false;
+  let reads=0;
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:connected ? 'CONNECTED' : 'DISCONNECTED',lastSuccessfulRead:connected ? '2026-01-02T01:04:10Z' : undefined};},
+    async readAgents(){reads++;if(failRead) throw new Error('private source detail');return [liveAgent];},
+    async readTasks(){reads++;return [liveTask];},
+    async readEvents(){reads++;return [liveEvent];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  assert.equal(store.getSnapshot().sourceHealth.connection,'DISCONNECTED');
+  assert.equal(store.getSnapshot().mode,'LIVE_READ_ONLY');
+  assert.deepEqual(Object.values(store.getSnapshot().agents),[]);
+  assert.deepEqual(store.getSnapshot().events,[]);
+  assert.equal(reads,0,'disconnected source must not be read');
+  connected=true;
+  await store.refreshLive();
+  const connectedState=store.getSnapshot();
+  assert.equal(connectedState.sourceHealth.connection,'CONNECTED');
+  assert.equal(connectedState.sourceHealth.agentsLoaded,1);
+  assert.equal(connectedState.sourceHealth.tasksLoaded,1);
+  assert.equal(connectedState.sourceHealth.eventsLoaded,1);
+  assert.equal(connectedState.sourceHealth.lastSourceEvent,liveEvent.timestamp);
+  assert.equal(connectedState.agents['agent-01'].status,'RUNNING');
+  failRead=true;
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().sourceHealth.connection,'DEGRADED');
+  assert.equal(store.getSnapshot().sourceHealth.message?.includes('private source detail'),false);
+  assert.deepEqual(store.getSnapshot().agents,{});
+  failRead=false;
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot(),connectedState);
+  connected=false;
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().sourceHealth.connection,'DISCONNECTED');
+  assert.deepEqual(store.getSnapshot().agents,{});
+  await store.switchMode('MOCK');
+  const firstMock=store.getSnapshot();
+  assert.equal(firstMock.mode,'MOCK');
+  assert.equal(Object.keys(firstMock.agents).length,mockAgents.length);
+  await store.switchMode('MOCK');
+  assert.deepEqual(store.getSnapshot(),firstMock);
+  store.stop();
+});
+
+test('Source Health rejects impossible lastSuccessfulRead and preserves valid source text', async (t) => {
+  const clock=t.mock.method(Date,'now',()=>987654321);
+  let timestamp='2026-02-30T03:04:05Z';
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED',lastSuccessfulRead:timestamp};},
+    async readAgents(){return [liveAgent];},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return [liveEvent];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  for(const invalid of [
+    '2026-02-30T03:04:05Z','2026-04-31T03:04:05Z','2025-02-29T03:04:05Z',
+    '2026-01-01T24:04:05Z','2026-01-01T03:60:05Z','2026-01-01T03:04:60Z',
+  ]) {
+    timestamp=invalid;
+    await store.refreshLive();
+    const state=store.getSnapshot();
+    assert.equal(state.mode,'LIVE_READ_ONLY');
+    assert.equal(state.sourceHealth.connection,'DEGRADED');
+    assert.equal(state.sourceHealth.lastSuccessfulRead,undefined);
+    assert.deepEqual(state.agents,{});
+  }
+  timestamp='2024-02-29T23:59:59.123+02:00';
+  await store.refreshLive();
+  const valid=store.getSnapshot();
+  assert.equal(valid.sourceHealth.connection,'CONNECTED');
+  assert.equal(valid.sourceHealth.lastSuccessfulRead,timestamp);
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot(),valid);
+  assert.equal(clock.mock.callCount(),0);
+  store.stop();
+});
+
+test('DEGRADED and DISCONNECTED preserve only validated source-reported last reads', async () => {
+  let connection:'CONNECTED'|'DEGRADED'|'DISCONNECTED'='CONNECTED';
+  let lastSuccessfulRead:string|undefined='2024-02-29T23:59:59.123+02:00';
+  let reads=0;
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection,lastSuccessfulRead};},
+    async readAgents(){reads++;return [liveAgent];},
+    async readTasks(){reads++;return [liveTask];},
+    async readEvents(){reads++;return [liveEvent];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  assert.equal(store.getSnapshot().sourceHealth.connection,'CONNECTED');
+  assert.equal(store.getSnapshot().sourceHealth.lastSuccessfulRead,lastSuccessfulRead);
+  assert.equal(reads,3);
+  for(const nextConnection of ['DEGRADED','DISCONNECTED'] as const) {
+    connection=nextConnection;
+    await store.refreshLive();
+    const state=store.getSnapshot();
+    assert.equal(state.mode,'LIVE_READ_ONLY');
+    assert.equal(state.sourceHealth.connection,nextConnection);
+    assert.equal(state.sourceHealth.lastSuccessfulRead,lastSuccessfulRead);
+    assert.equal(state.sourceHealth.lastSourceEvent,undefined);
+    assert.equal(state.sourceHealth.agentsLoaded,0);
+    assert.equal(state.sourceHealth.tasksLoaded,0);
+    assert.equal(state.sourceHealth.eventsLoaded,0);
+    assert.deepEqual(state.agents,{});
+    assert.deepEqual(state.tasks,{});
+    assert.deepEqual(state.events,[]);
+    assert.equal(reads,3,'non-connected status must not read the feed');
+  }
+  for(const nextConnection of ['DEGRADED','DISCONNECTED'] as const) {
+    connection=nextConnection;
+    lastSuccessfulRead='2026-02-30T03:04:05Z';
+    await store.refreshLive();
+    const rejected=store.getSnapshot();
+    assert.equal(rejected.sourceHealth.connection,'DEGRADED');
+    assert.equal(rejected.sourceHealth.lastSuccessfulRead,undefined);
+    assert.deepEqual(rejected.agents,{});
+    assert.deepEqual(rejected.events,[]);
+    lastSuccessfulRead=undefined;
+    await store.refreshLive();
+    const absent=store.getSnapshot();
+    assert.equal(absent.sourceHealth.connection,nextConnection);
+    assert.equal(absent.sourceHealth.lastSuccessfulRead,undefined);
+    assert.deepEqual(absent.agents,{});
+  }
+  connection='CONNECTED';
+  lastSuccessfulRead='2026-10-15T10:00:00.0009Z';
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().sourceHealth.connection,'CONNECTED');
+  assert.equal(store.getSnapshot().sourceHealth.lastSuccessfulRead,lastSuccessfulRead);
+  assert.equal(store.getSnapshot().sourceHealth.lastSourceEvent,liveEvent.timestamp);
+  assert.equal(store.getSnapshot().sourceHealth.eventsLoaded,1);
+  assert.equal(reads,6);
+  store.stop();
+});
+
+test('CONNECTED feed failures retain only the current validated source read and never publish partial snapshots', async () => {
+  type Failure='readAgents'|'readTasks'|'readEvents'|'normalizeAgents'|'normalizeTasks'|'normalizeEvents'|undefined;
+  let failure:Failure;
+  let lastSuccessfulRead:string|undefined='2026-10-15T10:00:00.0009Z';
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED',lastSuccessfulRead};},
+    async readAgents(){
+      if(failure==='readAgents') throw new Error('private agent payload');
+      return failure==='normalizeAgents' ? [{...liveAgent,status:'INVALID'}] : [liveAgent];
+    },
+    async readTasks(){
+      if(failure==='readTasks') throw new Error('private task payload');
+      return failure==='normalizeTasks' ? [{...liveTask,id:'invalid task id'}] : [liveTask];
+    },
+    async readEvents(){
+      if(failure==='readEvents') throw new Error('private event payload');
+      return failure==='normalizeEvents' ? [{...liveEvent,timestamp:'2026-02-30T03:04:05Z'}] : [liveEvent];
+    },
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  assert.equal(store.getSnapshot().sourceHealth.connection,'CONNECTED');
+  for(const nextFailure of ['readAgents','readTasks','readEvents','normalizeAgents','normalizeTasks','normalizeEvents'] as const) {
+    failure=nextFailure;
+    await store.refreshLive();
+    const state=store.getSnapshot();
+    assert.equal(state.mode,'LIVE_READ_ONLY');
+    assert.equal(state.sourceHealth.connection,'DEGRADED',nextFailure);
+    assert.equal(state.sourceHealth.lastSuccessfulRead,lastSuccessfulRead,nextFailure);
+    assert.equal(state.sourceHealth.lastSourceEvent,undefined,nextFailure);
+    assert.deepEqual(state.agents,{},nextFailure);
+    assert.deepEqual(state.tasks,{},nextFailure);
+    assert.deepEqual(state.events,[],nextFailure);
+    assert.equal(state.sourceHealth.agentsLoaded,0,nextFailure);
+    assert.equal(state.sourceHealth.tasksLoaded,0,nextFailure);
+    assert.equal(state.sourceHealth.eventsLoaded,0,nextFailure);
+    assert.doesNotMatch(state.sourceHealth.message ?? '',/private .* payload/);
+    failure=undefined;
+    await store.refreshLive();
+    assert.equal(store.getSnapshot().sourceHealth.connection,'CONNECTED','a subsequent valid feed recovers');
+    assert.equal(store.getSnapshot().sourceHealth.lastSourceEvent,liveEvent.timestamp);
+  }
+  failure='readAgents';
+  lastSuccessfulRead='2026-02-30T03:04:05Z';
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().sourceHealth.connection,'DEGRADED');
+  assert.equal(store.getSnapshot().sourceHealth.lastSuccessfulRead,undefined,'invalid source time is rejected');
+  lastSuccessfulRead=undefined;
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().sourceHealth.connection,'DEGRADED');
+  assert.equal(store.getSnapshot().sourceHealth.lastSuccessfulRead,undefined,'prior store time is not reused');
+  store.stop();
+});
+
+test('LIVE exposes only the newest 80 canonical events while retaining the deduplicated source count', async () => {
+  const feed=Array.from({length:103},(_,index)=>({...liveEvent,id:`history-${String(index).padStart(3,'0')}`,
+    timestamp:`2026-01-02T${String(Math.floor(index/60)).padStart(2,'0')}:${String(index%60).padStart(2,'0')}:00Z`}));
+  let reverse=false;
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:'CONNECTED',lastSuccessfulRead:'2026-01-02T02:00:00Z'};},
+    async readAgents(){return [liveAgent];},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return [...(reverse ? [...feed].reverse() : feed),feed[0]];},
+  };
+  const store=new HQStore(source);
+  await store.switchMode('LIVE_READ_ONLY');
+  const first=store.getSnapshot();
+  assert.equal(first.events.length,80);
+  assert.equal(first.sourceHealth.eventsLoaded,103);
+  assert.equal(first.events[0].id,'history-102');
+  assert.equal(first.events.at(-1)?.id,'history-023');
+  assert.equal(first.sourceHealth.lastSourceEvent,feed[102].timestamp);
+  reverse=true;
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot(),first);
+  store.stop();
+});
+
+function liveSelectionFixture() {
+  const first={...liveAgent,id:'agent-01'};
+  const second={...liveAgent,id:'agent-02'};
+  const firstEvent={...liveEvent,id:'event-01',actorId:first.id};
+  const secondEvent={...liveEvent,id:'event-02',actorId:second.id,timestamp:'2026-01-02T03:04:06+02:00'};
+  const feed={
+    connection:'CONNECTED' as 'CONNECTED'|'DISCONNECTED',
+    agents:[first,second],
+    events:[firstEvent,secondEvent],
+  };
+  const source:LiveOfficeSource={
+    async getSourceStatus(){return {connection:feed.connection,lastSuccessfulRead:'2026-01-02T01:04:10Z'};},
+    async readAgents(){return feed.agents;},
+    async readTasks(){return [liveTask];},
+    async readEvents(){return feed.events;},
+  };
+  return {store:new HQStore(source),feed,first,second,firstEvent,secondEvent};
+}
+
+test('LIVE refresh preserves a selected agent that still exists', async () => {
+  const {store}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectAgent('agent-02');
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().selectedAgentId,'agent-02');
+  assert.equal(store.getSnapshot().selectedEventId,undefined);
+  store.stop();
+});
+
+test('LIVE refresh preserves a selected event that still exists', async () => {
+  const {store}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent('event-02');
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().selectedEventId,'event-02');
+  store.stop();
+});
+
+test('LIVE refresh preserves agent and event selections independently', async () => {
+  const {store}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent('event-01');
+  store.selectAgent('agent-02');
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().selectedAgentId,'agent-02');
+  assert.equal(store.getSnapshot().selectedEventId,'event-01');
+  store.stop();
+});
+
+test('LIVE refresh falls back to the first canonical agent when the selected agent disappears', async () => {
+  const {store,feed,first}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent('event-01');
+  store.selectAgent('agent-02');
+  feed.agents=[first];
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().selectedAgentId,first.id);
+  assert.equal(store.getSnapshot().selectedEventId,'event-01');
+  store.stop();
+});
+
+test('LIVE refresh clears only a selected event that disappears', async () => {
+  const {store,feed,firstEvent}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent('event-02');
+  feed.events=[firstEvent];
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().selectedEventId,undefined);
+  assert.equal(store.getSnapshot().selectedAgentId,'agent-02');
+  store.stop();
+});
+
+test('LIVE event selection survives a changed feed order', async () => {
+  const {store,feed,firstEvent,secondEvent}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent('event-01');
+  feed.events=[
+    {...firstEvent,timestamp:'2026-01-02T03:04:09+02:00'},
+    {...secondEvent,timestamp:'2026-01-02T03:04:08+02:00'},
+  ];
+  await store.refreshLive();
+  assert.deepEqual(store.getSnapshot().events.map(event=>event.id),['event-01','event-02']);
+  assert.equal(store.getSnapshot().selectedEventId,'event-01');
+  store.stop();
+});
+
+test('LIVE empty feed clears both selections without inventing a fallback', async () => {
+  const {store,feed}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent('event-02');
+  feed.agents=[];
+  feed.events=[];
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().selectedAgentId,undefined);
+  assert.equal(store.getSnapshot().selectedEventId,undefined);
+  assert.deepEqual(store.getSnapshot().agents,{});
+  assert.deepEqual(store.getSnapshot().events,[]);
+  store.stop();
+});
+
+test('LIVE disconnect clears selections and recovery uses current fallback without hidden persistence', async () => {
+  const {store,feed}=liveSelectionFixture();
+  await store.switchMode('LIVE_READ_ONLY');
+  store.selectEvent('event-02');
+  feed.connection='DISCONNECTED';
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().sourceHealth.connection,'DISCONNECTED');
+  assert.equal(store.getSnapshot().selectedAgentId,undefined);
+  assert.equal(store.getSnapshot().selectedEventId,undefined);
+  feed.connection='CONNECTED';
+  await store.refreshLive();
+  assert.equal(store.getSnapshot().selectedAgentId,'agent-01');
+  assert.equal(store.getSnapshot().selectedEventId,undefined);
+  store.stop();
+});
+
+test('MOCK event projection retains its existing 80-event limit', () => {
+  const source=mockTimeline[0].event;
+  let state=initial();
+  for(let index=0;index<103;index++) state=reduceEventToVisualState({...source,id:`mock-history-${index}`},state);
+  assert.equal(state.events.length,80);
+  assert.equal(state.events[0].id,'mock-history-102');
+  assert.equal(state.events.at(-1)?.id,'mock-history-23');
+});
+
+test('live adapter boundary exposes reads only and no transport or write implementation', () => {
+  const boundary=readFileSync('src/adapters/munder/liveSource.ts','utf8');
+  assert.doesNotMatch(boundary,/\b(?:fetch|WebSocket|XMLHttpRequest|writeFile|unlink|rmSync|sendMessage|publish|deleteTask)\s*\(/i);
+  assert.doesNotMatch(boundary,/OfficeScene|pixi|node:fs|process\.env/i);
 });

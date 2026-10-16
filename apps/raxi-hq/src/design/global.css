@@ -7,7 +7,7 @@ h2 { font-size: 17px; } p { color: var(--muted); font-size: 13px; }
 button { background: var(--panel); color: var(--ink); border: 1px solid #29364d; border-radius: 8px; padding: 10px; cursor: pointer; text-align: left; }
 button:hover, button[aria-pressed=true] { border-color: var(--accent); }
 button:focus-visible { outline: 2px solid var(--accent); }
-.controls strong { font-size: 12px; color: #5be39a; }
+.controls { flex-wrap: wrap; }.controls button { font-size: 11px; white-space: nowrap; }
 .campaign { padding: 14px; margin: 20px 0; background: var(--panel); border-radius: 10px; }
 .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 20px; }
 .office { position: relative; min-width: 0; border: 1px solid #29364d; border-radius: 12px; overflow: hidden; background: radial-gradient(ellipse at center,#182439,#090d18); }
@@ -17,6 +17,9 @@ button:focus-visible { outline: 2px solid var(--accent); }
 .canvas-host { height: 630px; width: 100%; } canvas { display: block; }
 aside { background: var(--panel); padding: 16px; border-radius: 12px; }
 .agent-list { display: grid; gap: 6px; }.agent-list button { display: flex; justify-content: space-between; gap: 8px; }.agent-list span { color: var(--muted); }
+.empty-agents { margin-top: 14px; padding: 12px; border: 1px solid #29364d; border-radius: 8px; font-size: 12px; }.empty-agents p { margin: 5px 0 0; }
 dl { font-size: 12px; } dt { color: var(--muted); margin-top: 10px; } dd { margin: 3px 0; overflow-wrap: anywhere; }
 .events { margin-top: 20px; }.events > div { display: grid; gap: 6px; max-height: 260px; overflow: auto; }.events b { color: var(--accent); margin-right: 12px; }
+.source-health { margin-top: 20px; padding: 14px 16px; background: var(--panel); border-radius: 10px; }.source-health dl { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 8px 16px; }.source-health dt { margin: 0; }.source-health dd { margin: 3px 0 0; }.events time { color: var(--muted); }
 @media (max-width: 850px) { main { padding: 12px; }.workspace { grid-template-columns: 1fr; }.canvas-host { height: 480px; }header { align-items: start; flex-direction: column; }.campaign { flex-wrap: wrap; } }
+@media (max-width: 850px) { .source-health dl { grid-template-columns: repeat(2,minmax(0,1fr)); } }

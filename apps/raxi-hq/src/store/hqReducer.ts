@@ -1,4 +1,4 @@
-import type { AgentSnapshot, AgentStatus, ZoneId } from '../domain/agents';
+import { getOwnAgent, type AgentSnapshot, type AgentStatus, type ZoneId } from '../domain/agents';
 import type { HQEvent } from '../domain/events';
 import type { HQState } from '../domain/hq';
 
@@ -10,8 +10,8 @@ export function reduceEventToVisualState(event: HQEvent, state: HQState): HQStat
   const handoffs = [...state.handoffs];
   const memorySignals = [...state.memorySignals];
 
-  const actor = event.actorId ? agents[event.actorId] : undefined;
-  const target = event.targetId ? agents[event.targetId] : undefined;
+  const actor = getOwnAgent(agents,event.actorId);
+  const target = getOwnAgent(agents,event.targetId);
   const payload = event.payload ?? {};
 
   if (actor) {
