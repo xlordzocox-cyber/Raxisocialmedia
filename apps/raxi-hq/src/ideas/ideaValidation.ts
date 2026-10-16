@@ -46,13 +46,20 @@ function member<T extends string>(value: unknown, allowed: readonly T[]): T {
 }
 function boundedList(value: unknown, maximum: number): unknown[] {
   if (!Array.isArray(value)) throw new Error('Invalid idea collection');
-  if (value.length > maximum) throw new Error('Idea collection exceeds maximum');
-  for (let index = 0; index < value.length; index++) {
-    if (!Object.hasOwn(value, index)) throw new Error('Invalid idea collection');
-  }
-  // Drop untrusted array methods before mapping validated, dense entries.
+  const length = value.length;
+  if (!Number.isSafeInteger(length) || length < 0) throw new Error('Invalid idea collection');
+  if (length > maximum) throw new Error('Idea collection exceeds maximum');
+  // Read only the approved slots; accessors and changing length make the input unstable.
   const entries: unknown[] = [];
-  for (let index = 0; index < value.length; index++) entries.push(value[index]);
+  for (let index = 0; index < length; index++) {
+    if (value.length !== length) throw new Error('Invalid idea collection');
+    const descriptor = Object.getOwnPropertyDescriptor(value, index);
+    if (value.length !== length || descriptor === undefined || !Object.hasOwn(descriptor, 'value')) {
+      throw new Error('Invalid idea collection');
+    }
+    entries.push(descriptor.value);
+  }
+  if (value.length !== length) throw new Error('Invalid idea collection');
   return entries;
 }
 function unique<T>(values: T[]): T[] {

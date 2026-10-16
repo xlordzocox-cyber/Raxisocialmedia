@@ -167,10 +167,69 @@ test('inherited array indices cannot stand in for own entries', () => {
 test('input-owned array methods cannot bypass element validation', () => {
   const records = [base()];
   Object.defineProperty(records, 'map', { value: () => [] });
+  Object.defineProperty(records, Symbol.iterator, { value: () => { throw new Error('input iterator ran'); } });
   assert.equal(validateIdeaCollection(records).length, 1);
   const tags = ['ok'];
   Object.defineProperty(tags, 'map', { value: () => [] });
   assert.deepEqual(validateIdeaRecord({ ...base(), tags }).tags, ['ok']);
+});
+
+function accessorArray<T>(entry: T, mutate: (items: T[]) => void): T[] {
+  const items = [entry];
+  Object.defineProperty(items, 0, { configurable: true, enumerable: true,
+    get() { mutate(items); return entry; } });
+  return items;
+}
+
+test('a getter that pushes or expands length cannot extend a bounded collection', () => {
+  let visited = 0;
+  const pushed = accessorArray('tag', items => { visited++; items.push('extra'); });
+  assert.throws(() => validateIdeaRecord({ ...base(), tags: pushed }), /Invalid idea collection/);
+  const expanded = accessorArray('tag', items => { visited++; items.length = 3; });
+  assert.throws(() => validateIdeaRecord({ ...base(), tags: expanded }), /Invalid idea collection/);
+  assert.equal(visited, 0, 'accessor elements are rejected without executing their mutations');
+});
+
+test('a collection getter cannot push beyond MAX_IDEAS before normalization', () => {
+  const records = Array.from({ length: MAX_IDEAS }, (_, index) => ({ ...base(), id: `IDEA-${index}` }));
+  Object.defineProperty(records, 0, { configurable: true,
+    get() { records.push({ ...base(), id: 'EXTRA' }); return base(); } });
+  assert.throws(() => validateIdeaCollection(records), /Invalid idea collection/);
+  assert.equal(records.length, MAX_IDEAS);
+});
+
+for (const { field, first, second } of nestedSparseCases) {
+  test(`${field} rejects a getter that would grow the array`, () => {
+    const entries = accessorArray(first, items => { items.push(second as typeof first); });
+    assert.throws(() => validateIdeaRecord({ ...base(), [field]: entries }), /Invalid idea collection/);
+    assert.equal(entries.length, 1);
+  });
+}
+
+test('a getter that deletes or shrinks entries is rejected', () => {
+  const deleted = accessorArray('tag', items => { delete items[0]; });
+  const shrunk = accessorArray('tag', items => { items.length = 0; });
+  assert.throws(() => validateIdeaRecord({ ...base(), tags: deleted }), /Invalid idea collection/);
+  assert.throws(() => validateIdeaRecord({ ...base(), tags: shrunk }), /Invalid idea collection/);
+});
+
+test('a property-descriptor side effect changing length is rejected during bounded copying', () => {
+  const records = [base()];
+  const changing = new Proxy(records, { getOwnPropertyDescriptor(target, key) {
+    if (key === '0') target.push({ ...base(), id: 'EXTRA' });
+    return Reflect.getOwnPropertyDescriptor(target, key);
+  } });
+  assert.throws(() => validateIdeaCollection(changing), /Invalid idea collection/);
+  assert.equal(records.length, 2);
+});
+
+test('a proxy cannot present a negative or fractional length to skip bounded records', () => {
+  for (const reportedLength of [-1, 0.5]) {
+    const disguised = new Proxy([base()], { get(target, key, receiver) {
+      return key === 'length' ? reportedLength : Reflect.get(target, key, receiver);
+    } });
+    assert.throws(() => validateIdeaCollection(disguised), /Invalid idea collection/);
+  }
 });
 
 test('null, undefined and duplicate nested values remain invalid', () => {
