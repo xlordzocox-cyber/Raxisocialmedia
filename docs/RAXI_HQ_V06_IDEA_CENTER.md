@@ -48,6 +48,8 @@ El límite de cada colección se comprueba antes de mapear sus registros. Un exc
 
 Los timestamps siguen la gramática ISO estricta usada por el feed canónico v0.5: se rechazan fechas de calendario imposibles y campos horarios fuera de rango, sin normalizarlos ni sustituirlos por la hora local. Las transiciones reciben un timestamp explícito. El mock utiliza únicamente fechas fijas.
 
+En Fase 3, título y referencia manual son de una sola línea. Nota, resumen y motivo admiten saltos `LF` conservados tal cual; `CR` y `CRLF` se rechazan, junto con los demás controles. Los límites de caracteres incluyen cada salto de línea. React escapa el contenido y la vista conserva visualmente los saltos sin interpretar HTML.
+
 `IdeaEvidence` contiene una etiqueta y, opcionalmente, un `sourceRef` **opaco** y un `capturedAt`. La evidencia externa se trata como entrada no confiable: no se ejecutan sus instrucciones, no se obtiene contenido desde `sourceRef`, no se inyecta HTML y no se convierte en prompt de sistema. Los campos desconocidos no se publican al contrato validado. No se inventan URLs ni datos ausentes.
 
 ## Fase 1 — contratos, MOCK y alcance

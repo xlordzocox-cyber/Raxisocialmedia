@@ -10,6 +10,7 @@ import { IdeaReviewForm } from '../src/ideas/IdeaReviewForm';
 import { OperationsInbox } from '../src/operations/OperationsInbox';
 import { IdeaCenterPanel } from '../src/ideas/IdeaCenterPanel';
 import { CampusOverview } from '../src/campus/CampusOverview';
+import { validateMultilineText, validateSingleLineText } from '../src/ideas/manualIdeaDraft';
 
 const at = '2026-10-16T12:00:00Z';
 const mock = () => loadMockIdeaCenter().ideas;
@@ -44,11 +45,75 @@ test('manual draft is separate from IdeaRecord and uses collision-free sequentia
 test('draft rejects empty or oversized text, controls, bad timestamps and unsafe IDs', () => {
   const base = { title: 'T', note: 'N', priority: 'MEDIUM' as const };
   for (const input of [{ ...base, title: '' }, { ...base, note: '' }, { ...base, title: 'x'.repeat(121) },
-    { ...base, note: 'x'.repeat(1001) }, { ...base, note: 'bad\nline' }, { ...base, sourceRef: 'x'.repeat(257) }]) {
+    { ...base, note: 'x'.repeat(1001) }, { ...base, note: 'bad\u0000line' }, { ...base, sourceRef: 'x'.repeat(257) }]) {
     assert.throws(() => reduceIdeaCenterSession(initial(), { type: 'CREATE_DRAFT', input, at }));
   }
   assert.throws(() => reduceIdeaCenterSession(initial(), { type: 'CREATE_DRAFT', input: base, at: '2026-02-30T12:00:00Z' }));
   assert.throws(() => reduceIdeaCenterSession(initial(), { type: 'DELETE_DRAFT', draftId: 'constructor', at }));
+});
+
+test('note accepts LF exactly while title and sourceRef remain single-line', () => {
+  const note = 'línea 1\nlínea 2';
+  const state = reduceIdeaCenterSession(initial(), { type: 'CREATE_DRAFT',
+    input: { title: 'Título', note, priority: 'MEDIUM', sourceRef: 'referencia opaca' }, at });
+  assert.equal(state.manualDrafts[0].note, note);
+  assert.equal(validateMultilineText(note, 1000, 'Nota'), note);
+  assert.throws(() => validateSingleLineText('Título\nextra', 120, 'Título'));
+  assert.throws(() => reduceIdeaCenterSession(initial(), { type: 'CREATE_DRAFT',
+    input: { title: 'Título\nextra', note, priority: 'MEDIUM' }, at }));
+  assert.throws(() => reduceIdeaCenterSession(initial(), { type: 'CREATE_DRAFT',
+    input: { title: 'Título', note, priority: 'MEDIUM', sourceRef: 'ref\nextra' }, at }));
+});
+
+test('LF-only policy rejects CRLF, NUL, tab and other controls without normalizing', () => {
+  for (const value of ['línea 1\r\nlínea 2', 'línea 1\rlínea 2', 'NUL\u0000', 'tab\t', 'ESC\u001b', 'DEL\u007f', 'C1\u0085']) {
+    assert.throws(() => validateMultilineText(value, 1000, 'Nota'));
+  }
+  const draft = reduceIdeaCenterSession(initial(), { type: 'CREATE_DRAFT',
+    input: { title: 'Título', note: 'línea 1\nlínea 2', priority: 'MEDIUM' }, at });
+  assert.throws(() => reduceIdeaCenterSession(draft, { type: 'PROMOTE_DRAFT', draftId: 'IDEA-MANUAL-002',
+    input: { ...review, summary: 'ESC\u001b' }, at }));
+  assert.throws(() => reduceIdeaCenterSession(draft, { type: 'PROMOTE_DRAFT', draftId: 'IDEA-MANUAL-002',
+    input: { ...review, reason: 'DEL\u007f' }, at }));
+});
+
+test('line breaks count toward existing limits for note, summary and reason', () => {
+  assert.equal(validateMultilineText('x'.repeat(999) + '\n', 1000, 'Nota').length, 1000);
+  assert.throws(() => validateMultilineText('x'.repeat(1000) + '\n', 1000, 'Nota'));
+  const draft = reduceIdeaCenterSession(initial(), { type: 'CREATE_DRAFT',
+    input: { title: 'Título', note: 'x'.repeat(999) + '\n', priority: 'MEDIUM' }, at });
+  const valid = reduceIdeaCenterSession(draft, { type: 'PROMOTE_DRAFT', draftId: 'IDEA-MANUAL-002',
+    input: { ...review, summary: 'x'.repeat(999) + '\n', reason: 'x'.repeat(1499) + '\n' }, at });
+  assert.equal(sessionIdeas(valid).find(idea => idea.id === 'IDEA-MANUAL-002')?.reason.length, 1500);
+  assert.throws(() => reduceIdeaCenterSession(draft, { type: 'PROMOTE_DRAFT', draftId: 'IDEA-MANUAL-002',
+    input: { ...review, summary: 'x'.repeat(1000) + '\n' }, at }));
+  assert.throws(() => reduceIdeaCenterSession(draft, { type: 'PROMOTE_DRAFT', draftId: 'IDEA-MANUAL-002',
+    input: { ...review, reason: 'x'.repeat(1500) + '\n' }, at }));
+});
+
+test('multiline draft promotes to a valid IdeaRecord and renders escaped text with line breaks', () => {
+  const note = 'Primera línea\n<script>alert(1)</script>';
+  const summary = 'Resumen uno\n<script>alert(1)</script>';
+  const reason = 'Motivo uno\n<img src=x onerror=alert(1)>';
+  const draft = reduceIdeaCenterSession(initial(), { type: 'CREATE_DRAFT',
+    input: { title: 'Idea multilínea', note, priority: 'MEDIUM' }, at });
+  const promoted = reduceIdeaCenterSession(draft, { type: 'PROMOTE_DRAFT', draftId: 'IDEA-MANUAL-002',
+    input: { ...review, title: 'Idea multilínea', summary, reason }, at });
+  const idea = sessionIdeas(promoted).find(item => item.id === 'IDEA-MANUAL-002')!;
+  assert.equal(idea.summary, summary);
+  assert.equal(idea.reason, reason);
+  assert.deepEqual(validateIdeaRecord(idea), idea);
+  const detail = renderToStaticMarkup(<IdeaCenterPanel id="ideas" ideas={[idea]} open session={promoted} />);
+  assert.match(detail, /Resumen uno\n&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(detail, /Motivo uno\n&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(detail, /<script|<img\s/);
+  const reviewing = reduceIdeaCenterSession(promoted, { type: 'TRANSITION', ideaId: idea.id, to: 'UNDER_REVIEW', at });
+  const approvedIdea = reduceIdeaCenterSession(reviewing, { type: 'TRANSITION', ideaId: idea.id, to: 'APPROVED_FOR_HQ', at });
+  const sent = reduceIdeaCenterSession(approvedIdea, { type: 'SEND_TO_HQ', ideaId: idea.id, at });
+  const inbox = renderToStaticMarkup(<OperationsInbox id="inbox" handoffs={sent.handoffs} open />);
+  assert.match(inbox, /Resumen uno\n&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
+  assert.match(inbox, /Motivo uno\n&lt;img src=x onerror=alert\(1\)&gt;/);
+  assert.doesNotMatch(inbox, /<script|<img\s/);
 });
 
 test('capacity applies to drafts plus canonical ideas before creation', () => {

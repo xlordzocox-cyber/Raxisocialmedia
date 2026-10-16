@@ -30,6 +30,13 @@ function text(value: unknown, max: number): string {
   }
   return value;
 }
+function multilineText(value: unknown, max: number): string {
+  // Preserve LF exactly; CR/CRLF and every other ASCII control remain invalid.
+  if (typeof value !== 'string' || !value.trim() || value.length > max || /[\u0000-\u0009\u000b-\u001f\u007f-\u009f]/.test(value)) {
+    throw new Error('Invalid idea text');
+  }
+  return value;
+}
 function id(value: unknown): string {
   const result = text(value, MAX_ID_LENGTH);
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(result) || result === 'prototype' || Object.hasOwn(Object.prototype, result)) {
@@ -125,13 +132,13 @@ export function validateIdeaRecord(value: unknown): IdeaRecord {
   const idea: IdeaRecord = {
     id: id(own(item, 'id')),
     title: text(own(item, 'title'), MAX_TITLE_LENGTH),
-    summary: text(own(item, 'summary'), MAX_SUMMARY_LENGTH),
+    summary: multilineText(own(item, 'summary'), MAX_SUMMARY_LENGTH),
     source: member<IdeaSource>(own(item, 'source'), IDEA_SOURCES),
     status: member<IdeaStatus>(own(item, 'status'), IDEA_STATUSES),
     priority: member<IdeaPriority>(own(item, 'priority'), IDEA_PRIORITIES),
     createdAt: validateIdeaTimestamp(own(item, 'createdAt')),
     updatedAt: validateIdeaTimestamp(own(item, 'updatedAt')),
-    reason: text(own(item, 'reason'), MAX_REASON_LENGTH),
+    reason: multilineText(own(item, 'reason'), MAX_REASON_LENGTH),
     suggestedChannels: unique(rawChannels.map(channel => member<IdeaChannel>(channel, IDEA_CHANNELS))),
     tags: unique(rawTags.map(tag => text(tag, MAX_TAG_LENGTH))),
     fitScore: score(own(item, 'fitScore')),

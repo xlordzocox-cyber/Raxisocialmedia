@@ -84,7 +84,7 @@ export function IdeaCenterPanel({ id, ideas, open, session, onAction, error }: I
             <div><dt>Origen</dt><dd>{ideaSourceLabel[selected.source]}</dd></div>
             <div><dt>Estado</dt><dd>{ideaStatusLabel[selected.status]}</dd></div>
             <div><dt>Prioridad</dt><dd>{ideaPriorityLabel[selected.priority]}</dd></div>
-            <div><dt>Motivo</dt><dd>{selected.reason}</dd></div>
+            <div><dt>Motivo</dt><dd className="idea-multiline">{selected.reason}</dd></div>
           </dl>
           <div className="idea-score-grid">
             <label>Afinidad con Raxi <strong>{selected.fitScore}%</strong><meter min={0} max={100} value={selected.fitScore}>{selected.fitScore}%</meter></label>

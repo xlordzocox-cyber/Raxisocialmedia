@@ -1,5 +1,5 @@
 import { type IdeaChannel, type IdeaHandoffToHQ, type IdeaPriority, type IdeaRecord, type IdeaStatus } from './ideaContracts';
-import { createManualIdeaDraft, validateManualText, type ManualIdeaDraft, type ManualIdeaInput } from './manualIdeaDraft';
+import { createManualIdeaDraft, validateMultilineText, validateSingleLineText, type ManualIdeaDraft, type ManualIdeaInput } from './manualIdeaDraft';
 import { createIdeaHandoff, MAX_IDEAS, MAX_REASON_LENGTH, MAX_SUMMARY_LENGTH, transitionIdea, validateIdeaCollection, validateIdeaRecord, validateIdeaTimestamp } from './ideaValidation';
 
 export type Clock = () => string;
@@ -57,9 +57,9 @@ function nextManualId(state: IdeaCenterSession): { id: string; next: number } {
 function reviewRecord(draft: ManualIdeaDraft, input: IdeaReviewInput, at: string): IdeaRecord {
   if (input === null || typeof input !== 'object' || Array.isArray(input)) throw new Error('Propuesta inválida.');
   const raw = input as unknown as Record<string, unknown>;
-  const title = validateManualText(Object.hasOwn(raw, 'title') ? raw.title : undefined, 120, 'Título');
-  const summary = validateManualText(Object.hasOwn(raw, 'summary') ? raw.summary : undefined, MAX_SUMMARY_LENGTH, 'Resumen');
-  const reason = validateManualText(Object.hasOwn(raw, 'reason') ? raw.reason : undefined, MAX_REASON_LENGTH, 'Motivo');
+  const title = validateSingleLineText(Object.hasOwn(raw, 'title') ? raw.title : undefined, 120, 'Título');
+  const summary = validateMultilineText(Object.hasOwn(raw, 'summary') ? raw.summary : undefined, MAX_SUMMARY_LENGTH, 'Resumen');
+  const reason = validateMultilineText(Object.hasOwn(raw, 'reason') ? raw.reason : undefined, MAX_REASON_LENGTH, 'Motivo');
   const timestamp = validateIdeaTimestamp(at);
   const evidence = draft.sourceRef === undefined ? [] : [{ id: `${draft.id}-REF`, kind: 'MANUAL_NOTE' as const,
     label: 'Referencia aportada por Luis', sourceRef: draft.sourceRef, capturedAt: draft.createdAt }];
