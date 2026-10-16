@@ -31,7 +31,7 @@ test('manual draft is separate from IdeaRecord and uses collision-free sequentia
   assert.equal(one.manualDrafts[0].priority, 'MEDIUM');
   assert.equal(one.manualDrafts[0].createdAt, at);
   assert.equal(sessionIdeas(one).length, mock().length);
-  assert.equal(ideaProvenance(one, 'IDEA-MANUAL-002'), 'LOCAL · SESIÓN');
+  assert.equal(ideaProvenance(promoted(), 'IDEA-MANUAL-002'), 'LOCAL_SESSION');
   const two = create(one, 'Segunda idea');
   assert.equal(two.manualDrafts[1].id, 'IDEA-MANUAL-003');
   const deleted = reduceIdeaCenterSession(two, { type: 'DELETE_DRAFT', draftId: 'IDEA-MANUAL-002', at });
@@ -90,7 +90,7 @@ test('transitions use canonical rules, protect approval and do not mutate MOCK f
   const mockIdea = next.mockIdeas.find(idea => idea.id === 'IDEA-GAMING-HORROR')!;
   const modified = reduceIdeaCenterSession(next, { type: 'TRANSITION', ideaId: mockIdea.id, to: 'UNDER_REVIEW', at });
   assert.equal(mockIdea.status, 'PROPOSED');
-  assert.equal(ideaProvenance(modified, mockIdea.id), 'MOCK · modificado en sesión');
+  assert.equal(ideaProvenance(modified, mockIdea.id), 'MOCK_SESSION_MODIFIED');
   assert.equal(sessionIdeas(modified).find(idea => idea.id === mockIdea.id)?.status, 'UNDER_REVIEW');
 });
 
@@ -99,12 +99,60 @@ test('handoff is confirmed action, idempotent and never creates Campaign', () =>
   assert.equal(state.handoffs.length, 0);
   const sent = reduceIdeaCenterSession(state, { type: 'SEND_TO_HQ', ideaId: 'IDEA-MANUAL-002', at });
   assert.equal(sent.handoffs.length, 1);
-  assert.equal(sent.handoffs[0].ideaId, 'IDEA-MANUAL-002');
-  assert.equal(sent.handoffs[0].sentAt, at);
+  assert.equal(sent.handoffs[0].handoff.ideaId, 'IDEA-MANUAL-002');
+  assert.equal(sent.handoffs[0].handoff.sentAt, at);
+  assert.equal(sent.handoffs[0].provenance, 'LOCAL_SESSION');
   assert.equal(sessionIdeas(sent).find(idea => idea.id === 'IDEA-MANUAL-002')?.status, 'SENT_TO_HQ');
   assert.equal(reduceIdeaCenterSession(sent, { type: 'SEND_TO_HQ', ideaId: 'IDEA-MANUAL-002', at: '2026-10-17T00:00:00Z' }), sent);
   assert.equal(Object.hasOwn(sent, 'campaigns'), false);
-  assert.equal(Object.hasOwn(sent.handoffs[0], 'campaignId'), false);
+  assert.equal(Object.hasOwn(sent.handoffs[0].handoff, 'campaignId'), false);
+});
+
+test('untouched MOCK fixture keeps MOCK provenance in the inbox and retains its semantic source', () => {
+  const id = 'IDEA-APPROVED-001';
+  const state = initial();
+  assert.equal(ideaProvenance(state, id), 'MOCK');
+  const sent = reduceIdeaCenterSession(state, { type: 'SEND_TO_HQ', ideaId: id, at });
+  assert.equal(sent.handoffs[0].provenance, 'MOCK');
+  assert.equal(sent.handoffs[0].handoff.source, 'EXTERNAL_SIGNAL');
+  assert.equal(sent.handoffs[0].handoff.ideaId, id);
+  assert.equal(Object.hasOwn(sent.handoffs[0].handoff, 'campaignId'), false);
+  const html = renderToStaticMarkup(<OperationsInbox id="inbox" handoffs={sent.handoffs} open />);
+  assert.match(html, /data-provenance="MOCK"[^>]*>MOCK</);
+  assert.match(html, /<dt>Origen<\/dt><dd>Señal externa<\/dd>/);
+});
+
+test('modified MOCK fixture captures modified provenance at send time', () => {
+  const id = 'IDEA-GAMING-HORROR';
+  let state = reduceIdeaCenterSession(initial(), { type: 'TRANSITION', ideaId: id, to: 'UNDER_REVIEW', at });
+  state = reduceIdeaCenterSession(state, { type: 'TRANSITION', ideaId: id, to: 'APPROVED_FOR_HQ', at });
+  assert.equal(ideaProvenance(state, id), 'MOCK_SESSION_MODIFIED');
+  const sent = reduceIdeaCenterSession(state, { type: 'SEND_TO_HQ', ideaId: id, at });
+  assert.equal(sent.handoffs[0].provenance, 'MOCK_SESSION_MODIFIED');
+  assert.equal(sent.handoffs[0].handoff.source, 'TREND_RADAR');
+  const html = renderToStaticMarkup(<OperationsInbox id="inbox" handoffs={sent.handoffs} open />);
+  assert.match(html, /MOCK · MODIFICADO EN SESIÓN/);
+  assert.match(html, /<dt>Origen<\/dt><dd>Radar de tendencias<\/dd>/);
+});
+
+test('manual handoff stores LOCAL_SESSION provenance and repeat send cannot change it', () => {
+  const sent = reduceIdeaCenterSession(approved(), { type: 'SEND_TO_HQ', ideaId: 'IDEA-MANUAL-002', at });
+  assert.equal(sent.handoffs[0].provenance, 'LOCAL_SESSION');
+  assert.equal(sent.handoffs[0].handoff.source, 'MANUAL_LUIS');
+  const repeated = reduceIdeaCenterSession(sent, { type: 'SEND_TO_HQ', ideaId: 'IDEA-MANUAL-002', at: '2026-10-17T00:00:00Z' });
+  assert.equal(repeated, sent);
+  assert.equal(repeated.handoffs.length, 1);
+  const html = renderToStaticMarkup(<OperationsInbox id="inbox" handoffs={sent.handoffs} open />);
+  assert.match(html, /data-provenance="LOCAL_SESSION"[^>]*>LOCAL · SESIÓN</);
+});
+
+test('Operations Inbox provenance is independent of Office LIVE_READ_ONLY mode', () => {
+  const sent = reduceIdeaCenterSession(initial(), { type: 'SEND_TO_HQ', ideaId: 'IDEA-APPROVED-001', at });
+  const officeMode = 'LIVE_READ_ONLY';
+  const html = renderToStaticMarkup(<><span>{officeMode}</span><OperationsInbox id="inbox" handoffs={sent.handoffs} open /></>);
+  assert.match(html, /LIVE_READ_ONLY/);
+  assert.match(html, /data-provenance="MOCK"[^>]*>MOCK</);
+  assert.doesNotMatch(html, /data-provenance="LIVE/);
 });
 
 test('archive and rejection routes remain canonical; invalid chronology is rejected', () => {
@@ -146,6 +194,7 @@ test('UI exposes accessible draft, review, confirmation and inbox without HTML e
   const inbox = renderToStaticMarkup(<OperationsInbox id="inbox" handoffs={reduceIdeaCenterSession(approved(), { type: 'SEND_TO_HQ', ideaId: 'IDEA-MANUAL-002', at }).handoffs} open />);
   assert.match(inbox, /PROPUESTA RECIBIDA/);
   assert.match(inbox, /PENDIENTE DE DECISIÓN DEL HQ/);
+  assert.match(inbox, /LOCAL · SESIÓN/);
   assert.doesNotMatch(inbox, /Crear campaña<\/button/);
 });
 
@@ -160,6 +209,6 @@ test('user input stays escaped and session boundary has no persistence or extern
     assert.doesNotMatch(source, /dangerouslySetInnerHTML|localStorage|sessionStorage|XMLHttpRequest|fetch\s*\(|\.\.\/adapters\//);
   }
   const campus = renderToStaticMarkup(<CampusOverview ideas={mock()} />);
-  assert.match(campus, /0<\/b> propuestas recibidas/);
+  assert.match(campus, /0<\/b> propuestas internas recibidas/);
   assert.match(campus, /0<\/b> borradores locales/);
 });

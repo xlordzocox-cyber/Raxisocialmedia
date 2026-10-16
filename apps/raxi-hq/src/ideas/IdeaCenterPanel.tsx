@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { IdeaRecord } from './ideaContracts';
 import { getIdeaById, getIdeasSortedByPriority, summarizeIdeas } from './ideaSelectors';
-import { ideaChannelLabel, ideaPriorityLabel, ideaSourceLabel, ideaStatusLabel } from './ideaPresentation';
+import { ideaChannelLabel, ideaPriorityLabel, ideaProvenanceLabel, ideaSourceLabel, ideaStatusLabel } from './ideaPresentation';
 import { ManualIdeaForm } from './ManualIdeaForm';
 import { IdeaReviewForm } from './IdeaReviewForm';
 import { ideaProvenance, type IdeaCenterSession, type IdeaSessionCommand } from './ideaCenterSession';
@@ -60,7 +60,7 @@ export function IdeaCenterPanel({ id, ideas, open, session, onAction, error }: I
             <span className="idea-card-top"><code>{idea.id}</code><span>{ideaPriorityLabel[idea.priority]}</span></span>
             <strong>{idea.title}</strong>
             <span className="idea-card-state">{ideaStatusLabel[idea.status]}{idea.status === 'APPROVED_FOR_HQ' && <em>LISTA PARA HQ</em>}</span>
-            <span className="idea-card-source">{ideaSourceLabel[idea.source]} · {session ? ideaProvenance(session, idea.id) : 'MOCK'}</span>
+            <span className="idea-card-source">{ideaSourceLabel[idea.source]} · {session ? ideaProvenanceLabel[ideaProvenance(session, idea.id)] : 'MOCK'}</span>
             <span className="idea-card-scores">Afinidad {idea.fitScore}% · Confianza {idea.confidenceScore}%</span>
             <span className="idea-card-channels">{idea.suggestedChannels.map(ideaChannel => ideaChannelLabel[ideaChannel]).join(' · ') || 'Sin canales sugeridos'}</span>
           </button>)}
@@ -69,7 +69,7 @@ export function IdeaCenterPanel({ id, ideas, open, session, onAction, error }: I
         {selected ? <>
           <div className="idea-detail-heading"><code>{selected.id}</code><span className="idea-detail-priority">Prioridad {ideaPriorityLabel[selected.priority]}</span></div>
           <h4>{selected.title}</h4>
-          <p className="idea-provenance">{session ? ideaProvenance(session, selected.id) : 'MOCK'}</p>
+          <p className="idea-provenance">{session ? ideaProvenanceLabel[ideaProvenance(session, selected.id)] : 'MOCK'}</p>
           <div className="idea-detail-state"><span>{ideaStatusLabel[selected.status]}</span>{selected.status === 'APPROVED_FOR_HQ' && <strong>LISTA PARA HQ</strong>}</div>
           {selected.status === 'APPROVED_FOR_HQ' && <p className="idea-ready-note">Preparada para revisión del Centro de Operaciones.</p>}
           {onAction && <div className="idea-lifecycle" aria-label="Acciones de propuesta">

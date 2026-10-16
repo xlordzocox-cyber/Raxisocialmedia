@@ -3,13 +3,16 @@ import { createManualIdeaDraft, validateManualText, type ManualIdeaDraft, type M
 import { createIdeaHandoff, MAX_IDEAS, MAX_REASON_LENGTH, MAX_SUMMARY_LENGTH, transitionIdea, validateIdeaCollection, validateIdeaRecord, validateIdeaTimestamp } from './ideaValidation';
 
 export type Clock = () => string;
+export type IdeaProvenance = 'MOCK' | 'MOCK_SESSION_MODIFIED' | 'LOCAL_SESSION';
+/** Session-only envelope; canonical handoff content remains unchanged. */
+export interface OperationsInboxItem { handoff: IdeaHandoffToHQ; provenance: IdeaProvenance }
 export type IdeaAuditAction = 'DRAFT_CREATED' | 'DRAFT_DELETED' | 'DRAFT_PROMOTED' | 'REVIEW_STARTED' | 'APPROVED_FOR_HQ' | 'REJECTED' | 'ARCHIVED' | 'SENT_TO_HQ';
 export interface IdeaCenterAuditEvent { id: string; timestamp: string; action: IdeaAuditAction; ideaId?: string; draftId?: string; actor: 'LUIS' }
 export interface IdeaCenterSession {
   mockIdeas: IdeaRecord[];
   manualDrafts: ManualIdeaDraft[];
   sessionIdeas: IdeaRecord[];
-  handoffs: IdeaHandoffToHQ[];
+  handoffs: OperationsInboxItem[];
   audit: IdeaCenterAuditEvent[];
   nextManualNumber: number;
 }
@@ -33,10 +36,12 @@ export function sessionIdeas(state: IdeaCenterSession): IdeaRecord[] {
   return [...state.mockIdeas.map(idea => replacements.get(idea.id) ?? idea),
     ...state.sessionIdeas.filter(idea => !state.mockIdeas.some(mock => mock.id === idea.id))];
 }
-export function ideaProvenance(state: IdeaCenterSession, id: string): string {
-  return state.mockIdeas.some(idea => idea.id === id)
-    ? state.sessionIdeas.some(idea => idea.id === id) ? 'MOCK · modificado en sesión' : 'MOCK'
-    : 'LOCAL · SESIÓN';
+export function ideaProvenance(state: IdeaCenterSession, id: string): IdeaProvenance {
+  if (state.mockIdeas.some(idea => idea.id === id)) {
+    return state.sessionIdeas.some(idea => idea.id === id) ? 'MOCK_SESSION_MODIFIED' : 'MOCK';
+  }
+  if (state.sessionIdeas.some(idea => idea.id === id)) return 'LOCAL_SESSION';
+  throw new Error('Idea inexistente.');
 }
 function withAudit(state: IdeaCenterSession, at: string, action: IdeaAuditAction, id: { ideaId?: string; draftId?: string }): IdeaCenterSession {
   if (state.audit.length >= 1000) throw new Error('Límite del registro de sesión alcanzado.');
@@ -89,10 +94,11 @@ export function reduceIdeaCenterSession(state: IdeaCenterSession, action: IdeaSe
   const idea = sessionIdeas(state).find(item => item.id === action.ideaId);
   if (!idea) throw new Error('Idea inexistente.');
   if (action.type === 'SEND_TO_HQ') {
-    if (state.handoffs.some(item => item.ideaId === idea.id)) return state;
+    if (state.handoffs.some(item => item.handoff.ideaId === idea.id)) return state;
+    const provenance = ideaProvenance(state, idea.id);
     const sent = transitionIdea(idea, 'SENT_TO_HQ', at);
     const handoff = createIdeaHandoff(sent);
-    const updated = { ...state, sessionIdeas: [...state.sessionIdeas.filter(item => item.id !== idea.id), sent], handoffs: [...state.handoffs, handoff] };
+    const updated = { ...state, sessionIdeas: [...state.sessionIdeas.filter(item => item.id !== idea.id), sent], handoffs: [...state.handoffs, { handoff, provenance }] };
     return withAudit(updated, at, 'SENT_TO_HQ', { ideaId: idea.id });
   }
   const next = transitionIdea(idea, action.to, at);

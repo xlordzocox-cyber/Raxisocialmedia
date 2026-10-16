@@ -65,7 +65,7 @@ export function CampusOverview({ ideas, clock = runtimeClock }: { ideas: readonl
     <div className="campus-buildings">
       <button type="button" className="campus-building campus-building--operations" aria-label="Abrir bandeja del Centro de Operaciones" aria-expanded={inboxOpen} aria-controls={OPERATIONS_INBOX_ID} onClick={() => setInboxOpen(value => !value)}>
         <div className="campus-art"><OperationsBuilding /></div>
-        <div className="campus-building-copy"><span className="campus-building-kicker"><i aria-hidden="true" /> ACTIVO · OFFICE v0.5</span><strong>Centro de<br />Operaciones</strong><span className="campus-building-description">Operaciones · producción y QA</span><span className="campus-telemetry"><span><b>{session.handoffs.length}</b> propuestas recibidas</span></span><span className="campus-building-footer">{inboxOpen ? 'Cerrar bandeja' : 'Abrir bandeja'} <span aria-hidden="true">{inboxOpen ? '↑' : '↗'}</span></span></div>
+        <div className="campus-building-copy"><span className="campus-building-kicker"><i aria-hidden="true" /> ACTIVO · OFFICE v0.5</span><strong>Centro de<br />Operaciones</strong><span className="campus-building-description">Operaciones · producción y QA</span><span className="campus-telemetry"><span><b>{session.handoffs.length}</b> propuestas internas recibidas</span></span><span className="campus-building-footer">{inboxOpen ? 'Cerrar bandeja' : 'Abrir bandeja'} <span aria-hidden="true">{inboxOpen ? '↑' : '↗'}</span></span></div>
       </button>
       <button type="button" className="campus-building campus-building--ideas" aria-expanded={open} aria-controls={IDEA_PANEL_ID} onClick={() => setOpen(current => !current)}>
         <span className="campus-art"><IdeasBuilding /></span>

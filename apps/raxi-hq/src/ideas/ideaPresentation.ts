@@ -1,4 +1,5 @@
 import type { IdeaChannel, IdeaPriority, IdeaSource, IdeaStatus } from './ideaContracts';
+import type { IdeaProvenance } from './ideaCenterSession';
 
 /** Labels belong to the view; canonical Idea Center values stay unchanged. */
 export const ideaStatusLabel: Record<IdeaStatus, string> = {
@@ -21,6 +22,12 @@ export const ideaSourceLabel: Record<IdeaSource, string> = {
   EDITORIAL_CALENDAR: 'Calendario editorial',
   SUPERMEMORY_INSIGHT: 'Insight de memoria',
   EXTERNAL_SIGNAL: 'Señal externa',
+};
+
+export const ideaProvenanceLabel: Record<IdeaProvenance, string> = {
+  MOCK: 'MOCK',
+  MOCK_SESSION_MODIFIED: 'MOCK · MODIFICADO EN SESIÓN',
+  LOCAL_SESSION: 'LOCAL · SESIÓN',
 };
 
 export const ideaChannelLabel: Record<IdeaChannel, string> = {
