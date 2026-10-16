@@ -59,6 +59,23 @@ test('SENT_TO_HQ requires recorded approval and send timestamps in chronological
   assert.equal(createIdeaHandoff(sent).sentAt, sent.sentToHqAt);
 });
 
+for (const status of ['ARCHIVED', 'REJECTED', 'PROPOSED', 'UNDER_REVIEW', 'APPROVED_FOR_HQ'] as const) {
+  test(`${status} rejects sentToHqAt even when its timestamps are coherent`, () => {
+    const idea = { ...base(), status, updatedAt: '2026-10-12T12:00:00Z',
+      approvedAt: '2026-10-11T12:00:00Z', sentToHqAt: '2026-10-12T12:00:00Z' };
+    assert.throws(() => validateIdeaRecord(idea), /chronology/);
+  });
+}
+
+test('approved ideas can have approval metadata without send metadata; sent ideas require both', () => {
+  const approved = { ...base(), status: 'APPROVED_FOR_HQ' as const,
+    updatedAt: '2026-10-11T12:00:00Z', approvedAt: '2026-10-11T12:00:00Z' };
+  assert.equal(validateIdeaRecord(approved).sentToHqAt, undefined);
+  const sent = { ...approved, status: 'SENT_TO_HQ' as const,
+    updatedAt: '2026-10-12T12:00:00Z', sentToHqAt: '2026-10-12T12:00:00Z' };
+  assert.equal(validateIdeaRecord(sent).sentToHqAt, sent.sentToHqAt);
+});
+
 test('record validation rejects incoherent history even outside SENT_TO_HQ', () => {
   assert.throws(() => validateIdeaRecord({ ...base(), updatedAt: '2026-10-09T00:00:00Z' }), /chronology/);
   assert.throws(() => validateIdeaRecord({ ...base(), status: 'APPROVED_FOR_HQ' }), /chronology/);

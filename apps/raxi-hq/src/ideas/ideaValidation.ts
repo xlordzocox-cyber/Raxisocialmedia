@@ -135,6 +135,7 @@ export function validateIdeaRecord(value: unknown): IdeaRecord {
       (idea.sentToHqAt !== undefined && (idea.approvedAt === undefined ||
         compareIdeaTimestamps(idea.approvedAt, idea.sentToHqAt) > 0 ||
         compareIdeaTimestamps(idea.sentToHqAt, idea.updatedAt) > 0)) ||
+      (idea.sentToHqAt !== undefined && idea.status !== 'SENT_TO_HQ') ||
       (idea.status === 'APPROVED_FOR_HQ' && idea.approvedAt === undefined) ||
       (idea.status === 'SENT_TO_HQ' && (idea.approvedAt === undefined || idea.sentToHqAt === undefined))) {
     throw new Error('Invalid idea chronology');
