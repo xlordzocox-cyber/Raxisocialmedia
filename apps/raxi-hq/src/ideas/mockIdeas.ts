@@ -35,7 +35,7 @@ const records: IdeaRecord[] = [
   },
   {
     id: 'IDEA-MANUAL-001', title: 'Idea manual reservada para Luis',
-    summary: 'Ejemplo de contrato para la futura entrada manual; no existe formulario en esta fase.',
+    summary: 'Ejemplo ficticio de fuente manual; no es una idea capturada por Luis.',
     source: 'MANUAL_LUIS', status: 'PROPOSED', priority: 'LOW',
     createdAt: '2026-10-10T15:00:00Z', updatedAt: '2026-10-10T15:00:00Z',
     reason: 'Permite probar la fuente manual sin atribuir una propuesta real a Luis.',

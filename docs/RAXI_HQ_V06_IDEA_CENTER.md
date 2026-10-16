@@ -64,4 +64,27 @@ La única fuente del panel es `loadMockIdeaCenter()`. Se identifica como **Centr
 
 El edificio interactivo es un botón con `aria-expanded` y `aria-controls`; las ideas son botones seleccionables con `aria-pressed`. El panel tiene nombre accesible, foco visible y un diseño de dos columnas en desktop que se apila en móvil. No se añadió un mapa de campus a Pixi ni se modificaron movimiento, pathfinding, cámara, slots o Source Health.
 
-Siguen fuera de alcance: formulario de entrada manual, fuentes reales de tendencias o analytics, envío real al HQ, creación automática de `Campaign`, Asset Studio, imágenes finales, publishing, FanView/Instagram API e integración real con Munder o Supermemory. El runtime no realiza escrituras externas.
+En Fase 2 quedaron fuera de alcance el formulario y el handoff. Fase 3 añade ambos como acciones locales; siguen fuera de alcance las fuentes reales de tendencias o analytics, la creación automática de `Campaign`, Asset Studio, imágenes finales, publishing, FanView/Instagram API e integración real con Munder o Supermemory.
+
+## Fase 3 — captura y handoff interno controlado
+
+`ManualIdeaDraft` es una captura local de Luis con título, nota, prioridad y referencia opaca opcional. No es un `IdeaRecord`: no tiene scores ni aprobación. Se valida antes de entrar al estado de sesión; el ID secuencial `IDEA-MANUAL-NNN` evita colisiones con el fixture, y el total de borradores e ideas respeta `MAX_IDEAS`. Los timestamps de acciones interactivas provienen de un `Clock` inyectable, se validan con `validateIdeaTimestamp()` y nunca se generan durante render. El runtime usa `new Date().toISOString()` al actuar; los tests usan un reloj fijo.
+
+La capa pura `src/ideas/ideaCenterSession.ts` conserva por separado `mockIdeas`, `manualDrafts`, `sessionIdeas`, `handoffs` y un audit log local. El campus React contiene una capa fina de estado; `hqStore`, Pixi y el feed Munder permanecen independientes. La UI distingue `MOCK`, `LOCAL · SESIÓN` y `MOCK · modificado en sesión`. Modificar una idea mock solo crea una copia en memoria y no altera el fixture.
+
+Flujo de Fase 3:
+
+```text
+Luis → ManualIdeaDraft → Preparar propuesta → IdeaRecord / PROPOSED
+  → UNDER_REVIEW → APPROVED_FOR_HQ → confirmación humana
+  → SENT_TO_HQ → IdeaHandoffToHQ → Operations Inbox
+  → PENDIENTE DE DECISIÓN DEL HQ
+```
+
+La revisión exige título, resumen, motivo, prioridad, canales y tags explícitos, además de afinidad y confianza introducidas por Luis (0–100). No se inventan scores. Una referencia aportada por Luis puede quedar como evidencia `MANUAL_NOTE`; no se consulta ni se convierte en enlace. Solo una conversión que pase `validateIdeaRecord()` retira el draft. El ciclo posterior usa exclusivamente `transitionIdea()`; no permite saltar revisión. `SENT_TO_HQ` requiere una confirmación visible, seguida de `createIdeaHandoff()`; el inbox es idempotente por `ideaId` y no crea `Campaign`.
+
+Los borradores pueden eliminarse con confirmación local. Ni `IdeaRecord`, ni el fixture, ni los handoffs tienen acción de borrado. El audit log en memoria registra acciones, IDs `AUDIT-NNNN`, timestamp y actor `LUIS`, sin texto completo de la idea. Los conteos del campus y la bandeja se derivan del estado de sesión, sin simular actividad de agentes.
+
+La única nueva capacidad del runtime es **`WRITE_INTERNAL`**, local, efímera y controlada. No existe persistencia durable: no hay backend, filesystem, `localStorage` ni `sessionStorage`; al recargar, borradores y handoffs pueden reiniciarse. El runtime no escribe a GitHub, Supermemory, Munder, Aria ni APIs sociales. Tampoco crea assets, envía datos externamente, publica, cobra o cambia permisos o secretos. El Office v0.5 conserva sus modos `MOCK` y `LIVE_READ_ONLY` por separado.
+
+Fase 3 no completa el producto Raxi HQ. El roadmap mayor mantiene Dashboard, Campaigns, Planner, Assets, Copy & Hashtags, QA / Approval, Publishing, Analytics, Office / Agents, Memory / Supermemory y Research / Training. El siguiente gran módulo previsto después de estabilizar el handoff es **Campaign Workspace**; esta fase termina antes de crear una campaña.
