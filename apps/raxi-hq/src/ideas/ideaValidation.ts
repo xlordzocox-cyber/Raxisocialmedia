@@ -76,6 +76,18 @@ export function validateIdeaTimestamp(value: unknown): string {
   return result;
 }
 
+// Compare instants without losing fractional precision beyond milliseconds.
+function compareIdeaTimestamps(left: string, right: string): number {
+  const withoutFraction = (value: string) => value.replace(/\.\d+(?=Z|[+-]\d\d:\d\d$)/, '');
+  const seconds = Date.parse(withoutFraction(left)) - Date.parse(withoutFraction(right));
+  if (seconds !== 0) return Math.sign(seconds);
+  const fraction = (value: string) => /\.(\d+)(?:Z|[+-]\d\d:\d\d)$/.exec(value)?.[1] ?? '';
+  const leftFraction = fraction(left), rightFraction = fraction(right);
+  const width = Math.max(leftFraction.length, rightFraction.length);
+  const a = leftFraction.padEnd(width, '0'), b = rightFraction.padEnd(width, '0');
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function evidence(value: unknown): IdeaEvidence {
   const item = record(value);
   return {
@@ -97,7 +109,7 @@ export function validateIdeaRecord(value: unknown): IdeaRecord {
   const rawRelated = related === undefined ? undefined : boundedList(related, MAX_RELATED_CAMPAIGNS);
   const evidenceItems = rawEvidence.map(evidence);
   unique(evidenceItems.map(entry => entry.id));
-  return {
+  const idea: IdeaRecord = {
     id: id(own(item, 'id')),
     title: text(own(item, 'title'), MAX_TITLE_LENGTH),
     summary: text(own(item, 'summary'), MAX_SUMMARY_LENGTH),
@@ -117,6 +129,17 @@ export function validateIdeaRecord(value: unknown): IdeaRecord {
     approvedAt: optional(own(item, 'approvedAt'), validateIdeaTimestamp),
     sentToHqAt: optional(own(item, 'sentToHqAt'), validateIdeaTimestamp),
   };
+  if (compareIdeaTimestamps(idea.createdAt, idea.updatedAt) > 0 ||
+      (idea.approvedAt !== undefined && (compareIdeaTimestamps(idea.createdAt, idea.approvedAt) > 0 ||
+        compareIdeaTimestamps(idea.approvedAt, idea.updatedAt) > 0)) ||
+      (idea.sentToHqAt !== undefined && (idea.approvedAt === undefined ||
+        compareIdeaTimestamps(idea.approvedAt, idea.sentToHqAt) > 0 ||
+        compareIdeaTimestamps(idea.sentToHqAt, idea.updatedAt) > 0)) ||
+      (idea.status === 'APPROVED_FOR_HQ' && idea.approvedAt === undefined) ||
+      (idea.status === 'SENT_TO_HQ' && (idea.approvedAt === undefined || idea.sentToHqAt === undefined))) {
+    throw new Error('Invalid idea chronology');
+  }
+  return idea;
 }
 
 export function validateIdeaCollection(value: unknown): IdeaRecord[] {
@@ -141,16 +164,23 @@ export function transitionIdea(value: IdeaRecord, to: IdeaStatus, at: string): I
   const idea = validateIdeaRecord(value);
   if (!canTransitionIdea(idea.status, to)) throw new Error('Invalid idea transition');
   const timestamp = validateIdeaTimestamp(at);
-  return {
+  if (compareIdeaTimestamps(timestamp, idea.createdAt) < 0 ||
+      compareIdeaTimestamps(timestamp, idea.updatedAt) < 0 ||
+      (to === 'SENT_TO_HQ' && (idea.approvedAt === undefined || compareIdeaTimestamps(timestamp, idea.approvedAt) < 0))) {
+    throw new Error('Invalid idea chronology');
+  }
+  return validateIdeaRecord({
     ...idea, status: to, updatedAt: timestamp,
     approvedAt: to === 'APPROVED_FOR_HQ' ? timestamp : idea.approvedAt,
     sentToHqAt: to === 'SENT_TO_HQ' ? timestamp : idea.sentToHqAt,
-  };
+  });
 }
 
 export function createIdeaHandoff(value: IdeaRecord): IdeaHandoffToHQ {
   const idea = validateIdeaRecord(value);
-  if (idea.status !== 'SENT_TO_HQ' || idea.sentToHqAt === undefined) throw new Error('Idea is not sent to HQ');
+  if (idea.status !== 'SENT_TO_HQ' || idea.approvedAt === undefined || idea.sentToHqAt === undefined) {
+    throw new Error('Idea is not approved and sent to HQ');
+  }
   return {
     ideaId: idea.id, title: idea.title, summary: idea.summary, reason: idea.reason,
     source: idea.source, priority: idea.priority, suggestedChannels: [...idea.suggestedChannels],

@@ -44,7 +44,45 @@ test('ISO validation rejects impossible calendars and clock fields, preserving v
   }
   const valid='2024-02-29T23:59:59.00001+02:00';
   assert.equal(validateIdeaTimestamp(valid),valid);
-  assert.equal(validateIdeaRecord({ ...base(), updatedAt: valid }).updatedAt,valid);
+  assert.equal(validateIdeaRecord({ ...base(), createdAt: valid }).createdAt,valid);
+});
+
+test('SENT_TO_HQ requires recorded approval and send timestamps in chronological order', () => {
+  const sent = { ...base(), status: 'SENT_TO_HQ' as const,
+    updatedAt: '2026-10-12T12:00:00Z', approvedAt: '2026-10-11T12:00:00Z', sentToHqAt: '2026-10-12T12:00:00Z' };
+  assert.throws(() => validateIdeaRecord({ ...sent, approvedAt: undefined }), /chronology/);
+  assert.throws(() => validateIdeaRecord({ ...sent, sentToHqAt: undefined }), /chronology/);
+  assert.throws(() => validateIdeaRecord({ ...sent, sentToHqAt: '2026-10-11T11:59:59Z' }), /chronology/);
+  assert.throws(() => validateIdeaRecord({ ...sent, approvedAt: '2026-10-09T12:00:00Z' }), /chronology/);
+  assert.equal(validateIdeaRecord(sent).status, 'SENT_TO_HQ');
+  assert.throws(() => createIdeaHandoff({ ...sent, approvedAt: undefined }), /chronology/);
+  assert.equal(createIdeaHandoff(sent).sentAt, sent.sentToHqAt);
+});
+
+test('record validation rejects incoherent history even outside SENT_TO_HQ', () => {
+  assert.throws(() => validateIdeaRecord({ ...base(), updatedAt: '2026-10-09T00:00:00Z' }), /chronology/);
+  assert.throws(() => validateIdeaRecord({ ...base(), status: 'APPROVED_FOR_HQ' }), /chronology/);
+  assert.throws(() => validateIdeaRecord({ ...base(), sentToHqAt: base().updatedAt }), /chronology/);
+  assert.throws(() => validateIdeaRecord({ ...base(), approvedAt: '2026-10-11T00:00:00Z' }), /chronology/);
+  assert.throws(() => validateIdeaRecord({ ...base(), approvedAt: base().createdAt,
+    sentToHqAt: '2026-10-11T00:00:00Z' }), /chronology/);
+});
+
+test('transitions cannot predate createdAt or updatedAt, including approval', () => {
+  const reviewing = transitionIdea(base(), 'UNDER_REVIEW', '2026-10-11T00:00:00Z');
+  assert.throws(() => transitionIdea(base(), 'UNDER_REVIEW', '2026-10-09T00:00:00Z'), /chronology/);
+  assert.throws(() => transitionIdea(reviewing, 'REJECTED', '2026-10-10T12:00:00Z'), /chronology/);
+  assert.throws(() => transitionIdea(reviewing, 'APPROVED_FOR_HQ', '2026-10-10T12:00:00Z'), /chronology/);
+  const approved = transitionIdea(reviewing, 'APPROVED_FOR_HQ', '2026-10-11T01:00:00Z');
+  assert.throws(() => transitionIdea(approved, 'SENT_TO_HQ', '2026-10-11T00:59:59Z'), /chronology/);
+  assert.equal(transitionIdea(approved, 'SENT_TO_HQ', approved.approvedAt!).sentToHqAt, approved.approvedAt);
+  assert.equal(transitionIdea(base(), 'UNDER_REVIEW', base().updatedAt).updatedAt, base().updatedAt);
+});
+
+test('chronology compares full fractional precision and equivalent offset instants', () => {
+  const instant = '2026-10-10T10:00:00.0009Z';
+  assert.throws(() => transitionIdea(base(), 'UNDER_REVIEW', '2026-10-10T10:00:00.0008Z'), /chronology/);
+  assert.equal(transitionIdea(base(), 'UNDER_REVIEW', '2026-10-10T12:00:00.0009+02:00').createdAt, instant);
 });
 
 test('idea collection rejects an oversized array before visiting any record', () => {
