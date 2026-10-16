@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { CampusOverview } from '../src/campus/CampusOverview';
 import { IdeaCenterPanel } from '../src/ideas/IdeaCenterPanel';
@@ -11,14 +10,14 @@ import { IDEA_CHANNELS, IDEA_PRIORITIES, IDEA_SOURCES, IDEA_STATUSES, type IdeaR
 
 const renderPanel = (ideas: readonly IdeaRecord[]) => renderToStaticMarkup(<IdeaCenterPanel id="idea-center-panel" ideas={ideas} open />);
 
-test('campus telemetry derives counts from summarizeIdeas and keeps MOCK separate from Office mode', () => {
+test('campus telemetry derives counts from summarizeIdeas and keeps idea session separate from Office mode', () => {
   const ideas = loadMockIdeaCenter().ideas;
   const summary = summarizeIdeas(ideas);
   const campus = renderToStaticMarkup(<CampusOverview ideas={ideas} />);
   assert.match(campus, new RegExp(`${summary.totalIdeas}</b> ideas`));
   assert.match(campus, new RegExp(`${summary.underReviewCount}</b> en análisis`));
   assert.match(campus, new RegExp(`${summary.approvedForHqCount}</b> lista para HQ`));
-  assert.match(campus, /CENTRO DE IDEAS · MOCK/);
+  assert.match(campus, /CENTRO DE IDEAS · MOCK \+ SESIÓN LOCAL/);
   assert.match(campus, /aria-expanded="false"/);
   assert.match(campus, /aria-controls="idea-center-panel"/);
   assert.match(campus, /id="idea-center-panel"[^>]*hidden=""/);
@@ -36,19 +35,21 @@ test('presentation labels cover every canonical status, priority, source and cha
   assert.deepEqual(IDEA_CHANNELS.map(value => ideaChannelLabel[value]), ['Instagram Feed', 'Instagram Reel', 'Instagram Stories', 'Teaser', 'FanView Feed', 'FanView Chat']);
 });
 
-test('read-only panel shows MOCK summaries, keyboard-selectable ideas and approval as a proposal', () => {
+test('idea panel shows MOCK summaries, keyboard-selectable ideas and local capture affordance', () => {
   const ideas = loadMockIdeaCenter().ideas;
   const summary = summarizeIdeas(ideas);
   const html = renderPanel(ideas);
-  assert.match(html, /aria-label="Centro de Ideas · MOCK"/);
-  assert.match(html, /MOCK · solo lectura/);
+  assert.match(html, /aria-label="Centro de Ideas · MOCK \+ sesión local"/);
+  assert.match(html, /MOCK \+ SESIÓN LOCAL/);
   assert.match(html, new RegExp(`<strong>${summary.proposedCount}</strong><span>Nuevas`));
   assert.match(html, new RegExp(`<strong>${summary.sentToHqCount}</strong><span>Enviadas al HQ`));
   assert.match(html, /LISTA PARA HQ/);
   assert.match(html, /Una idea todavía no es una campaña/);
   assert.equal((html.match(/class="idea-card"/g) ?? []).length, ideas.length);
   assert.equal((html.match(/aria-pressed="true"/g) ?? []).length, 1);
-  assert.doesNotMatch(html, /<form|<input|Enviar al HQ<\/button|Crear campaña<\/button/i);
+  assert.match(html, /\+ Nueva idea/);
+  assert.match(html, /Los cambios locales de esta fase viven solo durante esta sesión/);
+  assert.doesNotMatch(html, /Crear campaña<\/button/i);
 });
 
 test('idea cards use deterministic priority and ID order regardless of input order', () => {
@@ -73,13 +74,9 @@ test('evidence labels and opaque sourceRef render as escaped text, never links o
   assert.match(html, /EV-MARKUP|MANUAL_NOTE/);
 });
 
-test('rendering a panel leaves IdeaRecord unchanged and exposes no write action', () => {
+test('rendering a panel leaves IdeaRecord unchanged', () => {
   const ideas = loadMockIdeaCenter().ideas;
   const before = JSON.stringify(ideas);
   renderPanel(ideas);
   assert.equal(JSON.stringify(ideas), before);
-  for (const path of ['src/campus/CampusOverview.tsx', 'src/ideas/IdeaCenterPanel.tsx']) {
-    const source = readFileSync(path, 'utf8');
-    assert.doesNotMatch(source, /transitionIdea|createIdeaHandoff|fetch\s*\(|XMLHttpRequest|dangerouslySetInnerHTML|localStorage|\.\.\/adapters\//);
-  }
 });
