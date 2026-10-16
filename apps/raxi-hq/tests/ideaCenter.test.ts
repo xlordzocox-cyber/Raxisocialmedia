@@ -76,6 +76,29 @@ test('approved ideas can have approval metadata without send metadata; sent idea
   assert.equal(validateIdeaRecord(sent).sentToHqAt, sent.sentToHqAt);
 });
 
+for (const status of ['PROPOSED', 'UNDER_REVIEW', 'REJECTED'] as const) {
+  test(`${status} rejects approvedAt even when its timestamp is coherent`, () => {
+    assert.throws(() => validateIdeaRecord({ ...base(), status,
+      updatedAt: '2026-10-11T12:00:00Z', approvedAt: '2026-10-11T12:00:00Z' }), /chronology/);
+  });
+}
+
+test('legitimate review, approval, send, rejection and archive paths retain valid metadata', () => {
+  const reviewing = transitionIdea(base(), 'UNDER_REVIEW', '2026-10-11T00:00:00Z');
+  const approved = transitionIdea(reviewing, 'APPROVED_FOR_HQ', '2026-10-11T01:00:00Z');
+  const sent = transitionIdea(approved, 'SENT_TO_HQ', '2026-10-11T02:00:00Z');
+  assert.equal(validateIdeaRecord(approved).approvedAt, approved.updatedAt);
+  assert.equal(validateIdeaRecord(sent).sentToHqAt, sent.updatedAt);
+  const archivedApproved = transitionIdea(approved, 'ARCHIVED', '2026-10-11T02:00:00Z');
+  assert.equal(validateIdeaRecord(archivedApproved).approvedAt, approved.approvedAt);
+  assert.equal(archivedApproved.sentToHqAt, undefined);
+  const rejected = transitionIdea(reviewing, 'REJECTED', '2026-10-11T01:00:00Z');
+  const archivedRejected = transitionIdea(rejected, 'ARCHIVED', '2026-10-11T02:00:00Z');
+  const archivedReview = transitionIdea(reviewing, 'ARCHIVED', '2026-10-11T01:00:00Z');
+  assert.equal(validateIdeaRecord(archivedRejected).approvedAt, undefined);
+  assert.equal(validateIdeaRecord(archivedReview).approvedAt, undefined);
+});
+
 test('record validation rejects incoherent history even outside SENT_TO_HQ', () => {
   assert.throws(() => validateIdeaRecord({ ...base(), updatedAt: '2026-10-09T00:00:00Z' }), /chronology/);
   assert.throws(() => validateIdeaRecord({ ...base(), status: 'APPROVED_FOR_HQ' }), /chronology/);
