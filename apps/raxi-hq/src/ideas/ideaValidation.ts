@@ -47,7 +47,13 @@ function member<T extends string>(value: unknown, allowed: readonly T[]): T {
 function boundedList(value: unknown, maximum: number): unknown[] {
   if (!Array.isArray(value)) throw new Error('Invalid idea collection');
   if (value.length > maximum) throw new Error('Idea collection exceeds maximum');
-  return value;
+  for (let index = 0; index < value.length; index++) {
+    if (!Object.hasOwn(value, index)) throw new Error('Invalid idea collection');
+  }
+  // Drop untrusted array methods before mapping validated, dense entries.
+  const entries: unknown[] = [];
+  for (let index = 0; index < value.length; index++) entries.push(value[index]);
+  return entries;
 }
 function unique<T>(values: T[]): T[] {
   if (new Set(values).size !== values.length) throw new Error('Duplicate idea value');

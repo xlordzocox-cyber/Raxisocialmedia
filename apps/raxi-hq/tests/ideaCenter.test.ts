@@ -134,6 +134,68 @@ test('idea collection rejects an oversized array before visiting any record', ()
   assert.deepEqual(validateIdeaCollection([]),[]);
 });
 
+test('idea collection rejects leading and middle holes before mapping records', () => {
+  assert.throws(() => validateIdeaCollection(Array(1)), /Invalid idea collection/);
+  assert.throws(() => validateIdeaCollection([base(), , { ...base(), id: 'IDEA-TEST-002' }]), /Invalid idea collection/);
+  assert.equal(validateIdeaCollection([base()]).length, 1);
+});
+
+const nestedSparseCases = [
+  { field: 'evidence', first: base().evidence[0], second: { ...base().evidence[0], id: 'EV-TEST-002' } },
+  { field: 'tags', first: 'a', second: 'b' },
+  { field: 'suggestedChannels', first: 'INSTAGRAM_FEED', second: 'TEASER' },
+  { field: 'relatedCampaignIds', first: 'CAMPAIGN-A', second: 'CAMPAIGN-B' },
+] as const;
+for (const { field, first, second } of nestedSparseCases) {
+  test(`${field} rejects leading and middle holes but accepts dense arrays`, () => {
+    assert.throws(() => validateIdeaRecord({ ...base(), [field]: Array(1) }), /Invalid idea collection/);
+    assert.throws(() => validateIdeaRecord({ ...base(), [field]: [first, , second] }), /Invalid idea collection/);
+    assert.equal((validateIdeaRecord({ ...base(), [field]: [first, second] })[field] ?? []).length, 2);
+  });
+}
+
+test('inherited array indices cannot stand in for own entries', () => {
+  const inherited = Array(1);
+  const prototype = Object.create(Array.prototype) as unknown[];
+  prototype[0] = 'inherited';
+  Object.setPrototypeOf(inherited, prototype);
+  assert.equal(0 in inherited, true);
+  assert.equal(Object.hasOwn(inherited, 0), false);
+  assert.throws(() => validateIdeaRecord({ ...base(), tags: inherited }), /Invalid idea collection/);
+});
+
+test('input-owned array methods cannot bypass element validation', () => {
+  const records = [base()];
+  Object.defineProperty(records, 'map', { value: () => [] });
+  assert.equal(validateIdeaCollection(records).length, 1);
+  const tags = ['ok'];
+  Object.defineProperty(tags, 'map', { value: () => [] });
+  assert.deepEqual(validateIdeaRecord({ ...base(), tags }).tags, ['ok']);
+});
+
+test('null, undefined and duplicate nested values remain invalid', () => {
+  for (const entry of [null, undefined]) {
+    assert.throws(() => validateIdeaCollection([entry]));
+    for (const field of ['evidence', 'tags', 'suggestedChannels', 'relatedCampaignIds']) {
+      assert.throws(() => validateIdeaRecord({ ...base(), [field]: [entry] }));
+    }
+  }
+  assert.throws(() => validateIdeaRecord({ ...base(), tags: ['same', 'same'] }), /Duplicate idea value/);
+  assert.throws(() => validateIdeaRecord({ ...base(), suggestedChannels: ['TEASER', 'TEASER'] }), /Duplicate idea value/);
+  assert.throws(() => validateIdeaRecord({ ...base(), relatedCampaignIds: ['CAMPAIGN-A', 'CAMPAIGN-A'] }), /Duplicate idea value/);
+});
+
+test('handoff cannot emit sparse evidenceRefs from a validated idea', () => {
+  const reviewing = transitionIdea(base(), 'UNDER_REVIEW', '2026-10-11T00:00:00Z');
+  const approved = transitionIdea(reviewing, 'APPROVED_FOR_HQ', '2026-10-11T01:00:00Z');
+  const sent = transitionIdea(approved, 'SENT_TO_HQ', '2026-10-11T02:00:00Z');
+  assert.throws(() => createIdeaHandoff({ ...sent, evidence: Array(1) }), /Invalid idea collection/);
+  const second = { ...base().evidence[0], id: 'EV-TEST-002' };
+  const refs = createIdeaHandoff({ ...sent, evidence: [base().evidence[0], second] }).evidenceRefs;
+  assert.deepEqual(refs, ['EV-TEST-001', 'EV-TEST-002']);
+  for (let index = 0; index < refs.length; index++) assert.equal(Object.hasOwn(refs, index), true);
+});
+
 test('title, summary and reason enforce documented length limits', () => {
   assert.throws(() => validateIdeaRecord({...base(),title:'x'.repeat(MAX_TITLE_LENGTH+1)}));
   assert.throws(() => validateIdeaRecord({...base(),summary:'x'.repeat(MAX_SUMMARY_LENGTH+1)}));
