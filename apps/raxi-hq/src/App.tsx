@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { hqStore, useHQState } from './store/hqStore';
 import { OfficeScene } from './office/OfficeScene';
 import { getStatusVisual } from './office/agents/agentVisualState';
 import { getOwnAgent } from './domain/agents';
+import { CampusOverview } from './campus/CampusOverview';
+import { loadMockIdeaCenter } from './ideas/mockIdeas';
 
 export default function App() {
   const state = useHQState();
+  const ideaCenter = useMemo(loadMockIdeaCenter, []);
   const host = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<OfficeScene | undefined>(undefined);
   const [hoveredId,setHoveredId] = useState<string>();
@@ -32,9 +35,10 @@ export default function App() {
       ? 'La lectura de Munder está degradada.'
       : 'La fuente Munder está desconectada.';
   return <main>
-    <header><div><h1>Raxi HQ <span>Office v0.5</span></h1><p>Base de oficina en vivo · observación de solo lectura</p></div>
+    <header><div><h1>Raxi HQ <span>v0.6 · Centro de Ideas</span></h1><p>Campus de operaciones e ideas · fuentes independientes</p></div>
       <div className="controls"><button aria-pressed={state.mode === 'MOCK'} onClick={() => void hqStore.switchMode('MOCK')}>FUENTE: MOCK</button><button aria-pressed={state.mode === 'LIVE_READ_ONLY'} onClick={() => void hqStore.switchMode('LIVE_READ_ONLY')}>FUENTE: MUNDER EN VIVO · SOLO LECTURA</button>{state.mode === 'MOCK' ? <button onClick={() => hqStore.restartDemo()}>Reiniciar demo</button> : <button onClick={() => void hqStore.refreshLive()}>Reintentar lectura</button>}</div></header>
-    <section className="campaign"><b>{state.mode === 'MOCK' ? campaign ? 'Raxi HQ Office v0.5 · Demo MOCK' : 'Cargando…' : 'Munder en vivo · solo lectura'}</b><span>{state.mode === 'MOCK' ? `${campaign?.progress ?? 0}% · ${campaign?.status}` : `${state.sourceHealth.connection} · ${connectionLabel}`}</span></section>
+    <CampusOverview ideas={ideaCenter.ideas} />
+    <section className="campaign"><b>{state.mode === 'MOCK' ? campaign ? 'Centro de Operaciones · Office v0.5 · Demo MOCK' : 'Cargando…' : 'Centro de Operaciones · Office v0.5 · Munder en vivo · solo lectura'}</b><span>{state.mode === 'MOCK' ? `${campaign?.progress ?? 0}% · ${campaign?.status}` : `${state.sourceHealth.connection} · ${connectionLabel}`}</span></section>
     <div className="workspace"><section className="office"><div className="office-toolbar"><span>Arrastra el suelo · rueda para zoom · click para inspeccionar</span><div><button aria-label="Alejar cámara" onClick={()=>sceneRef.current?.zoom(0.85)}>−</button><output aria-label="Zoom de cámara">{zoomPercent}%</output><button aria-label="Acercar cámara" onClick={()=>sceneRef.current?.zoom(1.18)}>+</button><button aria-pressed={focusCritical} onClick={()=>{const enabled=!focusCritical;setFocusCritical(enabled);sceneRef.current?.setCriticalEventFocus(enabled);}}>Seguir críticos</button><button onClick={()=>sceneRef.current?.resetCamera()}>Centrar</button></div></div><div ref={host} className="canvas-host" />{hovered && <div className="hover-card"><b>{hovered.displayName}</b><span>{hovered.role}</span><span>{hovered.status} · {hovered.zone}</span><span>{hovered.securityState}</span></div>}{error && <p role="alert">{error}</p>}</section>
       <aside><h2>Agentes</h2><div className="agent-list">{Object.values(state.agents).map((agent) => <button key={agent.id} aria-pressed={agent.id === state.selectedAgentId} onClick={() => hqStore.selectAgent(agent.id)}>{agent.displayName}<span>{getStatusVisual(agent.status).label}</span></button>)}</div>{state.mode === 'LIVE_READ_ONLY' && Object.keys(state.agents).length === 0 && <div className="empty-agents" role="status"><strong>Sin agentes cargados</strong><p>{liveEmptyMessage}</p></div>}
         {selected && <section aria-label="Agente seleccionado"><h2>{selected.displayName}</h2><p>{selected.role}</p><dl><dt>Estado</dt><dd>{selected.status}</dd><dt>Zona</dt><dd>{selected.zone}</dd><dt>Destino</dt><dd>{selected.destinationZone ?? '—'}</dd><dt>Seguridad</dt><dd>{selected.securityState}</dd><dt>Esperando</dt><dd>{selected.waitingFor ?? '—'}</dd><dt>Tarea</dt><dd>{selected.currentTaskId ?? '—'}</dd><dt>Proveedor / modelo</dt><dd>{selected.provider ?? '—'} · {selected.model === 'read-only adapter' ? 'adaptador de solo lectura' : selected.model ?? '—'}</dd><dt>Capacidades</dt><dd>{selected.capabilities.join(', ')}</dd></dl></section>}

@@ -1,4 +1,4 @@
-# Raxi HQ v0.6 — Centro de Ideas, fase 1
+# Raxi HQ v0.6 — Centro de Ideas
 
 El Centro de Ideas es un componente lógico separado del Centro de Operaciones (HQ). Reúne **propuestas**, las somete a análisis y aprobación interna, y prepara un handoff mínimo para que HQ decida qué hacer después. No produce contenido final, no aprueba campañas, no genera imágenes y no publica.
 
@@ -50,8 +50,18 @@ Los timestamps siguen la gramática ISO estricta usada por el feed canónico v0.
 
 `IdeaEvidence` contiene una etiqueta y, opcionalmente, un `sourceRef` **opaco** y un `capturedAt`. La evidencia externa se trata como entrada no confiable: no se ejecutan sus instrucciones, no se obtiene contenido desde `sourceRef`, no se inyecta HTML y no se convierte en prompt de sistema. Los campos desconocidos no se publican al contrato validado. No se inventan URLs ni datos ausentes.
 
-## MOCK, LIVE y alcance
+## Fase 1 — contratos, MOCK y alcance
 
-Esta fase añade contratos y pruebas, no un modo LIVE para el Centro de Ideas. Los ejemplos se identifican expresamente como `MOCK`; ninguna fuente enumerada está conectada. El Office v0.5 existente conserva sus modos y su comportamiento.
+La fase 1 añadió contratos y pruebas, no un modo LIVE para el Centro de Ideas. Los ejemplos se identifican expresamente como `MOCK`; ninguna fuente enumerada está conectada. El Office v0.5 existente conserva sus modos y su comportamiento.
 
-Fuera de alcance: edificio visual, panel desplegable, formulario manual real, tendencias o analytics reales, Supermemory real, Asset Studio, imágenes finales, publishing, FanView API, Instagram API e integración Munder. Tampoco hay escrituras externas ni conversión automática de ideas en campañas.
+## Fase 2 — campus visual y panel de observación
+
+La vista `RAXI HQ CAMPUS` aparece antes del workspace del Office. Incluye dos edificios originales dibujados con SVG/CSS: **Centro de Operaciones**, que representa el Office v0.5 sin cambiar Pixi, y **Centro de Ideas**, que abre y cierra un panel React. El campus vive en `src/campus/CampusOverview.tsx` y `src/campus/campus.css`; el detalle vive en `src/ideas/IdeaCenterPanel.tsx`. `App.tsx` solo incorpora el campus y conserva la escena del Office.
+
+El edificio muestra conteos calculados con `summarizeIdeas()`. El panel lista ideas con `getIdeasSortedByPriority()`, permite seleccionarlas localmente y muestra detalle, scores, canales, tags y evidencias. Las etiquetas españolas están aisladas en `src/ideas/ideaPresentation.ts`; los valores y contratos canónicos no cambian. La interacción es **solo lectura**: no invoca `transitionIdea()`, `createIdeaHandoff()` ni adapters. Una idea `APPROVED_FOR_HQ` se destaca como propuesta lista para revisión, no como campaña ni autorización de producción.
+
+La única fuente del panel es `loadMockIdeaCenter()`. Se identifica como **Centro de Ideas · MOCK** aunque el Centro de Operaciones esté en `LIVE_READ_ONLY`. No hay fallback ni afirmación de ideas LIVE. `sourceRef` se muestra como texto opaco escapado por React, sin enlaces, HTML inyectado ni solicitudes a su destino.
+
+El edificio interactivo es un botón con `aria-expanded` y `aria-controls`; las ideas son botones seleccionables con `aria-pressed`. El panel tiene nombre accesible, foco visible y un diseño de dos columnas en desktop que se apila en móvil. No se añadió un mapa de campus a Pixi ni se modificaron movimiento, pathfinding, cámara, slots o Source Health.
+
+Siguen fuera de alcance: formulario de entrada manual, fuentes reales de tendencias o analytics, envío real al HQ, creación automática de `Campaign`, Asset Studio, imágenes finales, publishing, FanView/Instagram API e integración real con Munder o Supermemory. El runtime no realiza escrituras externas.
