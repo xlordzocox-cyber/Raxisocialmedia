@@ -267,8 +267,9 @@ test('Workspace renders counts, detail, provenance, session warning and inactive
   assert.match(html, /IDEA-APPROVED-001/);
   assert.match(html, /Objetivo\nmedible/);
   assert.match(html, /Brief · Disponible/);
-  for (const stage of ['Strategy', 'Assets', 'Copy', 'QA', 'Planner', 'Publishing', 'Analytics']) assert.match(html, new RegExp(`${stage} · PRÓXIMAMENTE`));
-  assert.equal((html.match(/aria-disabled="true"/g) ?? []).length, 7);
+  assert.match(html, /Strategy · Disponible/);
+  for (const stage of ['Assets', 'Copy', 'QA', 'Planner', 'Publishing', 'Analytics']) assert.match(html, new RegExp(`${stage} · PRÓXIMAMENTE`));
+  assert.equal((html.match(/aria-disabled="true"/g) ?? []).length, 6);
 });
 
 test('untrusted text is React-escaped and new boundary has no persistence or external writes', () => {
