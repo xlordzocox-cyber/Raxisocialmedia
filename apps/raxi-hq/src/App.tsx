@@ -35,7 +35,7 @@ export default function App() {
       ? 'La lectura de Munder está degradada.'
       : 'La fuente Munder está desconectada.';
   return <main>
-    <header><div><h1>Raxi HQ <span>v0.6 · Centro de Ideas · Fase 3</span></h1><p>Campus de operaciones e ideas · fuentes independientes</p></div>
+    <header><div><h1>Raxi HQ <span>v0.7 · Campaign Workspace</span></h1><p>Campus de operaciones e ideas · fuentes independientes</p></div>
       <div className="controls"><button aria-pressed={state.mode === 'MOCK'} onClick={() => void hqStore.switchMode('MOCK')}>FUENTE: MOCK</button><button aria-pressed={state.mode === 'LIVE_READ_ONLY'} onClick={() => void hqStore.switchMode('LIVE_READ_ONLY')}>FUENTE: MUNDER EN VIVO · SOLO LECTURA</button>{state.mode === 'MOCK' ? <button onClick={() => hqStore.restartDemo()}>Reiniciar demo</button> : <button onClick={() => void hqStore.refreshLive()}>Reintentar lectura</button>}</div></header>
     <CampusOverview ideas={ideaCenter.ideas} />
     <section className="campaign"><b>{state.mode === 'MOCK' ? campaign ? 'Centro de Operaciones · Office v0.5 · Demo MOCK' : 'Cargando…' : 'Centro de Operaciones · Office v0.5 · Munder en vivo · solo lectura'}</b><span>{state.mode === 'MOCK' ? `${campaign?.progress ?? 0}% · ${campaign?.status}` : `${state.sourceHealth.connection} · ${connectionLabel}`}</span></section>

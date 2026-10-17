@@ -4,9 +4,12 @@ import { summarizeIdeas } from '../ideas/ideaSelectors';
 import { IdeaCenterPanel } from '../ideas/IdeaCenterPanel';
 import { createIdeaCenterSession, dispatchIdeaAction, sessionIdeas, type Clock, type IdeaCenterSession, type IdeaSessionCommand } from '../ideas/ideaCenterSession';
 import { OperationsInbox } from '../operations/OperationsInbox';
+import { CampaignWorkspace } from '../campaigns/CampaignWorkspace';
+import { createCampaignSession, dispatchCampaignAction, type CampaignCommand, type CampaignSession } from '../campaigns/campaignSession';
 
 const IDEA_PANEL_ID = 'idea-center-panel';
 const OPERATIONS_INBOX_ID = 'operations-inbox';
+const CAMPAIGN_WORKSPACE_ID = 'campaign-workspace';
 const runtimeClock: Clock = () => new Date().toISOString();
 
 function OperationsBuilding() {
@@ -42,9 +45,14 @@ function IdeasBuilding() {
 export function CampusOverview({ ideas, clock = runtimeClock }: { ideas: readonly IdeaRecord[]; clock?: Clock }) {
   const [open, setOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string>();
   const sessionRef = useRef<IdeaCenterSession | null>(null);
   if (sessionRef.current === null) sessionRef.current = createIdeaCenterSession(ideas);
   const [session, setSession] = useState(sessionRef.current);
+  const campaignsRef = useRef<CampaignSession | null>(null);
+  if (campaignsRef.current === null) campaignsRef.current = createCampaignSession();
+  const [campaigns, setCampaigns] = useState(campaignsRef.current);
   const [actionError, setActionError] = useState<string>();
   const apply = (action: IdeaSessionCommand): boolean => {
     try {
@@ -58,21 +66,40 @@ export function CampusOverview({ ideas, clock = runtimeClock }: { ideas: readonl
       return false;
     }
   };
+  const applyCampaign = (action: CampaignCommand): boolean => {
+    try {
+      const next = dispatchCampaignAction(campaignsRef.current!, sessionRef.current!.handoffs, clock, action);
+      campaignsRef.current = next;
+      setCampaigns(next);
+      if (action.type === 'CREATE_CAMPAIGN') {
+        setSelectedCampaignId(next.campaigns[next.campaigns.length - 1].id);
+        setWorkspaceOpen(true);
+      }
+      setActionError(undefined);
+      return true;
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : 'Acción de campaña inválida.');
+      return false;
+    }
+  };
   const visibleIdeas = sessionIdeas(session);
   const summary = summarizeIdeas(visibleIdeas);
   return <section className="campus" aria-label="Raxi HQ Campus">
-    <div className="campus-heading"><div><span className="campus-eyebrow">RAXI HQ CAMPUS</span><h2>Un lugar para operar y pensar lo que sigue.</h2></div><span className="campus-phase">v0.6 · Fase 3</span></div>
+    <div className="campus-heading"><div><span className="campus-eyebrow">RAXI HQ CAMPUS</span><h2>Un lugar para operar y pensar lo que sigue.</h2></div><span className="campus-phase">v0.7 · Campaign Workspace</span></div>
     <div className="campus-buildings">
       <button type="button" className="campus-building campus-building--operations" aria-label="Abrir bandeja del Centro de Operaciones" aria-expanded={inboxOpen} aria-controls={OPERATIONS_INBOX_ID} onClick={() => setInboxOpen(value => !value)}>
         <div className="campus-art"><OperationsBuilding /></div>
-        <div className="campus-building-copy"><span className="campus-building-kicker"><i aria-hidden="true" /> ACTIVO · OFFICE v0.5</span><strong>Centro de<br />Operaciones</strong><span className="campus-building-description">Operaciones · producción y QA</span><span className="campus-telemetry"><span><b>{session.handoffs.length}</b> propuestas internas recibidas</span></span><span className="campus-building-footer">{inboxOpen ? 'Cerrar bandeja' : 'Abrir bandeja'} <span aria-hidden="true">{inboxOpen ? '↑' : '↗'}</span></span></div>
+        <div className="campus-building-copy"><span className="campus-building-kicker"><i aria-hidden="true" /> ACTIVO · OFFICE v0.5</span><strong>Centro de<br />Operaciones</strong><span className="campus-building-description">Decisiones HQ · campañas internas</span><span className="campus-telemetry"><span><b>{session.handoffs.length}</b> propuestas internas recibidas</span><span><b>{campaigns.campaigns.length}</b> campañas de sesión</span></span><span className="campus-building-footer">{inboxOpen ? 'Cerrar bandeja' : 'Abrir bandeja'} <span aria-hidden="true">{inboxOpen ? '↑' : '↗'}</span></span></div>
       </button>
       <button type="button" className="campus-building campus-building--ideas" aria-expanded={open} aria-controls={IDEA_PANEL_ID} onClick={() => setOpen(current => !current)}>
         <span className="campus-art"><IdeasBuilding /></span>
         <span className="campus-building-copy"><span className="campus-building-kicker"><i aria-hidden="true" /> CENTRO DE IDEAS · MOCK + SESIÓN LOCAL</span><strong>Centro de<br />Ideas</strong><span className="campus-building-description">Radar y captura local de propuestas</span><span className="campus-telemetry"><span><b>{summary.totalIdeas}</b> {summary.totalIdeas === 1 ? 'idea' : 'ideas'}</span><span><b>{session.manualDrafts.length}</b> borradores locales</span><span><b>{summary.underReviewCount}</b> en análisis</span><span><b>{summary.approvedForHqCount}</b> {summary.approvedForHqCount === 1 ? 'lista' : 'listas'} para HQ</span></span><span className="campus-building-footer">{open ? 'Cerrar panel' : 'Explorar ideas'} <span aria-hidden="true">{open ? '↑' : '↗'}</span></span></span>
       </button>
     </div>
-    <OperationsInbox id={OPERATIONS_INBOX_ID} handoffs={session.handoffs} open={inboxOpen} />
+    <div className="campaign-workspace-link"><button type="button" aria-expanded={workspaceOpen} aria-controls={CAMPAIGN_WORKSPACE_ID} onClick={() => setWorkspaceOpen(value => !value)}>{workspaceOpen ? 'Cerrar Campaign Workspace' : 'Abrir Campaign Workspace'} · {campaigns.campaigns.length}</button></div>
+    {actionError && <p className="idea-form-error" role="alert">{actionError}</p>}
+    <OperationsInbox id={OPERATIONS_INBOX_ID} handoffs={session.handoffs} open={inboxOpen} campaigns={campaigns} onAction={applyCampaign} onOpenCampaign={id => { setSelectedCampaignId(id); setWorkspaceOpen(true); }} />
+    <CampaignWorkspace id={CAMPAIGN_WORKSPACE_ID} session={campaigns} open={workspaceOpen} selectedId={selectedCampaignId} onSelect={setSelectedCampaignId} onAction={applyCampaign} />
     <IdeaCenterPanel id={IDEA_PANEL_ID} ideas={visibleIdeas} open={open} session={session} onAction={apply} error={actionError} />
   </section>;
 }
