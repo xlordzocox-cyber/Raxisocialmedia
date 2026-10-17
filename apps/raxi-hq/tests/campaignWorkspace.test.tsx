@@ -4,9 +4,9 @@ import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { loadMockIdeaCenter } from '../src/ideas/mockIdeas';
 import { createIdeaCenterSession, reduceIdeaCenterSession, type OperationsInboxItem } from '../src/ideas/ideaCenterSession';
-import { OperationsInbox } from '../src/operations/OperationsInbox';
+import { OperationsInbox, clearProposalEvaluation, startProposalEvaluation } from '../src/operations/OperationsInbox';
 import { CampaignBriefForm } from '../src/campaigns/CampaignBriefForm';
-import { CampaignWorkspace } from '../src/campaigns/CampaignWorkspace';
+import { CampaignWorkspace, pendingTransitionForSelection, type PendingCampaignTransition } from '../src/campaigns/CampaignWorkspace';
 import { CAMPAIGN_CONTENT_LEVELS, type CampaignBriefInput, type CampaignRecord } from '../src/campaigns/campaignContracts';
 import { createCampaignSession, campaignDecision, dispatchCampaignAction, reduceCampaignSession, type CampaignSession } from '../src/campaigns/campaignSession';
 import { MAX_CAMPAIGNS, transitionCampaign, validateCampaignBrief, validateCampaignCollection, validateCampaignDecision, validateCampaignRecord } from '../src/campaigns/campaignValidation';
@@ -186,6 +186,52 @@ test('session status transitions append deterministic Luis audit', () => {
   state = reduceCampaignSession(state, handoffs, { type: 'TRANSITION_CAMPAIGN', campaignId: 'CAMPAIGN-001', to: 'CANCELED', at: later });
   assert.deepEqual(state.audit.map(event => event.action), ['PROPOSAL_ACCEPTED', 'CAMPAIGN_CREATED', 'CAMPAIGN_PLANNING_STARTED', 'CAMPAIGN_BLOCKED', 'CAMPAIGN_UNBLOCKED', 'CAMPAIGN_CANCELED']);
   assert.throws(() => reduceCampaignSession(state, handoffs, { type: 'TRANSITION_CAMPAIGN', campaignId: 'CAMPAIGN-001', to: 'PLANNING', at: later }));
+});
+
+test('pending cancellation belongs to A and cannot cancel externally selected B', () => {
+  const pending: PendingCampaignTransition = { campaignId: 'CAMPAIGN-001', to: 'CANCELED' };
+  assert.deepEqual(pendingTransitionForSelection(pending, 'CAMPAIGN-001'), pending);
+  assert.equal(pendingTransitionForSelection(pending, 'CAMPAIGN-002'), undefined);
+  const first = inbox();
+  const second: OperationsInboxItem = { ...first[0], handoff: { ...first[0].handoff, ideaId: 'IDEA-SECOND' } };
+  let state = create(first);
+  state = reduceCampaignSession(state, [...first, second], { type: 'CREATE_CAMPAIGN', ideaId: 'IDEA-SECOND', brief, at });
+  const selectedB = 'CAMPAIGN-002';
+  const active = pendingTransitionForSelection(pending, selectedB);
+  if (active) state = reduceCampaignSession(state, [...first, second], { type: 'TRANSITION_CAMPAIGN', campaignId: active.campaignId, to: active.to, at: later });
+  assert.deepEqual(state.campaigns.map(item => item.status), ['DRAFT', 'DRAFT']);
+});
+
+test('pending planning and blocking are hidden after controlled selection changes', () => {
+  for (const to of ['PLANNING', 'BLOCKED', 'CANCELED'] as const) {
+    const pending = { campaignId: 'CAMPAIGN-001', to };
+    assert.equal(pendingTransitionForSelection(pending, 'CAMPAIGN-002'), undefined);
+    assert.deepEqual(pendingTransitionForSelection(pending, 'CAMPAIGN-001'), pending);
+  }
+  assert.equal(pendingTransitionForSelection(undefined, 'CAMPAIGN-001'), undefined);
+});
+
+test('fresh proposal evaluation never inherits a prior rejection confirmation or reason', () => {
+  const stale = { ...startProposalEvaluation('IDEA-A'), step: 'reject' as const, reason: 'Motivo de A', rejectConfirm: true };
+  assert.equal(stale.rejectConfirm, true);
+  const next = startProposalEvaluation('IDEA-B');
+  assert.deepEqual(next, { ideaId: 'IDEA-B', step: 'review', reason: '', rejectConfirm: false });
+  const rejectB = { ...next, step: 'reject' as const };
+  assert.equal(rejectB.reason, '');
+  assert.equal(rejectB.rejectConfirm, false);
+});
+
+test('cancel and reopen the same idea reset the rejection gate', () => {
+  const cleared = clearProposalEvaluation();
+  assert.deepEqual(cleared, { ideaId: undefined, step: 'review', reason: '', rejectConfirm: false });
+  assert.deepEqual(startProposalEvaluation('IDEA-A'), { ideaId: 'IDEA-A', step: 'review', reason: '', rejectConfirm: false });
+});
+
+test('opening another proposal brief starts from review without prior rejection metadata', () => {
+  const fresh = startProposalEvaluation('IDEA-B');
+  const briefB = { ...fresh, step: 'brief' as const };
+  assert.equal(briefB.reason, '');
+  assert.equal(briefB.rejectConfirm, false);
 });
 
 test('Inbox retains handoff and renders accepted/rejected decision with internal navigation only', () => {
