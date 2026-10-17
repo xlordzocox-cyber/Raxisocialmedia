@@ -119,6 +119,55 @@ test('submit requires DRAFT and current revision; duplicate action is rejected',
   assert.throws(() => reduceCampaignSession(state, fixture().handoffs, { type: 'SUBMIT_STRATEGY', campaignId: 'CAMPAIGN-001', revision: 1, at: t4 }));
   assert.throws(() => reduceCampaignSession(state, fixture().handoffs, { type: 'APPROVE_STRATEGY', campaignId: 'CAMPAIGN-001', revision: 2, confirmed: true, at: t4 }), /obsoleta/);
 });
+test('submitting current form input atomically includes unsaved concept and matrix edits', () => {
+  const draft = save();
+  const edited = { ...input, creativeConcept: 'Concepto editado antes de enviar',
+    deliverables: [{ ...input.deliverables[0], quantity: 3, purpose: 'Propósito editado' }] };
+  const reviewed = reduceCampaignSession(draft, fixture().handoffs, {
+    type: 'SUBMIT_STRATEGY_WITH_INPUT', campaignId: 'CAMPAIGN-001', revision: 1, input: edited, at: t3,
+  });
+  assert.equal(reviewed.strategies[0].status, 'IN_REVIEW');
+  assert.equal(reviewed.strategies[0].creativeConcept, edited.creativeConcept);
+  assert.deepEqual(reviewed.strategies[0].deliverables, edited.deliverables);
+  assert.equal(reviewed.audit.length, draft.audit.length + 1);
+  assert.equal(reviewed.audit.at(-1)?.action, 'STRATEGY_SUBMITTED');
+  assert.equal(draft.strategies[0].status, 'DRAFT');
+  assert.equal(draft.strategies[0].creativeConcept, input.creativeConcept);
+});
+test('invalid current form input or stale revision cannot partially submit a draft', () => {
+  const draft = save();
+  const before = structuredClone(draft);
+  for (const invalid of [{ ...input, audience: '' }, { ...input, deliverables: [{ ...input.deliverables[0], quantity: 0 }] }]) {
+    assert.throws(() => reduceCampaignSession(draft, fixture().handoffs, {
+      type: 'SUBMIT_STRATEGY_WITH_INPUT', campaignId: 'CAMPAIGN-001', revision: 1, input: invalid, at: t3,
+    }));
+    assert.deepEqual(draft, before);
+  }
+  assert.throws(() => reduceCampaignSession(draft, fixture().handoffs, {
+    type: 'SUBMIT_STRATEGY_WITH_INPUT', campaignId: 'CAMPAIGN-001', revision: 2, input, at: t3,
+  }), /obsoleta/);
+  assert.deepEqual(draft, before);
+});
+test('campaign transitions cannot precede the latest Strategy edit, submission or approval', () => {
+  const { handoffs, planning } = fixture();
+  const draft = save(planning, t3);
+  for (const to of ['BLOCKED', 'CANCELED'] as const) {
+    assert.throws(() => reduceCampaignSession(draft, handoffs, { type: 'TRANSITION_CAMPAIGN', campaignId: 'CAMPAIGN-001', to, at: t2 }), /Cronología/);
+    assert.equal(draft.campaigns[0].status, 'PLANNING');
+    assert.equal(draft.strategies[0].status, 'DRAFT');
+  }
+  const submitted = submit(draft, t4);
+  assert.throws(() => reduceCampaignSession(submitted, handoffs, { type: 'TRANSITION_CAMPAIGN', campaignId: 'CAMPAIGN-001', to: 'BLOCKED', at: t3 }), /Cronología/);
+  const approved = approve(submitted, t5);
+  assert.throws(() => reduceCampaignSession(approved, handoffs, { type: 'TRANSITION_CAMPAIGN', campaignId: 'CAMPAIGN-001', to: 'CANCELED', at: t4 }), /Cronología/);
+  const blocked = reduceCampaignSession(approved, handoffs, { type: 'TRANSITION_CAMPAIGN', campaignId: 'CAMPAIGN-001', to: 'BLOCKED', at: t5 });
+  assert.equal(blocked.strategies[0], approved.strategies[0]);
+  assert.equal(blocked.strategies[0].status, 'APPROVED');
+  const resumed = reduceCampaignSession(blocked, handoffs, { type: 'TRANSITION_CAMPAIGN', campaignId: 'CAMPAIGN-001', to: 'PLANNING', at: t6 });
+  assert.equal(resumed.strategies[0], approved.strategies[0]);
+  assert.equal(resumed.campaigns[0].status, 'PLANNING');
+  assert.equal(resumed.audit.at(-1)?.action, 'CAMPAIGN_UNBLOCKED');
+});
 test('approval requires human confirmation, IN_REVIEW and records immutable evidence', () => {
   const state = submit();
   assert.throws(() => reduceCampaignSession(state, fixture().handoffs, { type: 'APPROVE_STRATEGY', campaignId: 'CAMPAIGN-001', revision: 1, confirmed: false, at: t4 }), /explícita/);

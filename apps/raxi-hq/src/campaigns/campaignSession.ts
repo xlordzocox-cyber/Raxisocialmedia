@@ -15,6 +15,7 @@ export type CampaignAction =
   | { type: 'TRANSITION_CAMPAIGN'; campaignId: string; to: CampaignStatus; at: string }
   | { type: 'SAVE_STRATEGY'; campaignId: string; input: CampaignStrategyInput; at: string }
   | { type: 'SUBMIT_STRATEGY'; campaignId: string; revision: number; at: string }
+  | { type: 'SUBMIT_STRATEGY_WITH_INPUT'; campaignId: string; revision: number; input: CampaignStrategyInput; at: string }
   | { type: 'REQUEST_STRATEGY_CHANGES'; campaignId: string; revision: number; reason: string; at: string }
   | { type: 'APPROVE_STRATEGY'; campaignId: string; revision: number; confirmed: boolean; at: string }
   | { type: 'START_STRATEGY_REVISION'; campaignId: string; revision: number; confirmed: boolean; reason?: string; at: string };
@@ -48,7 +49,7 @@ function nextId(state: CampaignSession): { id: string; next: number } {
 /** Pure, all-or-nothing session boundary. Handoffs remain untouched. */
 export function reduceCampaignSession(state: CampaignSession, handoffs: readonly OperationsInboxItem[], action: CampaignAction): CampaignSession {
   const at = validateIdeaTimestamp(action.at);
-  if (action.type === 'SAVE_STRATEGY' || action.type === 'SUBMIT_STRATEGY' || action.type === 'REQUEST_STRATEGY_CHANGES' ||
+  if (action.type === 'SAVE_STRATEGY' || action.type === 'SUBMIT_STRATEGY' || action.type === 'SUBMIT_STRATEGY_WITH_INPUT' || action.type === 'REQUEST_STRATEGY_CHANGES' ||
       action.type === 'APPROVE_STRATEGY' || action.type === 'START_STRATEGY_REVISION') {
     const campaign = state.campaigns.find(item => item.id === action.campaignId);
     if (!campaign) throw new Error('Campaña inexistente.');
@@ -69,6 +70,13 @@ export function reduceCampaignSession(state: CampaignSession, handoffs: readonly
       if (action.type === 'SUBMIT_STRATEGY') {
         if (current.status !== 'DRAFT') throw new Error('Solo se envía un borrador.');
         next = validateStrategyRevision({ ...current, status: 'IN_REVIEW', updatedAt: at }, campaign);
+        auditAction = 'STRATEGY_SUBMITTED';
+      } else if (action.type === 'SUBMIT_STRATEGY_WITH_INPUT') {
+        if (current.status !== 'DRAFT') throw new Error('Solo se envía un borrador.');
+        const input = validateCampaignStrategyInput(action.input, campaign);
+        next = validateStrategyRevision({ ...input, campaignId: campaign.id, revision: current.revision,
+          status: 'IN_REVIEW', createdAt: current.createdAt, updatedAt: at, author: current.author,
+          changeReason: current.changeReason }, campaign);
         auditAction = 'STRATEGY_SUBMITTED';
       } else if (action.type === 'REQUEST_STRATEGY_CHANGES') {
         if (current.status !== 'IN_REVIEW') throw new Error('La estrategia no está en revisión.');
@@ -97,6 +105,8 @@ export function reduceCampaignSession(state: CampaignSession, handoffs: readonly
   if (action.type === 'TRANSITION_CAMPAIGN') {
     const campaign = state.campaigns.find(item => item.id === action.campaignId);
     if (!campaign) throw new Error('Campaña inexistente.');
+    const strategy = currentStrategy(state, campaign.id);
+    if (strategy && compareCampaignTimestamps(strategy.updatedAt, at) > 0) throw new Error('Cronología de campaña y estrategia inválida.');
     const updated = transitionCampaign(campaign, action.to, at);
     const auditAction: Record<'PLANNING' | 'BLOCKED' | 'CANCELED', CampaignAuditAction> = {
       PLANNING: campaign.status === 'BLOCKED' ? 'CAMPAIGN_UNBLOCKED' : 'CAMPAIGN_PLANNING_STARTED',
