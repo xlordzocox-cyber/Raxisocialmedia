@@ -79,6 +79,12 @@ export interface AriaPilotReview {
   decidedBy?: 'LUIS';
 }
 
+export interface AriaPilotOutcome {
+  failure?: AriaPilotFailure;
+  receipt?: AriaPilotReceipt;
+  review?: AriaPilotReview;
+}
+
 function object(value: unknown, label: string): Record<string, unknown> {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label} inválido.`);
   return value as Record<string, unknown>;
@@ -231,6 +237,25 @@ export function reconcileAriaPilotReceipt(existing: AriaPilotReceipt | undefined
   return validateAriaPilotReceipt(incoming, order, failure);
 }
 
+export function applyAriaPilotFailure(outcome: AriaPilotOutcome, incoming: unknown, order: AriaPilotOrder): AriaPilotOutcome {
+  if (outcome.receipt || outcome.review) throw new Error('No se puede cambiar un trabajo con resultado o revisión.');
+  return { ...outcome, failure: reconcileAriaPilotFailure(outcome.failure, incoming, order) };
+}
+
+export function applyAriaPilotReceipt(outcome: AriaPilotOutcome, incoming: unknown, order: AriaPilotOrder): AriaPilotOutcome {
+  return { ...outcome, receipt: reconcileAriaPilotReceipt(outcome.receipt, incoming, order, outcome.failure, outcome.review) };
+}
+
+/** File reads run in selection order; one rejection must not strand later imports. */
+export function createSerialAriaImports() {
+  let tail: Promise<unknown> = Promise.resolve();
+  return (task: () => Promise<void>): Promise<void> => {
+    const current = tail.then(task);
+    tail = current.catch(() => undefined);
+    return current;
+  };
+}
+
 export function recordAriaPilotReview(receipt: AriaPilotReceipt, previous: AriaPilotReview | undefined,
   action: 'QA_PASS' | 'QA_FAIL' | 'HUMAN_APPROVE' | 'HUMAN_REJECT', at: string, notes?: string, pixelsInspected = false): AriaPilotReview {
   const time = validateIdeaTimestamp(at);
@@ -245,6 +270,7 @@ export function recordAriaPilotReview(receipt: AriaPilotReceipt, previous: AriaP
     return { ...prior, qaStatus: action === 'QA_PASS' ? 'PASS' : 'FAIL', qaNotes, reviewedAt: time };
   }
   if (action === 'HUMAN_APPROVE' && prior.qaStatus !== 'PASS') throw new Error('QA visual PASS requerido antes de aprobar.');
+  if (action === 'HUMAN_APPROVE' && !pixelsInspected) throw new Error('Imagen verificada requerida antes de aprobar.');
   if (action === 'HUMAN_REJECT' && prior.qaStatus === 'VISUAL_REVIEW_REQUIRED') throw new Error('QA visual requerido antes de decidir.');
   if (prior.reviewedAt && compareCampaignTimestamps(prior.reviewedAt, time) > 0) throw new Error('Decisión anterior a QA.');
   return { ...prior, humanDecision: action === 'HUMAN_APPROVE' ? 'APPROVED' : 'REJECTED', decidedAt: time, decidedBy: 'LUIS' };

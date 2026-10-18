@@ -5,7 +5,8 @@ import catalog from '../../../content/asset-library/ASSET_CATALOG.json';
 import type { CampaignRecord } from '../src/campaigns/campaignContracts';
 import type { CampaignStrategyRevision } from '../src/campaigns/strategyContracts';
 import { AriaProductionPanel } from '../src/production/AriaProductionPanel';
-import { authorizeAriaPilot, isAriaPilotOrderCurrent, PILOT_SOURCE_ASSET_IDS, pilotJobId, pilotPollDecision, prepareAriaPilot, reconcileAriaPilotFailure, reconcileAriaPilotOrder, reconcileAriaPilotReceipt, recordAriaPilotReview, validateAriaPilotFailure, validateAriaPilotOrder, validateAriaPilotReceipt } from '../src/production/ariaPilot';
+import { applyAriaPilotFailure, applyAriaPilotReceipt, authorizeAriaPilot, createSerialAriaImports, isAriaPilotOrderCurrent, PILOT_SOURCE_ASSET_IDS, pilotJobId, pilotPollDecision, prepareAriaPilot, reconcileAriaPilotFailure, reconcileAriaPilotOrder, reconcileAriaPilotReceipt, recordAriaPilotReview, validateAriaPilotFailure, validateAriaPilotOrder, validateAriaPilotReceipt, type AriaPilotOutcome } from '../src/production/ariaPilot';
+import { inspectPilotImageFile, type PilotImageFile } from '../src/production/pilotImage';
 
 const campaign: CampaignRecord = { id: 'CAMPAIGN-001', sourceIdeaId: 'IDEA-001', sourceHandoffSentAt: '2026-10-17T00:00:00Z',
   provenance: 'LOCAL_SESSION', status: 'PLANNING', title: 'Player Select: Raxi Edition', objective: 'Participación pública',
@@ -101,7 +102,8 @@ test('QA needs inspected pixels and notes; human approval needs QA PASS', () => 
   assert.throws(() => recordAriaPilotReview(result, undefined, 'QA_PASS', '2026-10-17T00:00:10Z', '', true), /texto|text|Observaciones/i);
   assert.throws(() => recordAriaPilotReview(result, undefined, 'HUMAN_APPROVE', '2026-10-17T00:00:10Z'), /QA visual PASS/);
   const qa = recordAriaPilotReview(result, undefined, 'QA_PASS', '2026-10-17T00:00:10Z', 'Rostro, manos, vestuario y luz revisados.', true);
-  const approved = recordAriaPilotReview(result, qa, 'HUMAN_APPROVE', '2026-10-17T00:00:11Z');
+  assert.throws(() => recordAriaPilotReview(result, qa, 'HUMAN_APPROVE', '2026-10-17T00:00:11Z'), /Imagen verificada/);
+  const approved = recordAriaPilotReview(result, qa, 'HUMAN_APPROVE', '2026-10-17T00:00:11Z', undefined, true);
   assert.equal(approved.humanDecision, 'APPROVED');
   assert.equal(approved.decidedBy, 'LUIS');
   assert.throws(() => recordAriaPilotReview(result, approved, 'QA_FAIL', '2026-10-17T00:00:12Z', 'Cambio', true), /ya registrada/);
@@ -171,4 +173,74 @@ test('production UI clearly gates unapproved work and never pretends the Office 
   assert.match(html, /HANDOFF CONTROLADO/);
   assert.match(html, /No se ha generado ninguna imagen/);
   assert.match(html, /confirmar el precio en Codex/);
+});
+
+function imageFixture(type: string, bytes: number[], size = bytes.length): PilotImageFile {
+  return { type, size, slice: () => ({ arrayBuffer: async () => Uint8Array.from(bytes).buffer }) };
+}
+const png = [137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0];
+test('QA image gate rejects invalid bytes, MIME, empty files, decode errors and invisible pixels', async () => {
+  const visible = async () => ({ width: 100, height: 100, visiblePixels: true });
+  await assert.rejects(inspectPilotImageFile(imageFixture('text/plain', png), visible), /PNG, JPEG o WebP/);
+  await assert.rejects(inspectPilotImageFile(imageFixture('image/png', png, 0), visible), /PNG, JPEG o WebP/);
+  await assert.rejects(inspectPilotImageFile(imageFixture('image/png', [1, 2, 3]), visible), /formato/);
+  await assert.rejects(inspectPilotImageFile(imageFixture('image/png', png), async () => { throw new Error('decoder'); }), /decodificar/);
+  await assert.rejects(inspectPilotImageFile(imageFixture('image/png', png), async () => ({ width: 100, height: 100, visiblePixels: false })), /píxeles/);
+  await assert.rejects(inspectPilotImageFile(imageFixture('image/png', png), async () => ({ width: 0, height: 1, visiblePixels: true })), /píxeles/);
+  assert.deepEqual(await inspectPilotImageFile(imageFixture('image/png', png), visible), await visible());
+});
+test('QA image gate waits for decoding rather than accepting an object URL alone', async () => {
+  let finish!: (value: { width: number; height: number; visiblePixels: boolean }) => void;
+  const pending = inspectPilotImageFile(imageFixture('image/png', png), () => new Promise(resolve => { finish = resolve; }));
+  await Promise.resolve();
+  let settled = false;
+  void pending.then(() => { settled = true; });
+  await Promise.resolve();
+  assert.equal(settled, false);
+  finish({ width: 2, height: 2, visiblePixels: true });
+  await pending;
+  assert.equal(settled, true);
+});
+test('serial imports reconcile against current outcome in selection order, even when reads resolve out of order', async () => {
+  const order = authorized();
+  const failure = { schemaVersion: 1, jobId: order.jobId, provider: 'ARIA_STUDIO', executor: 'CODEX_MCP', model: 'gptimg',
+    state: 'TIMED_OUT', at: '2026-10-17T00:03:08Z', errorCode: 'TIMEOUT', ariaImageId: 'aria-image-123' };
+  for (const reversed of [false, true]) {
+    let outcome: AriaPilotOutcome = {};
+    const enqueue = createSerialAriaImports();
+    let release!: () => void;
+    const first = enqueue(async () => {
+      await new Promise<void>(resolve => { release = resolve; });
+      outcome = reversed ? applyAriaPilotReceipt(outcome, receipt(), order) : applyAriaPilotFailure(outcome, failure, order);
+    });
+    const second = enqueue(async () => {
+      outcome = reversed ? applyAriaPilotFailure(outcome, { ...failure, ariaImageId: 'aria-image-other' }, order)
+        : applyAriaPilotReceipt(outcome, { ...receipt(), ariaImageId: 'aria-image-other' }, order);
+    });
+    await Promise.resolve();
+    assert.deepEqual(outcome, {});
+    release();
+    await first;
+    await assert.rejects(second);
+    assert.equal(reversed ? outcome.receipt?.ariaImageId : outcome.failure?.ariaImageId, 'aria-image-123');
+    assert.equal(reversed ? outcome.failure : outcome.receipt, undefined);
+  }
+});
+test('invalid second import cannot erase failure, result or QA; valid reconciliation remains possible', async () => {
+  const order = authorized();
+  const failure = validateAriaPilotFailure({ schemaVersion: 1, jobId: order.jobId, provider: 'ARIA_STUDIO', executor: 'CODEX_MCP',
+    model: 'gptimg', state: 'TIMED_OUT', at: '2026-10-17T00:03:08Z', errorCode: 'TIMEOUT', ariaImageId: 'aria-image-123' }, order);
+  let outcome: AriaPilotOutcome = applyAriaPilotFailure({}, failure, order);
+  const prior = structuredClone(outcome);
+  assert.throws(() => applyAriaPilotFailure(outcome, { ...failure, ariaImageId: undefined }, order), /sustituir/);
+  assert.throws(() => applyAriaPilotFailure(outcome, { ...failure, ariaImageId: 'aria-image-other' }, order), /sustituir/);
+  assert.throws(() => applyAriaPilotReceipt(outcome, { ...receipt(), ariaImageId: 'aria-image-other' }, order), /no coincide/);
+  assert.deepEqual(outcome, prior);
+  outcome = applyAriaPilotReceipt(outcome, receipt(), order);
+  const qa = recordAriaPilotReview(outcome.receipt!, undefined, 'QA_PASS', '2026-10-17T00:03:10Z', 'Inspección visual.', true);
+  outcome = { ...outcome, review: qa };
+  const reviewed = structuredClone(outcome);
+  assert.throws(() => applyAriaPilotFailure(outcome, failure, order), /resultado o revisión/);
+  assert.throws(() => applyAriaPilotReceipt(outcome, receipt(), order), /ya están registrados/);
+  assert.deepEqual(outcome, reviewed);
 });
