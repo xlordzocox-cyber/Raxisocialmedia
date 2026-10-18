@@ -87,6 +87,8 @@ export function validateStrategyRevision(value: unknown, campaign: CampaignRecor
   const approvedAtRaw = own(raw, 'approvedAt');
   const approvedByRaw = own(raw, 'approvedBy');
   const approvedAt = approvedAtRaw === undefined ? undefined : validateIdeaTimestamp(approvedAtRaw);
+  const revisionReasonRaw = own(raw, 'revisionReason');
+  const revisionReason = revisionReasonRaw === undefined ? undefined : validateMultilineText(revisionReasonRaw, 1500, 'Motivo de apertura de revisión');
   const reasonRaw = own(raw, 'changeReason');
   const changeReason = reasonRaw === undefined ? undefined : validateMultilineText(reasonRaw, 1500, 'Motivo de cambios');
   if (compareCampaignTimestamps(createdAt, updatedAt) > 0 ||
@@ -95,5 +97,5 @@ export function validateStrategyRevision(value: unknown, campaign: CampaignRecor
       (status !== 'APPROVED' && approvedByRaw !== undefined) ||
       (status === 'CHANGES_REQUESTED' && changeReason === undefined)) throw new Error('Metadata de estrategia incoherente.');
   return { ...input, campaignId, revision, status, createdAt, updatedAt, author: 'LUIS',
-    approvedAt, approvedBy: approvedByRaw as 'LUIS' | undefined, changeReason };
+    approvedAt, approvedBy: approvedByRaw as 'LUIS' | undefined, revisionReason, changeReason };
 }

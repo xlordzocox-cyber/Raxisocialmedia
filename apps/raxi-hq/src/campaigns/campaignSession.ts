@@ -63,7 +63,8 @@ export function reduceCampaignSession(state: CampaignSession, handoffs: readonly
       if (current && current.status !== 'DRAFT') throw new Error('Solo se edita un borrador.');
       const input = validateCampaignStrategyInput(action.input, campaign);
       next = validateStrategyRevision({ ...input, campaignId: campaign.id, revision: current?.revision ?? 1,
-        status: 'DRAFT', createdAt: current?.createdAt ?? at, updatedAt: at, author: 'LUIS', changeReason: current?.changeReason }, campaign);
+        status: 'DRAFT', createdAt: current?.createdAt ?? at, updatedAt: at, author: 'LUIS',
+        revisionReason: current?.revisionReason, changeReason: current?.changeReason }, campaign);
       auditAction = current ? 'STRATEGY_UPDATED' : 'STRATEGY_CREATED';
     } else {
       if (!current || current.revision !== action.revision) throw new Error('Revisión de estrategia obsoleta.');
@@ -76,7 +77,7 @@ export function reduceCampaignSession(state: CampaignSession, handoffs: readonly
         const input = validateCampaignStrategyInput(action.input, campaign);
         next = validateStrategyRevision({ ...input, campaignId: campaign.id, revision: current.revision,
           status: 'IN_REVIEW', createdAt: current.createdAt, updatedAt: at, author: current.author,
-          changeReason: current.changeReason }, campaign);
+          revisionReason: current.revisionReason, changeReason: current.changeReason }, campaign);
         auditAction = 'STRATEGY_SUBMITTED';
       } else if (action.type === 'REQUEST_STRATEGY_CHANGES') {
         if (current.status !== 'IN_REVIEW') throw new Error('La estrategia no está en revisión.');
@@ -94,7 +95,7 @@ export function reduceCampaignSession(state: CampaignSession, handoffs: readonly
         const reason = action.reason === undefined ? undefined : validateMultilineText(action.reason, 1500, 'Motivo de nueva revisión');
         if (current.status === 'APPROVED' && !reason) throw new Error('Motivo obligatorio para revisar una estrategia aprobada.');
         next = validateStrategyRevision({ ...validateCampaignStrategyInput(current, campaign), campaignId: campaign.id,
-          revision: current.revision + 1, status: 'DRAFT', createdAt: at, updatedAt: at, author: 'LUIS', changeReason: reason }, campaign);
+          revision: current.revision + 1, status: 'DRAFT', createdAt: at, updatedAt: at, author: 'LUIS', revisionReason: reason }, campaign);
         auditAction = 'STRATEGY_REVISION_STARTED';
       }
     }

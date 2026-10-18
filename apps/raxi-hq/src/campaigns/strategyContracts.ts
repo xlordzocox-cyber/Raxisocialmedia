@@ -40,5 +40,7 @@ export interface CampaignStrategyRevision extends CampaignStrategyInput {
   author: 'LUIS';
   approvedAt?: string;
   approvedBy?: 'LUIS';
+  /** Why this revision was opened. Independent from requested changes within it. */
+  revisionReason?: string;
   changeReason?: string;
 }

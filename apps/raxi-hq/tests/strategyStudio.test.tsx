@@ -203,10 +203,80 @@ test('approved revision needs explicit reason and confirmation for a new draft, 
   assert.equal(next.strategies[0].status, 'APPROVED');
   assert.equal(next.strategies[1].status, 'DRAFT');
   assert.equal(next.strategies[1].approvedAt, undefined);
-  assert.equal(next.strategies[1].changeReason, 'Nuevo ángulo');
+  assert.equal(next.strategies[1].revisionReason, 'Nuevo ángulo');
+  assert.equal(next.strategies[1].changeReason, undefined);
   const edited = save(next, t6, { ...input, creativeConcept: 'Nuevo concepto' });
-  assert.equal(edited.strategies[1].changeReason, 'Nuevo ángulo');
+  assert.equal(edited.strategies[1].revisionReason, 'Nuevo ángulo');
   assert.equal(edited.strategies[0].creativeConcept, input.creativeConcept);
+});
+test('opening and requested-change reasons remain distinct through three revisions', () => {
+  const { handoffs } = fixture();
+  const approved1 = approve();
+  const opened2 = reduceCampaignSession(approved1, handoffs, { type: 'START_STRATEGY_REVISION', campaignId: 'CAMPAIGN-001', revision: 1, confirmed: true, reason: 'A: explorar otro ángulo', at: t5 });
+  assert.equal(opened2.strategies[1].revisionReason, 'A: explorar otro ángulo');
+  assert.equal(opened2.strategies[1].changeReason, undefined);
+  const saved2 = save(opened2, t6, { ...input, creativeConcept: 'Segunda propuesta' });
+  assert.equal(saved2.strategies[1].revisionReason, 'A: explorar otro ángulo');
+  const submitted2 = reduceCampaignSession(saved2, handoffs, { type: 'SUBMIT_STRATEGY_WITH_INPUT', campaignId: 'CAMPAIGN-001', revision: 2, input: { ...input, creativeConcept: 'Edición final de revisión 2' }, at: '2026-10-17T00:00:07Z' });
+  assert.equal(submitted2.strategies[1].revisionReason, 'A: explorar otro ángulo');
+  assert.equal(submitted2.strategies[1].creativeConcept, 'Edición final de revisión 2');
+  const requested2 = reduceCampaignSession(submitted2, handoffs, { type: 'REQUEST_STRATEGY_CHANGES', campaignId: 'CAMPAIGN-001', revision: 2, reason: 'B: ajustar la historia', at: '2026-10-17T00:00:08Z' });
+  assert.equal(requested2.strategies[1].revisionReason, 'A: explorar otro ángulo');
+  assert.equal(requested2.strategies[1].changeReason, 'B: ajustar la historia');
+  assert.equal(requested2.strategies[0], approved1.strategies[0]);
+  assert.ok(Object.isFrozen(requested2.strategies[0]));
+  const opened3 = reduceCampaignSession(requested2, handoffs, { type: 'START_STRATEGY_REVISION', campaignId: 'CAMPAIGN-001', revision: 2, confirmed: true, at: '2026-10-17T00:00:09Z' });
+  assert.equal(opened3.strategies[1], requested2.strategies[1]);
+  assert.equal(opened3.strategies[2].revisionReason, undefined);
+  assert.equal(opened3.strategies[2].changeReason, undefined);
+  const html = renderToStaticMarkup(<StrategyStudio campaign={opened3.campaigns[0]} session={opened3} onAction={() => true} />);
+  assert.match(html, /Motivo de apertura de revisión: A: explorar otro ángulo/);
+  assert.match(html, /Cambios solicitados: B: ajustar la historia/);
+  assert.doesNotMatch(html, /Motivo: B: ajustar la historia/);
+});
+test('approval and ordinary submit preserve the opening reason without inventing requested changes', () => {
+  const { handoffs } = fixture();
+  const approved1 = approve();
+  const opened2 = reduceCampaignSession(approved1, handoffs, { type: 'START_STRATEGY_REVISION', campaignId: 'CAMPAIGN-001', revision: 1, confirmed: true, reason: 'Nueva dirección', at: t5 });
+  const submitted2 = reduceCampaignSession(opened2, handoffs, { type: 'SUBMIT_STRATEGY', campaignId: 'CAMPAIGN-001', revision: 2, at: t6 });
+  assert.equal(submitted2.strategies[1].revisionReason, 'Nueva dirección');
+  const approved2 = reduceCampaignSession(submitted2, handoffs, { type: 'APPROVE_STRATEGY', campaignId: 'CAMPAIGN-001', revision: 2, confirmed: true, at: '2026-10-17T00:00:07Z' });
+  assert.equal(approved2.strategies[1].revisionReason, 'Nueva dirección');
+  assert.equal(approved2.strategies[1].changeReason, undefined);
+  assert.equal(approved2.strategies[0], approved1.strategies[0]);
+  assert.ok(Object.isFrozen(approved2.strategies[1]));
+});
+test('empty, unsafe and oversized reasons reject atomically without partial audit', () => {
+  const { handoffs } = fixture();
+  const approved1 = approve();
+  const before = structuredClone(approved1);
+  for (const reason of ['', '   ', '\u0000', '\u001b', 'x'.repeat(1501)]) {
+    assert.throws(() => reduceCampaignSession(approved1, handoffs, { type: 'START_STRATEGY_REVISION', campaignId: 'CAMPAIGN-001', revision: 1, confirmed: true, reason, at: t5 }));
+    assert.deepEqual(approved1, before);
+  }
+  const opened2 = reduceCampaignSession(approved1, handoffs, { type: 'START_STRATEGY_REVISION', campaignId: 'CAMPAIGN-001', revision: 1, confirmed: true, reason: 'x'.repeat(1500), at: t5 });
+  const submitted2 = reduceCampaignSession(opened2, handoffs, { type: 'SUBMIT_STRATEGY', campaignId: 'CAMPAIGN-001', revision: 2, at: t6 });
+  const submittedBefore = structuredClone(submitted2);
+  for (const reason of ['', '   ', '\u0000', '\u001b', 'x'.repeat(1501)]) {
+    assert.throws(() => reduceCampaignSession(submitted2, handoffs, { type: 'REQUEST_STRATEGY_CHANGES', campaignId: 'CAMPAIGN-001', revision: 2, reason, at: '2026-10-17T00:00:07Z' }));
+    assert.deepEqual(submitted2, submittedBefore);
+  }
+  const valid = reduceCampaignSession(submitted2, handoffs, { type: 'REQUEST_STRATEGY_CHANGES', campaignId: 'CAMPAIGN-001', revision: 2, reason: 'y'.repeat(1500), at: '2026-10-17T00:00:07Z' });
+  assert.equal(valid.strategies[1].revisionReason?.length, 1500);
+  assert.equal(valid.strategies[1].changeReason?.length, 1500);
+  assert.equal(valid.audit.length, submitted2.audit.length + 1);
+});
+test('revision validation rejects invalid opening and change reasons independently', () => {
+  const state = save();
+  const campaign = state.campaigns[0];
+  for (const field of ['revisionReason', 'changeReason'] as const) {
+    for (const reason of ['', '\u0000', 'x'.repeat(1501)]) {
+      assert.throws(() => validateStrategyRevision({ ...state.strategies[0], [field]: reason }, campaign));
+    }
+  }
+  const both = validateStrategyRevision({ ...state.strategies[0], revisionReason: 'Abrir\nrevisión', changeReason: 'Cambios\nsolicitados' }, campaign);
+  assert.equal(both.revisionReason, 'Abrir\nrevisión');
+  assert.equal(both.changeReason, 'Cambios\nsolicitados');
 });
 test('revision cap is enforced before creating another record', () => {
   const state = approve();
