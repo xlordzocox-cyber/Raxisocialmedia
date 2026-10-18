@@ -8,6 +8,9 @@ import type { CampaignBriefInput } from '../src/campaigns/campaignContracts';
 import type { CampaignStrategyInput } from '../src/campaigns/strategyContracts';
 import { MAX_STRATEGY_REVISIONS, validateCampaignStrategyInput, validateStrategyRevision } from '../src/campaigns/strategyValidation';
 import { confirmationForStrategy } from '../src/campaigns/StrategyStudio';
+import { StrategyStudio } from '../src/campaigns/StrategyStudio';
+import { StrategyForm } from '../src/campaigns/StrategyForm';
+import { strategyDraftKey, withoutStrategyDraft } from '../src/campaigns/CampaignWorkspace';
 import { CampaignWorkspace } from '../src/campaigns/CampaignWorkspace';
 
 const t0 = '2026-10-17T00:00:00Z';
@@ -254,4 +257,78 @@ test('no strategy is invented for a campaign without an explicit save', () => {
   const html = renderToStaticMarkup(<CampaignWorkspace id="workspace" session={state} open selectedId="CAMPAIGN-001" onSelect={() => {}} onAction={() => true} />);
   assert.match(html, /No iniciada/);
   assert.equal(state.strategies.length, 0);
+});
+test('editing drafts remain isolated by campaign and revision during A to B to A navigation', () => {
+  const first = { ...input, audience: 'Audiencia A pendiente', notes: 'Nota A', deliverables: [{ ...input.deliverables[0], quantity: 4 }] };
+  const second = { ...input, audience: 'Audiencia B pendiente', notes: 'Nota B' };
+  const drafts = { [strategyDraftKey('CAMPAIGN-001', 1)]: first, [strategyDraftKey('CAMPAIGN-002', 1)]: second };
+  assert.deepEqual(drafts[strategyDraftKey('CAMPAIGN-001', 1)], first);
+  assert.deepEqual(drafts[strategyDraftKey('CAMPAIGN-002', 1)], second);
+  assert.equal(drafts[strategyDraftKey('CAMPAIGN-001', 2)], undefined);
+  assert.deepEqual(withoutStrategyDraft(drafts, strategyDraftKey('CAMPAIGN-001', 1)), { [strategyDraftKey('CAMPAIGN-002', 1)]: second });
+});
+test('a remounted form restores every pending field, notes and complete matrix', () => {
+  const pending = { ...input, audience: 'A pendiente', audienceNeed: 'Necesidad pendiente', creativeConcept: 'Concepto pendiente',
+    narrativeApproach: 'Narrativa pendiente', visualDirection: 'Visual pendiente', toneOfVoice: 'Voz pendiente',
+    desiredAudienceResponse: 'Respuesta pendiente', successCriteria: 'Éxito pendiente', notes: 'Notas pendientes',
+    deliverables: [{ ...input.deliverables[0], purpose: 'Propósito pendiente', creativeAngle: 'Ángulo pendiente', quantity: 5 },
+      { ...input.deliverables[0], id: 'STRATEGY-ITEM-002', purpose: 'Segunda pieza', quantity: 1 }] };
+  const html = renderToStaticMarkup(<StrategyForm campaign={fixture().planning.campaigns[0]} revision={save().strategies[0]} draft={pending} onSave={() => true} />);
+  for (const value of [pending.audience, pending.audienceNeed, pending.creativeConcept, pending.narrativeApproach,
+    pending.visualDirection, pending.toneOfVoice, pending.desiredAudienceResponse, pending.successCriteria,
+    pending.notes, pending.deliverables[0].purpose, pending.deliverables[0].creativeAngle, pending.deliverables[1].purpose]) assert.ok(html.includes(value));
+  assert.match(html, /STRATEGY-ITEM-002/);
+  assert.match(html, /value="5"/);
+});
+test('dirty draft is visible in planning and blocked modes without editing an approved snapshot', () => {
+  const { handoffs } = fixture();
+  const planning = save();
+  const pending = { ...input, creativeConcept: 'Cambio sin guardar' };
+  const plannedHtml = renderToStaticMarkup(<StrategyStudio campaign={planning.campaigns[0]} session={planning} onAction={() => true} draft={pending} onDiscardDraft={() => {}} />);
+  assert.match(plannedHtml, /CAMBIOS SIN GUARDAR · LOCAL · SESIÓN/);
+  assert.match(plannedHtml, /Descartar cambios sin guardar/);
+  const blocked = reduceCampaignSession(planning, handoffs, { type: 'TRANSITION_CAMPAIGN', campaignId: 'CAMPAIGN-001', to: 'BLOCKED', at: t3 });
+  const blockedHtml = renderToStaticMarkup(<StrategyStudio campaign={blocked.campaigns[0]} session={blocked} onAction={() => true} draft={pending} />);
+  assert.match(blockedHtml, /Campaña bloqueada. Reanuda planificación para continuar/);
+  assert.match(blockedHtml, /CAMBIOS SIN GUARDAR/);
+  assert.doesNotMatch(blockedHtml, /<form/);
+  const approved = approve();
+  assert.equal(approved.strategies[0].creativeConcept, input.creativeConcept);
+  assert.ok(Object.isFrozen(approved.strategies[0]));
+});
+test('terminal cancellation explains read-only status and never offers an editable form', () => {
+  const { handoffs } = fixture();
+  const planned = save();
+  const canceled = reduceCampaignSession(planned, handoffs, { type: 'TRANSITION_CAMPAIGN', campaignId: 'CAMPAIGN-001', to: 'CANCELED', at: t3 });
+  const html = renderToStaticMarkup(<StrategyStudio campaign={canceled.campaigns[0]} session={canceled} onAction={() => true} draft={{ ...input, notes: 'Pendiente' }} />);
+  assert.match(html, /Campaña cancelada. Estado terminal; estrategia disponible únicamente para consulta/);
+  assert.match(html, /Borrador pendiente conservado solo en esta sesión/);
+  assert.doesNotMatch(html, /<form/);
+  assert.doesNotMatch(html, /Enviar a revisión/);
+});
+test('draft campaign message offers planning instead of impossible resume action', () => {
+  const { created } = fixture();
+  const html = renderToStaticMarkup(<StrategyStudio campaign={created.campaigns[0]} session={created} onAction={() => true} />);
+  assert.match(html, /Inicia la planificación para comenzar Strategy/);
+  assert.doesNotMatch(html, /Reanuda planificación/);
+});
+test('invalid edited form leaves the draft and canonical revision untouched until explicit discard', () => {
+  const saved = save();
+  const invalid = { ...input, audience: '' };
+  const key = strategyDraftKey('CAMPAIGN-001', 1);
+  const drafts = { [key]: invalid };
+  assert.throws(() => reduceCampaignSession(saved, fixture().handoffs, { type: 'SUBMIT_STRATEGY_WITH_INPUT', campaignId: 'CAMPAIGN-001', revision: 1, input: drafts[key], at: t3 }));
+  assert.equal(drafts[key], invalid);
+  assert.equal(saved.strategies[0].status, 'DRAFT');
+  assert.equal(saved.strategies[0].audience, input.audience);
+  assert.equal(saved.audit.at(-1)?.action, 'STRATEGY_CREATED');
+  assert.equal(withoutStrategyDraft(drafts, key)[key], undefined);
+});
+test('chronology guard rejects transitions before a Strategy edit even after blocking', () => {
+  const { handoffs } = fixture();
+  const edited = save(fixture().planning, t3);
+  const blocked = reduceCampaignSession(edited, handoffs, { type: 'TRANSITION_CAMPAIGN', campaignId: 'CAMPAIGN-001', to: 'BLOCKED', at: t4 });
+  assert.throws(() => reduceCampaignSession(blocked, handoffs, { type: 'TRANSITION_CAMPAIGN', campaignId: 'CAMPAIGN-001', to: 'PLANNING', at: t2 }), /Cronología/);
+  assert.throws(() => reduceCampaignSession(edited, handoffs, { type: 'TRANSITION_CAMPAIGN', campaignId: 'CAMPAIGN-001', to: 'CANCELED', at: t2 }), /Cronología/);
+  assert.equal(blocked.strategies[0], edited.strategies[0]);
 });

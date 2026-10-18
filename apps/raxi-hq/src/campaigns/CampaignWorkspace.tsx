@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { CampaignStatus } from './campaignContracts';
 import type { CampaignCommand, CampaignSession } from './campaignSession';
+import { currentStrategy } from './campaignSession';
+import type { CampaignStrategyInput } from './strategyContracts';
 import { campaignStatusLabel, contentLevelLabel } from './campaignPresentation';
 import { ideaChannelLabel, ideaPriorityLabel, ideaProvenanceLabel } from '../ideas/ideaPresentation';
 import { StrategyStudio } from './StrategyStudio';
@@ -11,14 +13,27 @@ export interface PendingCampaignTransition { campaignId: string; to: CampaignSta
 export function pendingTransitionForSelection(pending: PendingCampaignTransition | undefined, selectedId: string | undefined): PendingCampaignTransition | undefined {
   return pending?.campaignId === selectedId ? pending : undefined;
 }
+export function strategyDraftKey(campaignId: string, revision: number): string { return `${campaignId}:${revision}`; }
+export function withoutStrategyDraft(drafts: Readonly<Record<string, CampaignStrategyInput>>, key: string): Record<string, CampaignStrategyInput> {
+  const next = { ...drafts };
+  delete next[key];
+  return next;
+}
 export function CampaignWorkspace({ id, session, open, selectedId, onSelect, onAction }: {
   id: string; session: CampaignSession; open: boolean; selectedId?: string;
   onSelect: (id: string) => void; onAction: (action: CampaignCommand) => boolean;
 }) {
   const [pendingTransition, setPendingTransition] = useState<PendingCampaignTransition>();
+  // Form edits live only in this mounted workspace, separate from canonical revisions and audit.
+  const [strategyDrafts, setStrategyDrafts] = useState<Record<string, CampaignStrategyInput>>({});
+  const [formReset, setFormReset] = useState(0);
   useEffect(() => { setPendingTransition(undefined); }, [selectedId]);
   const selected = session.campaigns.find(item => item.id === selectedId) ?? session.campaigns[0];
   const activeTransition = pendingTransitionForSelection(pendingTransition, selectedId ?? selected?.id);
+  const selectedDraftKey = selected && strategyDraftKey(selected.id, currentStrategy(session, selected.id)?.revision ?? 1);
+  const selectedDraft = selectedDraftKey ? strategyDrafts[selectedDraftKey] : undefined;
+  const transitionDraft = activeTransition && (activeTransition.to === 'BLOCKED' || activeTransition.to === 'CANCELED') &&
+    strategyDrafts[strategyDraftKey(activeTransition.campaignId, currentStrategy(session, activeTransition.campaignId)?.revision ?? 1)];
   const counts = { DRAFT: 0, PLANNING: 0, BLOCKED: 0, CANCELED: 0 };
   for (const item of session.campaigns) counts[item.status]++;
   const options: Record<CampaignStatus, CampaignStatus[]> = { DRAFT: ['PLANNING', 'CANCELED'], PLANNING: ['BLOCKED', 'CANCELED'], BLOCKED: ['PLANNING', 'CANCELED'], CANCELED: [] };
@@ -31,9 +46,13 @@ export function CampaignWorkspace({ id, session, open, selectedId, onSelect, onA
         <dl><div><dt>Objetivo</dt><dd className="idea-multiline">{selected.objective}</dd></div><div><dt>Origen Idea ID</dt><dd>{selected.sourceIdeaId}</dd></div><div><dt>Handoff recibido</dt><dd>{selected.sourceHandoffSentAt}</dd></div><div><dt>Provenance</dt><dd>{ideaProvenanceLabel[selected.provenance]}</dd></div><div><dt>Prioridad</dt><dd>{ideaPriorityLabel[selected.priority]}</dd></div><div><dt>Canales</dt><dd>{selected.channels.map(channel => ideaChannelLabel[channel]).join(', ')}</dd></div><div><dt>Niveles de contenido</dt><dd>{selected.contentLevels.map(level => contentLevelLabel[level]).join(', ')}</dd></div><div><dt>Mensaje clave</dt><dd className="idea-multiline">{selected.keyMessage}</dd></div><div><dt>CTA</dt><dd className="idea-multiline">{selected.cta ?? '—'}</dd></div><div><dt>Notas</dt><dd className="idea-multiline">{selected.notes ?? '—'}</dd></div><div><dt>Creada</dt><dd>{selected.createdAt}</dd></div><div><dt>Actualizada</dt><dd>{selected.updatedAt}</dd></div></dl>
         <div className="campaign-stage-map"><h5>Etapas del workspace</h5><span className="campaign-stage-available">Brief · Disponible</span><span className="campaign-stage-available">Strategy · Disponible</span>{futureStages.map(stage => <span key={stage} aria-disabled="true">{stage} · PRÓXIMAMENTE</span>)}</div>
         {options[selected.status].length > 0 && <div className="campaign-status-actions"><h5>Estado interno</h5>{options[selected.status].map(next => <button key={next} type="button" onClick={() => setPendingTransition({ campaignId: selected.id, to: next })}>{next === 'PLANNING' && selected.status === 'BLOCKED' ? 'Reanudar planificación' : next === 'PLANNING' ? 'Iniciar planificación' : next === 'BLOCKED' ? 'Bloquear' : 'Cancelar campaña'}</button>)}
-          {activeTransition && <div className="campaign-confirm"><p>Confirmar cambio a {campaignStatusLabel[activeTransition.to]}.</p><button type="button" onClick={() => { if (onAction({ type: 'TRANSITION_CAMPAIGN', campaignId: activeTransition.campaignId, to: activeTransition.to })) setPendingTransition(undefined); }}>Confirmar estado</button><button type="button" onClick={() => setPendingTransition(undefined)}>Volver</button></div>}</div>}
+          {activeTransition && <div className="campaign-confirm"><p>Confirmar cambio de {activeTransition.campaignId} a {campaignStatusLabel[activeTransition.to]}.</p>{transitionDraft && <p role="alert">CAMBIOS SIN GUARDAR · LOCAL · SESIÓN. {activeTransition.to === 'CANCELED' ? 'La cancelación es terminal: la edición dejará de estar disponible y el borrador solo permanecerá en esta sesión.' : 'El borrador se conservará y volverá a estar disponible al reanudar planificación.'}</p>}<button type="button" onClick={() => { if (onAction({ type: 'TRANSITION_CAMPAIGN', campaignId: activeTransition.campaignId, to: activeTransition.to })) setPendingTransition(undefined); }}>{transitionDraft ? activeTransition.to === 'CANCELED' ? 'Confirmar cancelación con cambios sin guardar' : 'Confirmar bloqueo con cambios sin guardar' : 'Confirmar estado'}</button><button type="button" onClick={() => setPendingTransition(undefined)}>Volver</button></div>}</div>}
       </article>}
     </div>
-    {selected && <StrategyStudio key={selected.id} campaign={selected} session={session} onAction={onAction} />}
+    {selected && <StrategyStudio key={selected.id} campaign={selected} session={session} onAction={onAction}
+      draft={selectedDraft} formReset={formReset}
+      onDraftChange={input => { if (selectedDraftKey) setStrategyDrafts(current => ({ ...current, [selectedDraftKey]: input })); }}
+      onClearDraft={() => { if (selectedDraftKey) setStrategyDrafts(current => withoutStrategyDraft(current, selectedDraftKey)); }}
+      onDiscardDraft={() => { if (selectedDraftKey) setStrategyDrafts(current => withoutStrategyDraft(current, selectedDraftKey)); setFormReset(current => current + 1); }} />}
   </section>;
 }

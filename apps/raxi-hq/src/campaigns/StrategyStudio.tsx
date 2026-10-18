@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { CampaignRecord } from './campaignContracts';
 import { currentStrategy, type CampaignCommand, type CampaignSession } from './campaignSession';
-import type { CampaignStrategyRevision } from './strategyContracts';
+import type { CampaignStrategyInput, CampaignStrategyRevision } from './strategyContracts';
 import { strategyStatusLabel } from './strategyPresentation';
 import { StrategyForm } from './StrategyForm';
 
@@ -10,8 +10,10 @@ export interface PendingStrategyConfirmation { campaignId: string; revision: num
 export function confirmationForStrategy(pending: PendingStrategyConfirmation | undefined, campaignId: string, revision: number): PendingStrategyConfirmation | undefined {
   return pending?.campaignId === campaignId && pending.revision === revision ? pending : undefined;
 }
-export function StrategyStudio({ campaign, session, onAction }: {
+export function StrategyStudio({ campaign, session, onAction, draft, formReset, onDraftChange, onClearDraft, onDiscardDraft }: {
   campaign: CampaignRecord; session: CampaignSession; onAction: (action: CampaignCommand) => boolean;
+  draft?: CampaignStrategyInput; formReset?: number; onDraftChange?: (input: CampaignStrategyInput) => void;
+  onClearDraft?: () => void; onDiscardDraft?: () => void;
 }) {
   const current = currentStrategy(session, campaign.id);
   const history = session.strategies.filter(item => item.campaignId === campaign.id);
@@ -32,8 +34,11 @@ export function StrategyStudio({ campaign, session, onAction }: {
   return <section className="strategy-studio" aria-label="Strategy Studio">
     <div className="strategy-heading"><div><span className="campus-eyebrow">STRATEGY STUDIO · LOCAL · SESIÓN</span><h5>Estrategia editorial</h5></div><strong>{current ? `${strategyStatusLabel[current.status]} · revisión ${current.revision}` : 'No iniciada'}</strong></div>
     <p>El Campaign Brief anterior permanece como referencia de solo lectura. Planning es el estado de la campaña; aprobar Strategy requiere una decisión humana distinta.</p>
-    {!writable && <p role="status">Campaña {campaign.status}: estrategia en modo lectura. Reanuda planificación para actuar.</p>}
-    {writable && (!current || current.status === 'DRAFT') && <StrategyForm key={`${campaign.id}-${current?.revision ?? 0}`} campaign={campaign} revision={current} onSave={input => onAction({ type: 'SAVE_STRATEGY', campaignId: campaign.id, input })} onSubmitReview={current?.status === 'DRAFT' ? input => onAction({ type: 'SUBMIT_STRATEGY_WITH_INPUT', campaignId: campaign.id, revision: current.revision, input }) : undefined} />}
+    {campaign.status === 'DRAFT' && <p role="status">Inicia la planificación para comenzar Strategy.</p>}
+    {campaign.status === 'BLOCKED' && <p role="status">Campaña bloqueada. Reanuda planificación para continuar.</p>}
+    {campaign.status === 'CANCELED' && <p role="status">Campaña cancelada. Estado terminal; estrategia disponible únicamente para consulta.</p>}
+    {draft && <div className="strategy-draft-notice" role="status"><strong>CAMBIOS SIN GUARDAR · LOCAL · SESIÓN</strong><p>{campaign.status === 'CANCELED' ? 'Borrador pendiente conservado solo en esta sesión; la campaña terminal no admite edición.' : campaign.status === 'BLOCKED' ? 'Borrador conservado hasta reanudar planificación.' : 'La revisión guardada aún no incluye estas ediciones.'}</p>{onDiscardDraft && <button type="button" onClick={onDiscardDraft}>Descartar cambios sin guardar</button>}</div>}
+    {writable && (!current || current.status === 'DRAFT') && <StrategyForm key={`${campaign.id}-${current?.revision ?? 0}-${formReset ?? 0}`} campaign={campaign} revision={current} draft={draft} onDraftChange={onDraftChange} onSave={input => { const saved = onAction({ type: 'SAVE_STRATEGY', campaignId: campaign.id, input }); if (saved) onClearDraft?.(); return saved; }} onSubmitReview={current?.status === 'DRAFT' ? input => { const submitted = onAction({ type: 'SUBMIT_STRATEGY_WITH_INPUT', campaignId: campaign.id, revision: current.revision, input }); if (submitted) onClearDraft?.(); return submitted; } : undefined} />}
     {writable && current?.status === 'IN_REVIEW' && <div className="strategy-actions"><button type="button" onClick={() => propose('CHANGES')}>Solicitar cambios</button><button type="button" onClick={() => propose('APPROVE')}>Aprobar estrategia</button></div>}
     {writable && (current?.status === 'CHANGES_REQUESTED' || current?.status === 'APPROVED') && <div className="strategy-actions"><button type="button" onClick={() => propose('REVISION')}>Iniciar nueva revisión</button></div>}
     {active && writable && <div className="strategy-confirm" role="group" aria-label="Confirmación de Strategy">
