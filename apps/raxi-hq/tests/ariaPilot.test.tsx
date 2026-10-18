@@ -125,7 +125,10 @@ test('safe failure report records no partial image and can reconcile a later rea
     model: 'gptimg', state: 'TIMED_OUT', at: '2026-10-17T00:03:08Z', errorCode: 'TIMEOUT', ariaImageId: 'aria-image-123' }, order);
   assert.equal(failure.state, 'TIMED_OUT');
   assert.equal(failure.ariaImageId, 'aria-image-123');
-  assert.equal(validateAriaPilotReceipt(receipt(), order).ariaImageId, failure.ariaImageId);
+  assert.equal(validateAriaPilotReceipt(receipt(), order, failure).ariaImageId, failure.ariaImageId);
+  assert.throws(() => validateAriaPilotReceipt({ ...receipt(), ariaImageId: 'aria-image-other' }, order, failure), /no coincide/);
+  const withoutImageId = validateAriaPilotFailure({ ...failure, ariaImageId: undefined }, order);
+  assert.equal(validateAriaPilotReceipt(receipt(), order, withoutImageId).ariaImageId, 'aria-image-123');
   assert.throws(() => validateAriaPilotFailure({ ...failure, provider: 'OTHER' }, order), /Provenance/);
   assert.throws(() => validateAriaPilotFailure({ ...failure, errorCode: 'MCP_ERROR' }, order), /Estado/);
 });

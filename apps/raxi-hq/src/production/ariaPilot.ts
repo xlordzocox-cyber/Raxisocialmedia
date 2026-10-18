@@ -166,13 +166,17 @@ export function isAriaPilotOrderCurrent(order: AriaPilotOrder, campaign: Campaig
   return campaign.id === order.campaign.id && campaign.status === 'PLANNING' &&
     strategy?.status === 'APPROVED' && strategy.revision === order.strategy.revision && strategy.updatedAt === order.strategy.updatedAt;
 }
-export function validateAriaPilotReceipt(value: unknown, orderValue: unknown): AriaPilotReceipt {
+export function validateAriaPilotReceipt(value: unknown, orderValue: unknown, failureValue?: unknown): AriaPilotReceipt {
   const order = validateAriaPilotOrder(orderValue);
   if (order.executionApproval.status !== 'APPROVED') throw new Error('Ejecución sin aprobación humana.');
   const raw = object(value, 'Resultado');
   if (own(raw, 'schemaVersion') !== 1 || own(raw, 'jobId') !== order.jobId || own(raw, 'provider') !== PILOT_PROVIDER ||
       own(raw, 'executor') !== PILOT_EXECUTOR || own(raw, 'model') !== order.model || own(raw, 'state') !== 'SUCCEEDED') throw new Error('Provenance de resultado inválida.');
   const ariaImageId = id(own(raw, 'ariaImageId'), 'ID Aria');
+  if (failureValue !== undefined) {
+    const failure = validateAriaPilotFailure(failureValue, order);
+    if (failure.ariaImageId && failure.ariaImageId !== ariaImageId) throw new Error('El ID Aria no coincide con el fallo reconciliado.');
+  }
   const requestedAt = validateIdeaTimestamp(own(raw, 'requestedAt'));
   const completedAt = validateIdeaTimestamp(own(raw, 'completedAt'));
   if (compareCampaignTimestamps((order.executionApproval as { at: string }).at, requestedAt) > 0 || compareCampaignTimestamps(requestedAt, completedAt) > 0) throw new Error('Cronología de resultado inválida.');

@@ -43,7 +43,7 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
       const parsed: unknown = JSON.parse(await file.text());
       if (parsed !== null && typeof parsed === 'object' && 'state' in parsed && (parsed.state === 'FAILED' || parsed.state === 'TIMED_OUT')) {
         onFailure?.(validateAriaPilotFailure(parsed, order));
-      } else onReceipt(validateAriaPilotReceipt(parsed, order));
+      } else onReceipt(validateAriaPilotReceipt(parsed, order, failure));
       setMessage(undefined);
     } catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Resultado inválido.'); }
   };
