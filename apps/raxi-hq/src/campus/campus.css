@@ -164,3 +164,23 @@
 .strategy-review-facts dd { margin: 3px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 520px) { .strategy-studio { padding: 11px; } .strategy-row { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 520px) { .strategy-review-facts { grid-template-columns: minmax(0, 1fr); } }
+
+.aria-production { min-width: 0; margin-top: 16px; padding: 16px; border: 1px solid #766ca7; border-radius: 11px; background: #161b32; color: #e8ebfa; }
+.aria-production h5 { margin: 7px 0; font-size: 19px; }
+.aria-production h6 { margin: 0 0 8px; font-size: 14px; }
+.aria-production p { color: #c8cce1; font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.aria-production dl { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; }
+.aria-production dt { color: #aaafd0; font-size: 10px; }.aria-production dd { margin: 4px 0 0; overflow-wrap: anywhere; font-size: 12px; }
+.aria-form, .aria-order, .aria-result { display: grid; gap: 9px; margin-top: 13px; padding: 13px; border: 1px solid #4c527e; border-radius: 9px; background: #111b32; }
+.aria-form label, .aria-result label { display: grid; gap: 5px; min-width: 0; font-size: 12px; }
+.aria-form input, .aria-form textarea, .aria-form select, .aria-result textarea { box-sizing: border-box; width: 100%; min-width: 0; padding: 9px; border: 1px solid #6d729b; border-radius: 7px; background: #0b1528; color: #f5f6ff; font: inherit; }
+.aria-form textarea, .aria-result textarea { min-height: 80px; resize: vertical; }
+.aria-production button { justify-self: start; padding: 8px 11px; border: 1px solid #8a90ca; border-radius: 7px; background: #333c70; color: #fff; font: inherit; cursor: pointer; }
+.aria-production button:disabled { opacity: .5; cursor: not-allowed; }
+.aria-production a { color: #b9eaf5; overflow-wrap: anywhere; }
+.aria-production .aria-confirm { display: flex; align-items: start; gap: 9px; font-size: 12px; line-height: 1.45; }
+.aria-production .aria-confirm input { margin-top: 2px; }
+.aria-file { display: grid; gap: 6px; }
+.aria-result img { display: block; max-width: min(100%,460px); max-height: 560px; object-fit: contain; border: 1px solid #565c86; border-radius: 8px; }
+.aria-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 520px) { .aria-production { padding: 11px; } .aria-production dl { grid-template-columns: minmax(0,1fr); } }

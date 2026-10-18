@@ -85,7 +85,7 @@ export function CampusOverview({ ideas, clock = runtimeClock }: { ideas: readonl
   const visibleIdeas = sessionIdeas(session);
   const summary = summarizeIdeas(visibleIdeas);
   return <section className="campus" aria-label="Raxi HQ Campus">
-    <div className="campus-heading"><div><span className="campus-eyebrow">RAXI HQ CAMPUS</span><h2>Un lugar para operar y pensar lo que sigue.</h2></div><span className="campus-phase">v0.7 · Campaign Workspace</span></div>
+    <div className="campus-heading"><div><span className="campus-eyebrow">RAXI HQ CAMPUS</span><h2>Un lugar para operar y pensar lo que sigue.</h2></div><span className="campus-phase">v0.8 · Producción Aria</span></div>
     <div className="campus-buildings">
       <button type="button" className="campus-building campus-building--operations" aria-label="Abrir bandeja del Centro de Operaciones" aria-expanded={inboxOpen} aria-controls={OPERATIONS_INBOX_ID} onClick={() => setInboxOpen(value => !value)}>
         <div className="campus-art"><OperationsBuilding /></div>

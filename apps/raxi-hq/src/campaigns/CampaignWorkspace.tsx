@@ -6,6 +6,8 @@ import type { CampaignStrategyInput } from './strategyContracts';
 import { campaignStatusLabel, contentLevelLabel } from './campaignPresentation';
 import { ideaChannelLabel, ideaPriorityLabel, ideaProvenanceLabel } from '../ideas/ideaPresentation';
 import { StrategyStudio } from './StrategyStudio';
+import { AriaProductionPanel } from '../production/AriaProductionPanel';
+import { reconcileAriaPilotOrder, type AriaPilotFailure, type AriaPilotOrder, type AriaPilotReceipt, type AriaPilotReview } from '../production/ariaPilot';
 
 const futureStages = ['Assets', 'Copy', 'QA', 'Planner', 'Publishing', 'Analytics'];
 export interface PendingCampaignTransition { campaignId: string; to: CampaignStatus }
@@ -27,6 +29,10 @@ export function CampaignWorkspace({ id, session, open, selectedId, onSelect, onA
   // Form edits live only in this mounted workspace, separate from canonical revisions and audit.
   const [strategyDrafts, setStrategyDrafts] = useState<Record<string, CampaignStrategyInput>>({});
   const [formReset, setFormReset] = useState(0);
+  const [pilotOrder, setPilotOrder] = useState<AriaPilotOrder>();
+  const [pilotReceipt, setPilotReceipt] = useState<AriaPilotReceipt>();
+  const [pilotFailure, setPilotFailure] = useState<AriaPilotFailure>();
+  const [pilotReview, setPilotReview] = useState<AriaPilotReview>();
   useEffect(() => { setPendingTransition(undefined); }, [selectedId]);
   const selected = session.campaigns.find(item => item.id === selectedId) ?? session.campaigns[0];
   const activeTransition = pendingTransitionForSelection(pendingTransition, selectedId ?? selected?.id);
@@ -54,5 +60,14 @@ export function CampaignWorkspace({ id, session, open, selectedId, onSelect, onA
       onDraftChange={input => { if (selectedDraftKey) setStrategyDrafts(current => ({ ...current, [selectedDraftKey]: input })); }}
       onClearDraft={() => { if (selectedDraftKey) setStrategyDrafts(current => withoutStrategyDraft(current, selectedDraftKey)); }}
       onDiscardDraft={() => { if (selectedDraftKey) setStrategyDrafts(current => withoutStrategyDraft(current, selectedDraftKey)); setFormReset(current => current + 1); }} />}
+    {selected && <AriaProductionPanel key={`production-${selected.id}`} campaign={selected}
+      strategy={currentStrategy(session, selected.id)} order={pilotOrder?.campaign.id === selected.id ? pilotOrder : undefined}
+      receipt={pilotReceipt?.jobId === pilotOrder?.jobId && pilotOrder?.campaign.id === selected.id ? pilotReceipt : undefined}
+      failure={pilotFailure?.jobId === pilotOrder?.jobId && pilotOrder?.campaign.id === selected.id ? pilotFailure : undefined}
+      review={pilotReview?.jobId === pilotOrder?.jobId && pilotOrder?.campaign.id === selected.id ? pilotReview : undefined}
+      onOrder={value => { const next = reconcileAriaPilotOrder(pilotOrder, value); setPilotOrder(next); }}
+      onReceipt={value => { if (pilotReceipt) throw new Error('Resultado ya importado.'); setPilotReceipt(value); }}
+      onFailure={value => { if (pilotReceipt) throw new Error('Resultado ya importado.'); setPilotFailure(value); }}
+      onReview={setPilotReview} />}
   </section>;
 }

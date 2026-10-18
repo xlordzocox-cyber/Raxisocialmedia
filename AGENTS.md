@@ -42,7 +42,7 @@ Todo contenido maduro debe mantenerse adulto y no explícito. No generes desnude
 
 ## Aria Studio MCP policy
 
-Aria Studio es la herramienta preferida para generar nuevas fotografías de Raxi. Puede utilizarse proactivamente sin que el usuario lo pida cada vez cuando una campaña, publicación, carrusel, teaser, FanView feed o FanView chatting necesite imágenes nuevas.
+Aria Studio es el único servicio autorizado para generar nuevas fotografías de Raxi en este proyecto. Una Strategy aprobada no autoriza por sí sola consumir créditos: cada ejecución real requiere una orden concreta y aprobación explícita de Luis tras informar proveedor, modelo y coste verificable.
 
 Antes de generar imágenes, define:
 
