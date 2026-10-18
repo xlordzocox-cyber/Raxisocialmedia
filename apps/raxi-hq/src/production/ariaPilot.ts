@@ -4,6 +4,7 @@ import { validateCampaignRecord, compareCampaignTimestamps } from '../campaigns/
 import { validateStrategyRevision } from '../campaigns/strategyValidation';
 import { validateIdeaTimestamp } from '../ideas/ideaValidation';
 import { validateMultilineText } from '../ideas/manualIdeaDraft';
+import { currentStrategy, type CampaignSession } from '../campaigns/campaignSession';
 import { inspectionMatchesReceipt, validPilotSha256, type PilotImageInspection } from './pilotImage';
 
 /** A bounded, local handoff. It never calls Aria or treats imported data as authenticated. */
@@ -174,7 +175,17 @@ export function reconcileAriaPilotOrder(existing: AriaPilotOrder | undefined, in
 
 export function isAriaPilotOrderCurrent(order: AriaPilotOrder, campaign: CampaignRecord, strategy?: CampaignStrategyRevision): boolean {
   return campaign.id === order.campaign.id && campaign.status === 'PLANNING' &&
-    strategy?.status === 'APPROVED' && strategy.revision === order.strategy.revision && strategy.updatedAt === order.strategy.updatedAt;
+    campaign.updatedAt === order.campaign.updatedAt && strategy?.status === 'APPROVED' &&
+    strategy.revision === order.strategy.revision && strategy.updatedAt === order.strategy.updatedAt;
+}
+export function isAriaPilotOrderCurrentInSession(order: AriaPilotOrder, session: CampaignSession, selectedId?: string): boolean {
+  const selected = selectedId ? session.campaigns.find(item => item.id === selectedId) : session.campaigns[0];
+  return !!selected && isAriaPilotOrderCurrent(order, selected, currentStrategy(session, selected.id));
+}
+export function requireCurrentAriaPilotOrder(order: AriaPilotOrder, activeOrder: AriaPilotOrder | undefined,
+  session: CampaignSession, selectedId?: string): void {
+  if (activeOrder !== order || !isAriaPilotOrderCurrentInSession(order, session, selectedId))
+    throw new Error('La orden del piloto quedó obsoleta.');
 }
 export function validateAriaPilotReceipt(value: unknown, orderValue: unknown, failureValue?: unknown): AriaPilotReceipt {
   const order = validateAriaPilotOrder(orderValue);
@@ -260,6 +271,20 @@ export function createSerialAriaImports() {
     tail = current.catch(() => undefined);
     return current;
   };
+}
+
+/** Recheck the live session after the asynchronous read; callers recheck again at commit. */
+export async function importCurrentAriaManifest(file: Pick<File, 'size' | 'text'>, order: AriaPilotOrder,
+  stillCurrent: () => boolean, onReceipt: (value: AriaPilotReceipt) => void,
+  onFailure: (value: AriaPilotFailure) => void): Promise<void> {
+  if (!stillCurrent()) throw new Error('Falta una orden vigente.');
+  if (file.size > 16_384) throw new Error('Manifiesto de resultado demasiado grande.');
+  const contents = await file.text();
+  if (!stillCurrent()) throw new Error('La orden quedó obsoleta durante la lectura.');
+  const parsed: unknown = JSON.parse(contents);
+  if (parsed !== null && typeof parsed === 'object' && 'state' in parsed && (parsed.state === 'FAILED' || parsed.state === 'TIMED_OUT'))
+    onFailure(validateAriaPilotFailure(parsed, order));
+  else onReceipt(validateAriaPilotReceipt(parsed, order));
 }
 
 export function recordAriaPilotReview(receipt: AriaPilotReceipt, previous: AriaPilotReview | undefined,

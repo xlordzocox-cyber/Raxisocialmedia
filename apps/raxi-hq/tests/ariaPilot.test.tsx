@@ -4,9 +4,10 @@ import { createHash } from 'node:crypto';
 import { renderToStaticMarkup } from 'react-dom/server';
 import catalog from '../../../content/asset-library/ASSET_CATALOG.json';
 import type { CampaignRecord } from '../src/campaigns/campaignContracts';
+import { createCampaignSession, type CampaignSession } from '../src/campaigns/campaignSession';
 import type { CampaignStrategyRevision } from '../src/campaigns/strategyContracts';
 import { AriaProductionPanel } from '../src/production/AriaProductionPanel';
-import { applyAriaPilotFailure, applyAriaPilotReceipt, authorizeAriaPilot, createSerialAriaImports, isAriaPilotOrderCurrent, PILOT_SOURCE_ASSET_IDS, pilotJobId, pilotPollDecision, prepareAriaPilot, reconcileAriaPilotFailure, reconcileAriaPilotOrder, reconcileAriaPilotReceipt, recordAriaPilotReview, validateAriaPilotFailure, validateAriaPilotOrder, validateAriaPilotReceipt, type AriaPilotOutcome } from '../src/production/ariaPilot';
+import { applyAriaPilotFailure, applyAriaPilotReceipt, authorizeAriaPilot, createSerialAriaImports, importCurrentAriaManifest, isAriaPilotOrderCurrent, isAriaPilotOrderCurrentInSession, PILOT_SOURCE_ASSET_IDS, pilotJobId, pilotPollDecision, prepareAriaPilot, reconcileAriaPilotFailure, reconcileAriaPilotOrder, reconcileAriaPilotReceipt, recordAriaPilotReview, requireCurrentAriaPilotOrder, validateAriaPilotFailure, validateAriaPilotOrder, validateAriaPilotReceipt, type AriaPilotOutcome } from '../src/production/ariaPilot';
 import { createPilotImageSelection, inspectPilotImageFile, inspectionMatchesReceipt, type PilotImageFile, type PilotImageInspection } from '../src/production/pilotImage';
 
 const campaign: CampaignRecord = { id: 'CAMPAIGN-001', sourceIdeaId: 'IDEA-001', sourceHandoffSentAt: '2026-10-17T00:00:00Z',
@@ -78,6 +79,87 @@ test('a canceled campaign or newer Strategy invalidates export of the session or
   assert.equal(isAriaPilotOrderCurrent(order, { ...campaign, status: 'CANCELED' }, strategy), false);
   assert.equal(isAriaPilotOrderCurrent(order, campaign, { ...strategy, revision: 2 }), false);
   assert.equal(isAriaPilotOrderCurrent(order, campaign, undefined), false);
+  assert.equal(isAriaPilotOrderCurrent(order, { ...campaign, updatedAt: '2026-10-17T00:00:10Z' }, strategy), false);
+});
+
+test('a pending manifest read rejects canceled, blocked, revised or deselected work without changing history', async () => {
+  const order = authorized();
+  const other = { ...campaign, id: 'CAMPAIGN-002' };
+  const initial: CampaignSession = { ...createCampaignSession(), campaigns: [campaign, other], strategies: [strategy] };
+  const scenarios: { name: string; session: CampaignSession; selectedId: string }[] = [
+    { name: 'canceled', session: { ...initial, campaigns: [{ ...campaign, status: 'CANCELED' }, other] }, selectedId: campaign.id },
+    { name: 'blocked', session: { ...initial, campaigns: [{ ...campaign, status: 'BLOCKED' }, other] }, selectedId: campaign.id },
+    { name: 'new revision', session: { ...initial, strategies: [...initial.strategies, { ...strategy, revision: 2 }] }, selectedId: campaign.id },
+    { name: 'other selection', session: initial, selectedId: other.id },
+  ];
+  for (const scenario of scenarios) {
+    let liveSession = initial;
+    let selectedId = campaign.id;
+    let outcome: AriaPilotOutcome = {};
+    let resolveText!: (value: string) => void;
+    const text = new Promise<string>(resolve => { resolveText = resolve; });
+    const stillCurrent = () => isAriaPilotOrderCurrentInSession(order, liveSession, selectedId);
+    const pending = importCurrentAriaManifest({ size: 500, text: () => text }, order, stillCurrent,
+      value => { requireCurrentAriaPilotOrder(order, order, liveSession, selectedId); outcome = applyAriaPilotReceipt(outcome, value, order); },
+      value => { requireCurrentAriaPilotOrder(order, order, liveSession, selectedId); outcome = applyAriaPilotFailure(outcome, value, order); });
+    liveSession = scenario.session;
+    selectedId = scenario.selectedId;
+    resolveText(JSON.stringify(receipt()));
+    await assert.rejects(pending, /obsoleta/, scenario.name);
+    assert.deepEqual(outcome, {}, scenario.name);
+  }
+});
+
+test('an unchanged session imports successfully, while callbacks reject an obsolete order before outcome updates', async () => {
+  const order = authorized();
+  const session: CampaignSession = { ...createCampaignSession(), campaigns: [campaign], strategies: [strategy] };
+  let outcome: AriaPilotOutcome = {};
+  let resolveText!: (value: string) => void;
+  const text = new Promise<string>(resolve => { resolveText = resolve; });
+  const pending = importCurrentAriaManifest({ size: 500, text: () => text }, order,
+    () => isAriaPilotOrderCurrentInSession(order, session, campaign.id),
+    value => { requireCurrentAriaPilotOrder(order, order, session, campaign.id); outcome = applyAriaPilotReceipt(outcome, value, order); },
+    () => { throw new Error('Unexpected failure manifest'); });
+  resolveText(JSON.stringify(receipt()));
+  await pending;
+  assert.equal(outcome.receipt?.ariaImageId, receipt().ariaImageId);
+  const before = structuredClone(outcome);
+  assert.throws(() => requireCurrentAriaPilotOrder(order, { ...order }, session, campaign.id), /obsoleta/);
+  assert.throws(() => requireCurrentAriaPilotOrder(order, order, { ...session, campaigns: [{ ...campaign, status: 'BLOCKED' }] }, campaign.id), /obsoleta/);
+  assert.deepEqual(outcome, before);
+});
+
+test('a pending failure cannot replace history after a campaign changes, and prior QA stays read-only', async () => {
+  const order = authorized();
+  const initial: CampaignSession = { ...createCampaignSession(), campaigns: [campaign], strategies: [strategy] };
+  let liveSession = initial;
+  const knownFailure = validateAriaPilotFailure({ schemaVersion: 1, jobId: order.jobId, provider: 'ARIA_STUDIO',
+    executor: 'CODEX_MCP', model: 'gptimg', state: 'TIMED_OUT', at: '2026-10-17T00:03:08Z',
+    errorCode: 'TIMEOUT', ariaImageId: 'aria-image-123' }, order);
+  let outcome: AriaPilotOutcome = { failure: knownFailure };
+  const before = structuredClone(outcome);
+  let resolveText!: (value: string) => void;
+  const text = new Promise<string>(resolve => { resolveText = resolve; });
+  const pending = importCurrentAriaManifest({ size: 500, text: () => text }, order,
+    () => isAriaPilotOrderCurrentInSession(order, liveSession, campaign.id),
+    value => { requireCurrentAriaPilotOrder(order, order, liveSession, campaign.id); outcome = applyAriaPilotReceipt(outcome, value, order); },
+    value => { requireCurrentAriaPilotOrder(order, order, liveSession, campaign.id); outcome = applyAriaPilotFailure(outcome, value, order); });
+  liveSession = { ...initial, campaigns: [{ ...campaign, status: 'BLOCKED' }] };
+  resolveText(JSON.stringify({ ...knownFailure, ariaImageId: 'another-image' }));
+  await assert.rejects(pending, /obsoleta/);
+  assert.deepEqual(outcome, before);
+
+  const priorReceipt = validateAriaPilotReceipt(receipt(), order);
+  const priorReview = recordAriaPilotReview(priorReceipt, undefined, 'QA_PASS', '2026-10-17T00:00:10Z', 'Inspeccionada.', inspected());
+  const html = renderToStaticMarkup(<AriaProductionPanel campaign={{ ...campaign, status: 'BLOCKED' }} strategy={strategy}
+    order={order} receipt={priorReceipt} review={priorReview} onOrder={() => {}} onReceipt={() => {}}
+    isOrderCurrent={() => false} />);
+  assert.match(html, /Esta orden quedó obsoleta/);
+  assert.match(html, /Calidad: PASS/);
+  assert.match(html, /Luis: aprobar fotografía/);
+  assert.match(html, /disabled=""[^>]*>Luis: aprobar fotografía/);
+  assert.match(html, /Cargar copia local para inspección visual<input[^>]*disabled=""/);
+  assert.throws(() => requireCurrentAriaPilotOrder(order, order, liveSession, campaign.id), /obsoleta/);
 });
 test('portable order rejects forged provider, model, quantity, strategy and assets', () => {
   assert.deepEqual(validateAriaPilotOrder(authorized()), authorized());
@@ -171,13 +253,13 @@ test('an unidentified failure may gain an ID, but never lose it; manual Aria ver
   assert.throws(() => reconcileAriaPilotFailure(identified, unidentified, order), /sustituir/);
   assert.throws(() => reconcileAriaPilotFailure(identified, { ...identified, at: '2026-10-17T00:03:07Z' }, order), /retroceder/);
   const html = renderToStaticMarkup(<AriaProductionPanel campaign={campaign} strategy={strategy} order={order}
-    failure={unidentified} receipt={validateAriaPilotReceipt(receipt(), order, unidentified)} onOrder={() => {}} onReceipt={() => {}} />);
+    failure={unidentified} receipt={validateAriaPilotReceipt(receipt(), order, unidentified)} onOrder={() => {}} onReceipt={() => {}} isOrderCurrent={() => true} />);
   assert.match(html, /coteja ID e imagen directamente con la ejecución real en Aria/);
 });
 test('production UI clearly gates unapproved work and never pretends the Office is executing', () => {
-  const empty = renderToStaticMarkup(<AriaProductionPanel campaign={campaign} strategy={{ ...strategy, status: 'DRAFT', approvedAt: undefined, approvedBy: undefined }} onOrder={() => {}} onReceipt={() => {}} />);
+  const empty = renderToStaticMarkup(<AriaProductionPanel campaign={campaign} strategy={{ ...strategy, status: 'DRAFT', approvedAt: undefined, approvedBy: undefined }} onOrder={() => {}} onReceipt={() => {}} isOrderCurrent={() => true} />);
   assert.match(empty, /Se requiere una Strategy APPROVED/);
-  const html = renderToStaticMarkup(<AriaProductionPanel campaign={campaign} strategy={strategy} order={prepared()} onOrder={() => {}} onReceipt={() => {}} />);
+  const html = renderToStaticMarkup(<AriaProductionPanel campaign={campaign} strategy={strategy} order={prepared()} onOrder={() => {}} onReceipt={() => {}} isOrderCurrent={() => true} />);
   assert.match(html, /HANDOFF CONTROLADO/);
   assert.match(html, /No se ha generado ninguna imagen/);
   assert.match(html, /confirmar el precio en Codex/);

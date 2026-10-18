@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CampaignRecord } from '../campaigns/campaignContracts';
 import type { CampaignStrategyRevision } from '../campaigns/strategyContracts';
-import { authorizeAriaPilot, createSerialAriaImports, isAriaPilotOrderCurrent, prepareAriaPilot, recordAriaPilotReview, validateAriaPilotFailure, validateAriaPilotReceipt, type AriaPilotFailure, type AriaPilotOrder, type AriaPilotReceipt, type AriaPilotReview } from './ariaPilot';
+import { authorizeAriaPilot, createSerialAriaImports, importCurrentAriaManifest, isAriaPilotOrderCurrent, prepareAriaPilot, recordAriaPilotReview, type AriaPilotFailure, type AriaPilotOrder, type AriaPilotReceipt, type AriaPilotReview } from './ariaPilot';
 import { createPilotImageSelection, inspectionMatchesReceipt, type PilotImageInspection } from './pilotImage';
 
 function downloadJson(name: string, value: unknown) {
@@ -11,12 +11,15 @@ function downloadJson(name: string, value: unknown) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function AriaProductionPanel({ campaign, strategy, order, receipt, failure, review, onOrder, onReceipt, onFailure, onReview }: {
+export function AriaProductionPanel({ campaign, strategy, order, receipt, failure, review, onOrder, onReceipt, onFailure, onReview, isOrderCurrent }: {
   campaign: CampaignRecord; strategy?: CampaignStrategyRevision; order?: AriaPilotOrder; receipt?: AriaPilotReceipt; failure?: AriaPilotFailure; review?: AriaPilotReview;
-  onOrder: (value: AriaPilotOrder) => void; onReceipt: (value: AriaPilotReceipt) => void; onFailure?: (value: AriaPilotFailure) => void; onReview?: (value: AriaPilotReview | undefined) => void;
+  onOrder: (value: AriaPilotOrder) => void; onReceipt: (value: AriaPilotReceipt, order: AriaPilotOrder) => void;
+  onFailure?: (value: AriaPilotFailure, order: AriaPilotOrder) => void;
+  onReview?: (value: AriaPilotReview | undefined, order: AriaPilotOrder) => void;
+  isOrderCurrent: (value: AriaPilotOrder) => boolean;
 }) {
   const rows = strategy?.status === 'APPROVED' ? strategy.deliverables.filter(item => item.format === 'PHOTO' && item.channel === 'INSTAGRAM_FEED' && item.contentLevel === 'PUBLIC_SOCIAL') : [];
-  const currentOrder = order ? isAriaPilotOrderCurrent(order, campaign, strategy) : false;
+  const currentOrder = order ? isAriaPilotOrderCurrent(order, campaign, strategy) && isOrderCurrent(order) : false;
   const [rowId, setRowId] = useState('');
   const [scene, setScene] = useState('');
   const [sources, setSources] = useState('');
@@ -34,7 +37,7 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
   const receiptKey = receipt ? `${receipt.jobId}|${receipt.ariaImageId}|${receipt.imageSha256 ?? ''}` : '';
   const receiptKeyRef = useRef(receiptKey);
   receiptKeyRef.current = receiptKey;
-  const imageVerified = imageReady && inspectionMatchesReceipt(imageInspection, receipt);
+  const imageVerified = currentOrder && imageReady && inspectionMatchesReceipt(imageInspection, receipt);
   const importQueueRef = useRef(createSerialAriaImports());
   useEffect(() => { return () => { if (imageFile) URL.revokeObjectURL(imageFile); }; }, [imageFile]);
   const act = (fn: () => void) => { try { fn(); setMessage(undefined); } catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Operación inválida.'); } };
@@ -53,12 +56,10 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
     if (!file) return;
     void importQueueRef.current(async () => {
       try {
-        if (!order || !currentOrder) throw new Error('Falta una orden vigente.');
-        if (file.size > 16_384) throw new Error('Manifiesto de resultado demasiado grande.');
-        const parsed: unknown = JSON.parse(await file.text());
-        if (parsed !== null && typeof parsed === 'object' && 'state' in parsed && (parsed.state === 'FAILED' || parsed.state === 'TIMED_OUT')) {
-          onFailure?.(validateAriaPilotFailure(parsed, order));
-        } else onReceipt(validateAriaPilotReceipt(parsed, order));
+        if (!order) throw new Error('Falta una orden vigente.');
+        await importCurrentAriaManifest(file, order,
+          () => isAriaPilotOrderCurrent(order, campaign, strategy) && isOrderCurrent(order),
+          value => onReceipt(value, order), value => onFailure?.(value, order));
         setMessage(undefined);
       } catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Resultado inválido.'); }
     });
@@ -73,7 +74,7 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
     setImageFile(undefined);
     setImageError(undefined);
     setQaNotes('');
-    if (review?.humanDecision === 'PENDING') onReview?.(undefined);
+    if (review?.humanDecision === 'PENDING' && order) onReview?.(undefined, order);
   };
   useEffect(() => { resetImageInspection(); }, [receiptKey]);
   const chooseImage = async (file?: File) => {
@@ -81,9 +82,9 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
     resetImageInspection();
     if (!file) return;
     try {
-      if (!receipt) throw new Error('Falta resultado real.');
+      if (!receipt || !order || !currentOrder) throw new Error('Falta resultado de una orden vigente.');
       const inspected = await imageSelectionRef.current.inspect(file, receipt);
-      if (!inspected || receiptKeyRef.current !== receiptKey) return;
+      if (!inspected || receiptKeyRef.current !== receiptKey || !isOrderCurrent(order)) return;
       const url = URL.createObjectURL(file);
       pendingImageRef.current = inspected;
       activeImageUrlRef.current = url;
@@ -100,12 +101,12 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
     setImageReady(false);
     setImageInspection(undefined);
     setImageError('La vista previa no pudo cargar la imagen.');
-    if (review?.humanDecision === 'PENDING') onReview?.(undefined);
+    if (review?.humanDecision === 'PENDING' && order) onReview?.(undefined, order);
   };
   const reviewAction = (action: 'QA_PASS' | 'QA_FAIL' | 'HUMAN_APPROVE' | 'HUMAN_REJECT') => act(() => {
-    if (!receipt) throw new Error('Falta resultado real.');
+    if (!receipt || !order || !currentOrder || !isOrderCurrent(order)) throw new Error('Falta resultado de una orden vigente.');
     if (!inspectionMatchesReceipt(verifiedImageRef.current, receipt)) throw new Error('La imagen debe cargarse y coincidir con el recibo antes de continuar.');
-    onReview?.(recordAriaPilotReview(receipt, review, action, new Date().toISOString(), qaNotes, verifiedImageRef.current));
+    onReview?.(recordAriaPilotReview(receipt, review, action, new Date().toISOString(), qaNotes, verifiedImageRef.current), order);
   });
   return <section className="aria-production" aria-label="Producción Aria Studio">
     <span className="campus-eyebrow">PRODUCCIÓN v0.8 · CODEX MCP · HANDOFF CONTROLADO</span>
@@ -133,9 +134,10 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
       <p>SHA-256 declarado por Codex: <code>{receipt.imageSha256 ?? 'No disponible · QA pendiente'}</code>. Se comprueba al cargar el archivo.</p>
       <p>La URL del proveedor es temporal. El digest comprueba integridad de bytes, pero el JSON no autentica su procedencia: coteja ID e imagen directamente con la ejecución real en Aria.</p>
       <a href={receipt.imageUrl} target="_blank" rel="noopener noreferrer">Abrir imagen temporal del proveedor</a>
-      <label className="aria-file">Cargar copia local para inspección visual<input type="file" accept="image/png,image/jpeg,image/webp" disabled={review?.humanDecision !== undefined && review.humanDecision !== 'PENDING'} onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; void chooseImage(file); }} /></label>
+      <label className="aria-file">Cargar copia local para inspección visual<input type="file" accept="image/png,image/jpeg,image/webp" disabled={!currentOrder || review?.humanDecision !== undefined && review.humanDecision !== 'PENDING'} onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; void chooseImage(file); }} /></label>
       {imageFile && <img src={imageFile} alt="Resultado de Aria cargado para QA visual" onLoad={event => {
         if (activeImageUrlRef.current !== imageFile) return;
+        if (!order || !currentOrder || !isOrderCurrent(order)) return;
         const pending = pendingImageRef.current;
         if (!pending || event.currentTarget.naturalWidth < 1 || event.currentTarget.naturalHeight < 1 ||
             !inspectionMatchesReceipt({ ...pending, previewLoaded: true }, receipt)) { imageLoadError(); return; }
@@ -149,11 +151,11 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
       {imageError && <p role="alert">{imageError}</p>}
       {imageFile && !imageVerified && !imageError && <p role="status">Huella verificada; esperando carga visible de la vista previa.</p>}
       {imageVerified && <p role="status">Archivo local verificado para {receipt.ariaImageId} · SHA-256 coincidente.</p>}
-      <label>Observaciones de Calidad<textarea value={qaNotes} maxLength={1500} onChange={event => setQaNotes(event.target.value)} /></label>
-      <div className="aria-actions"><button type="button" disabled={!imageVerified || !qaNotes.trim() || review?.humanDecision !== undefined && review.humanDecision !== 'PENDING'} onClick={() => reviewAction('QA_PASS')}>QA visual PASS</button><button type="button" disabled={!imageVerified || !qaNotes.trim() || review?.humanDecision !== undefined && review.humanDecision !== 'PENDING'} onClick={() => reviewAction('QA_FAIL')}>QA visual FAIL</button></div>
+      <label>Observaciones de Calidad<textarea value={qaNotes} maxLength={1500} disabled={!currentOrder} onChange={event => setQaNotes(event.target.value)} /></label>
+      <div className="aria-actions"><button type="button" disabled={!currentOrder || !imageVerified || !qaNotes.trim() || review?.humanDecision !== undefined && review.humanDecision !== 'PENDING'} onClick={() => reviewAction('QA_PASS')}>QA visual PASS</button><button type="button" disabled={!currentOrder || !imageVerified || !qaNotes.trim() || review?.humanDecision !== undefined && review.humanDecision !== 'PENDING'} onClick={() => reviewAction('QA_FAIL')}>QA visual FAIL</button></div>
       <p>Calidad: {review?.qaStatus ?? 'VISUAL_REVIEW_REQUIRED'}. {!review && 'No hay aprobación automática.'}</p>
-      {review?.qaStatus === 'PASS' && review.humanDecision === 'PENDING' && <div className="aria-actions"><button type="button" disabled={!imageVerified} onClick={() => reviewAction('HUMAN_APPROVE')}>Luis: aprobar fotografía</button><button type="button" disabled={!imageVerified} onClick={() => reviewAction('HUMAN_REJECT')}>Luis: rechazar fotografía</button></div>}
-      {review?.qaStatus === 'FAIL' && review.humanDecision === 'PENDING' && <button type="button" disabled={!imageVerified} onClick={() => reviewAction('HUMAN_REJECT')}>Luis: rechazar fotografía</button>}
+      {review?.qaStatus === 'PASS' && review.humanDecision === 'PENDING' && <div className="aria-actions"><button type="button" disabled={!currentOrder || !imageVerified} onClick={() => reviewAction('HUMAN_APPROVE')}>Luis: aprobar fotografía</button><button type="button" disabled={!currentOrder || !imageVerified} onClick={() => reviewAction('HUMAN_REJECT')}>Luis: rechazar fotografía</button></div>}
+      {review?.qaStatus === 'FAIL' && review.humanDecision === 'PENDING' && <button type="button" disabled={!currentOrder || !imageVerified} onClick={() => reviewAction('HUMAN_REJECT')}>Luis: rechazar fotografía</button>}
       <p>Decisión humana: {review?.humanDecision ?? 'PENDING'}. Sin publicación automática ni registro APPROVED en catálogo.</p>
       {review && <button type="button" onClick={() => downloadJson(`${receipt.jobId}-review.json`, review)}>Exportar revisión y decisión</button>}
     </div>}

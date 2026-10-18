@@ -7,7 +7,7 @@ import { campaignStatusLabel, contentLevelLabel } from './campaignPresentation';
 import { ideaChannelLabel, ideaPriorityLabel, ideaProvenanceLabel } from '../ideas/ideaPresentation';
 import { StrategyStudio } from './StrategyStudio';
 import { AriaProductionPanel } from '../production/AriaProductionPanel';
-import { applyAriaPilotFailure, applyAriaPilotReceipt, reconcileAriaPilotOrder, type AriaPilotOrder, type AriaPilotOutcome } from '../production/ariaPilot';
+import { applyAriaPilotFailure, applyAriaPilotReceipt, isAriaPilotOrderCurrentInSession, reconcileAriaPilotOrder, requireCurrentAriaPilotOrder, type AriaPilotOrder, type AriaPilotOutcome } from '../production/ariaPilot';
 
 const futureStages = ['Assets', 'Copy', 'QA', 'Planner', 'Publishing', 'Analytics'];
 export interface PendingCampaignTransition { campaignId: string; to: CampaignStatus }
@@ -21,8 +21,9 @@ export function withoutStrategyDraft(drafts: Readonly<Record<string, CampaignStr
   delete next[key];
   return next;
 }
-export function CampaignWorkspace({ id, session, open, selectedId, onSelect, onAction }: {
-  id: string; session: CampaignSession; open: boolean; selectedId?: string;
+export function CampaignWorkspace({ id, session, getSession, open, selectedId, getSelectedId, onSelect, onAction }: {
+  id: string; session: CampaignSession; getSession: () => CampaignSession; open: boolean; selectedId?: string;
+  getSelectedId: () => string | undefined;
   onSelect: (id: string) => void; onAction: (action: CampaignCommand) => boolean;
 }) {
   const [pendingTransition, setPendingTransition] = useState<PendingCampaignTransition>();
@@ -30,8 +31,11 @@ export function CampaignWorkspace({ id, session, open, selectedId, onSelect, onA
   const [strategyDrafts, setStrategyDrafts] = useState<Record<string, CampaignStrategyInput>>({});
   const [formReset, setFormReset] = useState(0);
   const [pilotOrder, setPilotOrder] = useState<AriaPilotOrder>();
+  const pilotOrderRef = useRef<AriaPilotOrder | undefined>(undefined);
   const [pilotOutcome, setPilotOutcome] = useState<AriaPilotOutcome>({});
   const pilotOutcomeRef = useRef(pilotOutcome);
+  const pilotOrderIsCurrent = (value: AriaPilotOrder) => pilotOrderRef.current === value &&
+    isAriaPilotOrderCurrentInSession(value, getSession(), getSelectedId());
   const updatePilotOutcome = (change: (current: AriaPilotOutcome) => AriaPilotOutcome) => {
     const next = change(pilotOutcomeRef.current);
     pilotOutcomeRef.current = next;
@@ -69,10 +73,18 @@ export function CampaignWorkspace({ id, session, open, selectedId, onSelect, onA
       receipt={pilotOutcome.receipt?.jobId === pilotOrder?.jobId && pilotOrder?.campaign.id === selected.id ? pilotOutcome.receipt : undefined}
       failure={pilotOutcome.failure?.jobId === pilotOrder?.jobId && pilotOrder?.campaign.id === selected.id ? pilotOutcome.failure : undefined}
       review={pilotOutcome.review?.jobId === pilotOrder?.jobId && pilotOrder?.campaign.id === selected.id ? pilotOutcome.review : undefined}
-      onOrder={value => { const next = reconcileAriaPilotOrder(pilotOrder, value); setPilotOrder(next); }}
-      onReceipt={value => { if (!pilotOrder) throw new Error('Falta la orden del piloto.'); updatePilotOutcome(current => applyAriaPilotReceipt(current, value, pilotOrder)); }}
-      onFailure={value => { if (!pilotOrder) throw new Error('Falta la orden del piloto.'); updatePilotOutcome(current => applyAriaPilotFailure(current, value, pilotOrder)); }}
-      onReview={value => updatePilotOutcome(current => {
+      isOrderCurrent={pilotOrderIsCurrent}
+      onOrder={value => { const next = reconcileAriaPilotOrder(pilotOrderRef.current, value); pilotOrderRef.current = next; setPilotOrder(next); }}
+      onReceipt={(value, expected) => updatePilotOutcome(current => {
+        requireCurrentAriaPilotOrder(expected, pilotOrderRef.current, getSession(), getSelectedId());
+        return applyAriaPilotReceipt(current, value, expected);
+      })}
+      onFailure={(value, expected) => updatePilotOutcome(current => {
+        requireCurrentAriaPilotOrder(expected, pilotOrderRef.current, getSession(), getSelectedId());
+        return applyAriaPilotFailure(current, value, expected);
+      })}
+      onReview={(value, expected) => updatePilotOutcome(current => {
+        requireCurrentAriaPilotOrder(expected, pilotOrderRef.current, getSession(), getSelectedId());
         if (!value && current.review && current.review.humanDecision !== 'PENDING') throw new Error('La decisión humana ya está registrada.');
         return { ...current, review: value };
       })} />}
