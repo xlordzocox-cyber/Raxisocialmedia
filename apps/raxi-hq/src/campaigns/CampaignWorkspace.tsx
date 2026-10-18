@@ -7,7 +7,7 @@ import { campaignStatusLabel, contentLevelLabel } from './campaignPresentation';
 import { ideaChannelLabel, ideaPriorityLabel, ideaProvenanceLabel } from '../ideas/ideaPresentation';
 import { StrategyStudio } from './StrategyStudio';
 import { AriaProductionPanel } from '../production/AriaProductionPanel';
-import { reconcileAriaPilotOrder, type AriaPilotFailure, type AriaPilotOrder, type AriaPilotReceipt, type AriaPilotReview } from '../production/ariaPilot';
+import { reconcileAriaPilotFailure, reconcileAriaPilotOrder, reconcileAriaPilotReceipt, type AriaPilotFailure, type AriaPilotOrder, type AriaPilotReceipt, type AriaPilotReview } from '../production/ariaPilot';
 
 const futureStages = ['Assets', 'Copy', 'QA', 'Planner', 'Publishing', 'Analytics'];
 export interface PendingCampaignTransition { campaignId: string; to: CampaignStatus }
@@ -66,8 +66,8 @@ export function CampaignWorkspace({ id, session, open, selectedId, onSelect, onA
       failure={pilotFailure?.jobId === pilotOrder?.jobId && pilotOrder?.campaign.id === selected.id ? pilotFailure : undefined}
       review={pilotReview?.jobId === pilotOrder?.jobId && pilotOrder?.campaign.id === selected.id ? pilotReview : undefined}
       onOrder={value => { const next = reconcileAriaPilotOrder(pilotOrder, value); setPilotOrder(next); }}
-      onReceipt={value => { if (pilotReceipt) throw new Error('Resultado ya importado.'); setPilotReceipt(value); }}
-      onFailure={value => { if (pilotReceipt) throw new Error('Resultado ya importado.'); setPilotFailure(value); }}
+      onReceipt={value => { if (!pilotOrder) throw new Error('Falta la orden del piloto.'); setPilotReceipt(reconcileAriaPilotReceipt(pilotReceipt, value, pilotOrder, pilotFailure, pilotReview)); }}
+      onFailure={value => { if (!pilotOrder || pilotReceipt || pilotReview) throw new Error('No se puede cambiar un trabajo con resultado o revisión.'); setPilotFailure(reconcileAriaPilotFailure(pilotFailure, value, pilotOrder)); }}
       onReview={setPilotReview} />}
   </section>;
 }

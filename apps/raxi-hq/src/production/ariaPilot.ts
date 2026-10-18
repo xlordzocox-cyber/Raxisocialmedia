@@ -214,6 +214,23 @@ export function validateAriaPilotFailure(value: unknown, orderValue: unknown): A
     ariaImageId: ariaImageId === undefined ? undefined : id(ariaImageId, 'ID Aria') };
 }
 
+/** Preserve a known provider ID while allowing a later failure to identify an ambiguous job. */
+export function reconcileAriaPilotFailure(existing: AriaPilotFailure | undefined, incoming: unknown, order: AriaPilotOrder): AriaPilotFailure {
+  const next = validateAriaPilotFailure(incoming, order);
+  if (!existing) return next;
+  const prior = validateAriaPilotFailure(existing, order);
+  if (prior.ariaImageId && prior.ariaImageId !== next.ariaImageId) throw new Error('No se puede sustituir el ID Aria del fallo registrado.');
+  if (compareCampaignTimestamps(prior.at, next.at) > 0) throw new Error('Un fallo posterior no puede retroceder en el tiempo.');
+  return next;
+}
+
+/** Imported manifests cannot replace an existing result or its QA decision. */
+export function reconcileAriaPilotReceipt(existing: AriaPilotReceipt | undefined, incoming: unknown, order: AriaPilotOrder,
+  failure?: AriaPilotFailure, review?: AriaPilotReview): AriaPilotReceipt {
+  if (existing || review) throw new Error('El resultado o su revisión ya están registrados.');
+  return validateAriaPilotReceipt(incoming, order, failure);
+}
+
 export function recordAriaPilotReview(receipt: AriaPilotReceipt, previous: AriaPilotReview | undefined,
   action: 'QA_PASS' | 'QA_FAIL' | 'HUMAN_APPROVE' | 'HUMAN_REJECT', at: string, notes?: string, pixelsInspected = false): AriaPilotReview {
   const time = validateIdeaTimestamp(at);

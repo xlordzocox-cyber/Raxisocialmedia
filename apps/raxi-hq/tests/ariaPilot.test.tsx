@@ -5,7 +5,7 @@ import catalog from '../../../content/asset-library/ASSET_CATALOG.json';
 import type { CampaignRecord } from '../src/campaigns/campaignContracts';
 import type { CampaignStrategyRevision } from '../src/campaigns/strategyContracts';
 import { AriaProductionPanel } from '../src/production/AriaProductionPanel';
-import { authorizeAriaPilot, isAriaPilotOrderCurrent, PILOT_SOURCE_ASSET_IDS, pilotJobId, pilotPollDecision, prepareAriaPilot, reconcileAriaPilotOrder, recordAriaPilotReview, validateAriaPilotFailure, validateAriaPilotOrder, validateAriaPilotReceipt } from '../src/production/ariaPilot';
+import { authorizeAriaPilot, isAriaPilotOrderCurrent, PILOT_SOURCE_ASSET_IDS, pilotJobId, pilotPollDecision, prepareAriaPilot, reconcileAriaPilotFailure, reconcileAriaPilotOrder, reconcileAriaPilotReceipt, recordAriaPilotReview, validateAriaPilotFailure, validateAriaPilotOrder, validateAriaPilotReceipt } from '../src/production/ariaPilot';
 
 const campaign: CampaignRecord = { id: 'CAMPAIGN-001', sourceIdeaId: 'IDEA-001', sourceHandoffSentAt: '2026-10-17T00:00:00Z',
   provenance: 'LOCAL_SESSION', status: 'PLANNING', title: 'Player Select: Raxi Edition', objective: 'Participación pública',
@@ -131,6 +131,38 @@ test('safe failure report records no partial image and can reconcile a later rea
   assert.equal(validateAriaPilotReceipt(receipt(), order, withoutImageId).ariaImageId, 'aria-image-123');
   assert.throws(() => validateAriaPilotFailure({ ...failure, provider: 'OTHER' }, order), /Provenance/);
   assert.throws(() => validateAriaPilotFailure({ ...failure, errorCode: 'MCP_ERROR' }, order), /Estado/);
+});
+test('reconciliation keeps the known Aria ID and never mutates order, failure or QA on mismatch', () => {
+  const order = authorized();
+  const failure = validateAriaPilotFailure({ schemaVersion: 1, jobId: order.jobId, provider: 'ARIA_STUDIO', executor: 'CODEX_MCP',
+    model: 'gptimg', state: 'TIMED_OUT', at: '2026-10-17T00:03:08Z', errorCode: 'TIMEOUT', ariaImageId: 'aria-image-123' }, order);
+  const priorState = JSON.stringify({ order, failure });
+  for (const ariaImageId of ['aria-image-other', undefined])
+    assert.throws(() => reconcileAriaPilotFailure(failure, { ...failure, ariaImageId }, order), /sustituir/);
+  assert.throws(() => reconcileAriaPilotReceipt(undefined, { ...receipt(), ariaImageId: 'aria-image-other' }, order, failure), /no coincide/);
+  assert.throws(() => reconcileAriaPilotReceipt(undefined, { ...receipt(), jobId: 'different-job' }, order, failure), /Provenance/);
+  assert.equal(JSON.stringify({ order, failure }), priorState);
+  const result = reconcileAriaPilotReceipt(undefined, receipt(), order, failure);
+  assert.equal(result.ariaImageId, 'aria-image-123');
+  const review = recordAriaPilotReview(result, undefined, 'QA_PASS', '2026-10-17T00:03:10Z', 'Verificado en Aria y píxeles inspeccionados.', true);
+  const reviewedState = JSON.stringify({ order, failure, result, review });
+  assert.throws(() => reconcileAriaPilotReceipt(result, { ...receipt(), ariaImageId: 'aria-image-other' }, order, failure, review), /ya están registrados/);
+  assert.equal(JSON.stringify({ order, failure, result, review }), reviewedState);
+});
+test('an unidentified failure may gain an ID, but never lose it; manual Aria verification remains required', () => {
+  const order = authorized();
+  const unidentified = validateAriaPilotFailure({ schemaVersion: 1, jobId: order.jobId, provider: 'ARIA_STUDIO', executor: 'CODEX_MCP',
+    model: 'gptimg', state: 'TIMED_OUT', at: '2026-10-17T00:03:08Z', errorCode: 'TIMEOUT' }, order);
+  assert.equal(unidentified.ariaImageId, undefined);
+  assert.equal(reconcileAriaPilotReceipt(undefined, receipt(), order, unidentified).ariaImageId, 'aria-image-123');
+  const identified = reconcileAriaPilotFailure(unidentified, { ...unidentified, ariaImageId: 'aria-image-123' }, order);
+  assert.equal(identified.ariaImageId, 'aria-image-123');
+  assert.equal(unidentified.ariaImageId, undefined);
+  assert.throws(() => reconcileAriaPilotFailure(identified, unidentified, order), /sustituir/);
+  assert.throws(() => reconcileAriaPilotFailure(identified, { ...identified, at: '2026-10-17T00:03:07Z' }, order), /retroceder/);
+  const html = renderToStaticMarkup(<AriaProductionPanel campaign={campaign} strategy={strategy} order={order}
+    failure={unidentified} receipt={validateAriaPilotReceipt(receipt(), order, unidentified)} onOrder={() => {}} onReceipt={() => {}} />);
+  assert.match(html, /Comprueba el ID directamente en Aria/);
 });
 test('production UI clearly gates unapproved work and never pretends the Office is executing', () => {
   const empty = renderToStaticMarkup(<AriaProductionPanel campaign={campaign} strategy={{ ...strategy, status: 'DRAFT', approvedAt: undefined, approvedBy: undefined }} onOrder={() => {}} onReceipt={() => {}} />);
