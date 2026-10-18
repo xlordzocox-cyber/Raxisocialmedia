@@ -4,6 +4,7 @@ import { validateCampaignRecord, compareCampaignTimestamps } from '../campaigns/
 import { validateStrategyRevision } from '../campaigns/strategyValidation';
 import { validateIdeaTimestamp } from '../ideas/ideaValidation';
 import { validateMultilineText } from '../ideas/manualIdeaDraft';
+import { inspectionMatchesReceipt, validPilotSha256, type PilotImageInspection } from './pilotImage';
 
 /** A bounded, local handoff. It never calls Aria or treats imported data as authenticated. */
 export const PILOT_PROVIDER = 'ARIA_STUDIO' as const;
@@ -52,6 +53,8 @@ export interface AriaPilotReceipt {
   state: 'SUCCEEDED';
   /** Temporary provider URL; never catalogued as a durable asset. */
   imageUrl: string;
+  /** SHA-256 of the exact provider file bytes obtained by Codex; absent means QA is blocked. */
+  imageSha256?: string;
   priceUsd: number;
 }
 
@@ -71,6 +74,7 @@ export interface AriaPilotReview {
   schemaVersion: 1;
   jobId: string;
   ariaImageId: string;
+  imageSha256: string;
   qaStatus: 'VISUAL_REVIEW_REQUIRED' | 'PASS' | 'FAIL';
   qaNotes?: string;
   reviewedAt?: string;
@@ -197,8 +201,10 @@ export function validateAriaPilotReceipt(value: unknown, orderValue: unknown, fa
   catch { throw new Error('URL de resultado inválida.'); }
   const priceUsd = own(raw, 'priceUsd');
   if (typeof priceUsd !== 'number' || !Number.isFinite(priceUsd) || priceUsd < 0 || priceUsd > order.priceCeilingUsd) throw new Error('Precio de resultado fuera del límite autorizado.');
+  const digest = own(raw, 'imageSha256');
+  if (digest !== undefined && !validPilotSha256(digest)) throw new Error('Huella SHA-256 de resultado inválida.');
   return { schemaVersion: 1, jobId: order.jobId, provider: PILOT_PROVIDER, executor: PILOT_EXECUTOR, model: order.model,
-    ariaImageId, requestedAt, completedAt, state: 'SUCCEEDED', imageUrl, priceUsd };
+    ariaImageId, requestedAt, completedAt, state: 'SUCCEEDED', imageUrl, imageSha256: digest, priceUsd };
 }
 
 export function validateAriaPilotFailure(value: unknown, orderValue: unknown): AriaPilotFailure {
@@ -257,20 +263,20 @@ export function createSerialAriaImports() {
 }
 
 export function recordAriaPilotReview(receipt: AriaPilotReceipt, previous: AriaPilotReview | undefined,
-  action: 'QA_PASS' | 'QA_FAIL' | 'HUMAN_APPROVE' | 'HUMAN_REJECT', at: string, notes?: string, pixelsInspected = false): AriaPilotReview {
+  action: 'QA_PASS' | 'QA_FAIL' | 'HUMAN_APPROVE' | 'HUMAN_REJECT', at: string, notes?: string, inspection?: PilotImageInspection): AriaPilotReview {
   const time = validateIdeaTimestamp(at);
   if (compareCampaignTimestamps(receipt.completedAt, time) > 0) throw new Error('Revisión anterior al resultado.');
-  const prior = previous ?? { schemaVersion: 1 as const, jobId: receipt.jobId, ariaImageId: receipt.ariaImageId,
+  if (!validPilotSha256(receipt.imageSha256) || !inspectionMatchesReceipt(inspection, receipt))
+    throw new Error('Imagen verificada y vinculada al recibo requerida antes de QA o decisión.');
+  const prior = previous ?? { schemaVersion: 1 as const, jobId: receipt.jobId, ariaImageId: receipt.ariaImageId, imageSha256: receipt.imageSha256,
     qaStatus: 'VISUAL_REVIEW_REQUIRED' as const, humanDecision: 'PENDING' as const };
-  if (prior.jobId !== receipt.jobId || prior.ariaImageId !== receipt.ariaImageId) throw new Error('Revisión de otro trabajo.');
+  if (prior.jobId !== receipt.jobId || prior.ariaImageId !== receipt.ariaImageId || prior.imageSha256 !== receipt.imageSha256) throw new Error('Revisión de otro trabajo o imagen.');
   if (prior.humanDecision !== 'PENDING') throw new Error('Decisión humana ya registrada.');
   if (action === 'QA_PASS' || action === 'QA_FAIL') {
-    if (!pixelsInspected) throw new Error('Inspección visual real requerida.');
     const qaNotes = validateMultilineText(notes, 1500, 'Observaciones de Calidad');
     return { ...prior, qaStatus: action === 'QA_PASS' ? 'PASS' : 'FAIL', qaNotes, reviewedAt: time };
   }
   if (action === 'HUMAN_APPROVE' && prior.qaStatus !== 'PASS') throw new Error('QA visual PASS requerido antes de aprobar.');
-  if (action === 'HUMAN_APPROVE' && !pixelsInspected) throw new Error('Imagen verificada requerida antes de aprobar.');
   if (action === 'HUMAN_REJECT' && prior.qaStatus === 'VISUAL_REVIEW_REQUIRED') throw new Error('QA visual requerido antes de decidir.');
   if (prior.reviewedAt && compareCampaignTimestamps(prior.reviewedAt, time) > 0) throw new Error('Decisión anterior a QA.');
   return { ...prior, humanDecision: action === 'HUMAN_APPROVE' ? 'APPROVED' : 'REJECTED', decidedAt: time, decidedBy: 'LUIS' };

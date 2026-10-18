@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { CampaignRecord } from '../campaigns/campaignContracts';
 import type { CampaignStrategyRevision } from '../campaigns/strategyContracts';
 import { authorizeAriaPilot, createSerialAriaImports, isAriaPilotOrderCurrent, prepareAriaPilot, recordAriaPilotReview, validateAriaPilotFailure, validateAriaPilotReceipt, type AriaPilotFailure, type AriaPilotOrder, type AriaPilotReceipt, type AriaPilotReview } from './ariaPilot';
-import { decodePilotImage, inspectPilotImageFile } from './pilotImage';
+import { createPilotImageSelection, inspectionMatchesReceipt, type PilotImageInspection } from './pilotImage';
 
 function downloadJson(name: string, value: unknown) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2) + '\n'], { type: 'application/json' }));
@@ -24,11 +24,17 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
   const [message, setMessage] = useState<string>();
   const [imageFile, setImageFile] = useState<string>();
   const [imageReady, setImageReady] = useState(false);
+  const [imageInspection, setImageInspection] = useState<PilotImageInspection>();
   const [imageError, setImageError] = useState<string>();
   const [qaNotes, setQaNotes] = useState('');
-  const imageSelectionRef = useRef(0);
+  const imageSelectionRef = useRef(createPilotImageSelection());
   const activeImageUrlRef = useRef<string | undefined>(undefined);
-  const imageReadyRef = useRef(false);
+  const pendingImageRef = useRef<PilotImageInspection | undefined>(undefined);
+  const verifiedImageRef = useRef<PilotImageInspection | undefined>(undefined);
+  const receiptKey = receipt ? `${receipt.jobId}|${receipt.ariaImageId}|${receipt.imageSha256 ?? ''}` : '';
+  const receiptKeyRef = useRef(receiptKey);
+  receiptKeyRef.current = receiptKey;
+  const imageVerified = imageReady && inspectionMatchesReceipt(imageInspection, receipt);
   const importQueueRef = useRef(createSerialAriaImports());
   useEffect(() => { return () => { if (imageFile) URL.revokeObjectURL(imageFile); }; }, [imageFile]);
   const act = (fn: () => void) => { try { fn(); setMessage(undefined); } catch (cause) { setMessage(cause instanceof Error ? cause.message : 'Operación inválida.'); } };
@@ -58,41 +64,48 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
     });
   };
   const resetImageInspection = () => {
-    imageSelectionRef.current++;
+    imageSelectionRef.current.invalidate();
     activeImageUrlRef.current = undefined;
-    imageReadyRef.current = false;
+    pendingImageRef.current = undefined;
+    verifiedImageRef.current = undefined;
     setImageReady(false);
+    setImageInspection(undefined);
     setImageFile(undefined);
     setImageError(undefined);
+    setQaNotes('');
     if (review?.humanDecision === 'PENDING') onReview?.(undefined);
   };
+  useEffect(() => { resetImageInspection(); }, [receiptKey]);
   const chooseImage = async (file?: File) => {
     if (review && review.humanDecision !== 'PENDING') return;
     resetImageInspection();
-    const selection = imageSelectionRef.current;
     if (!file) return;
     try {
-      await inspectPilotImageFile(file, decodePilotImage);
-      if (selection !== imageSelectionRef.current) return;
+      if (!receipt) throw new Error('Falta resultado real.');
+      const inspected = await imageSelectionRef.current.inspect(file, receipt);
+      if (!inspected || receiptKeyRef.current !== receiptKey) return;
       const url = URL.createObjectURL(file);
+      pendingImageRef.current = inspected;
       activeImageUrlRef.current = url;
       setImageFile(url);
     } catch (cause) {
-      if (selection === imageSelectionRef.current) setImageError(cause instanceof Error ? cause.message : 'Imagen inválida.');
+      if (receiptKeyRef.current === receiptKey)
+        setImageError(cause instanceof Error ? cause.message : 'Imagen inválida.');
     }
   };
   const imageLoadError = () => {
     activeImageUrlRef.current = undefined;
-    imageReadyRef.current = false;
+    pendingImageRef.current = undefined;
+    verifiedImageRef.current = undefined;
     setImageReady(false);
+    setImageInspection(undefined);
     setImageError('La vista previa no pudo cargar la imagen.');
     if (review?.humanDecision === 'PENDING') onReview?.(undefined);
   };
   const reviewAction = (action: 'QA_PASS' | 'QA_FAIL' | 'HUMAN_APPROVE' | 'HUMAN_REJECT') => act(() => {
     if (!receipt) throw new Error('Falta resultado real.');
-    if ((action === 'QA_PASS' || action === 'QA_FAIL' || action === 'HUMAN_APPROVE') && !imageReadyRef.current)
-      throw new Error('La imagen debe cargarse y verificarse antes de continuar.');
-    onReview?.(recordAriaPilotReview(receipt, review, action, new Date().toISOString(), qaNotes, imageReadyRef.current));
+    if (!inspectionMatchesReceipt(verifiedImageRef.current, receipt)) throw new Error('La imagen debe cargarse y coincidir con el recibo antes de continuar.');
+    onReview?.(recordAriaPilotReview(receipt, review, action, new Date().toISOString(), qaNotes, verifiedImageRef.current));
   });
   return <section className="aria-production" aria-label="Producción Aria Studio">
     <span className="campus-eyebrow">PRODUCCIÓN v0.8 · CODEX MCP · HANDOFF CONTROLADO</span>
@@ -114,9 +127,36 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
         {!receipt && currentOrder && <label className="aria-file">Importar manifiesto de resultado o fallo de Codex<input type="file" accept="application/json,.json" onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; importReceipt(file); }} /></label>}</>}
     </div>}
     {failure && !receipt && <p role="status">{failure.state} · {failure.errorCode} · {failure.ariaImageId ?? 'sin ID Aria'}. Reconciliar en Aria antes de cualquier reintento; se puede importar un resultado posterior del mismo trabajo sin lanzar otra generación.</p>}
-    {receipt && <div className="aria-result"><h6>Resultado informado por Codex</h6><p>Aria ID: <code>{receipt.ariaImageId}</code> · {receipt.model} · USD {receipt.priceUsd.toFixed(4)} · {receipt.completedAt}</p><p>La URL del proveedor es temporal y no constituye almacenamiento permanente. Comprueba el ID directamente en Aria; un JSON importado no autentica por sí solo la procedencia.</p><a href={receipt.imageUrl} target="_blank" rel="noopener noreferrer">Abrir imagen temporal del proveedor</a><label className="aria-file">Cargar copia local para inspección visual<input type="file" accept="image/png,image/jpeg,image/webp" disabled={review?.humanDecision !== undefined && review.humanDecision !== 'PENDING'} onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; void chooseImage(file); }} /></label>{imageFile && <img src={imageFile} alt="Resultado de Aria cargado para QA visual" onLoad={event => { if (activeImageUrlRef.current !== imageFile) return; if (event.currentTarget.naturalWidth < 1 || event.currentTarget.naturalHeight < 1) { imageLoadError(); return; } imageReadyRef.current = true; setImageReady(true); setImageError(undefined); }} onError={() => { if (activeImageUrlRef.current === imageFile) imageLoadError(); }} />}{imageError && <p role="alert">{imageError}</p>}{imageFile && !imageReady && !imageError && <p role="status">Decodificada; esperando carga visible de la vista previa.</p>}
-      <label>Observaciones de Calidad<textarea value={qaNotes} maxLength={1500} onChange={event => setQaNotes(event.target.value)} /></label><div className="aria-actions"><button type="button" disabled={!imageReady || !qaNotes.trim() || review?.humanDecision !== undefined && review.humanDecision !== 'PENDING'} onClick={() => reviewAction('QA_PASS')}>QA visual PASS</button><button type="button" disabled={!imageReady || !qaNotes.trim() || review?.humanDecision !== undefined && review.humanDecision !== 'PENDING'} onClick={() => reviewAction('QA_FAIL')}>QA visual FAIL</button></div><p>Calidad: {review?.qaStatus ?? 'VISUAL_REVIEW_REQUIRED'}. {!review && 'No hay aprobación automática.'}</p>
-      {review?.qaStatus === 'PASS' && review.humanDecision === 'PENDING' && <div className="aria-actions"><button type="button" disabled={!imageReady} onClick={() => reviewAction('HUMAN_APPROVE')}>Luis: aprobar fotografía</button><button type="button" onClick={() => reviewAction('HUMAN_REJECT')}>Luis: rechazar fotografía</button></div>}{review?.qaStatus === 'FAIL' && review.humanDecision === 'PENDING' && <button type="button" onClick={() => reviewAction('HUMAN_REJECT')}>Luis: rechazar fotografía</button>}<p>Decisión humana: {review?.humanDecision ?? 'PENDING'}. Sin publicación automática ni registro APPROVED en catálogo.</p>{review && <button type="button" onClick={() => downloadJson(`${receipt.jobId}-review.json`, review)}>Exportar revisión y decisión</button>}</div>}
+    {receipt && <div className="aria-result">
+      <h6>Resultado informado por Codex</h6>
+      <p>Aria ID: <code>{receipt.ariaImageId}</code> · {receipt.model} · USD {receipt.priceUsd.toFixed(4)} · {receipt.completedAt}</p>
+      <p>SHA-256 declarado por Codex: <code>{receipt.imageSha256 ?? 'No disponible · QA pendiente'}</code>. Se comprueba al cargar el archivo.</p>
+      <p>La URL del proveedor es temporal. El digest comprueba integridad de bytes, pero el JSON no autentica su procedencia: coteja ID e imagen directamente con la ejecución real en Aria.</p>
+      <a href={receipt.imageUrl} target="_blank" rel="noopener noreferrer">Abrir imagen temporal del proveedor</a>
+      <label className="aria-file">Cargar copia local para inspección visual<input type="file" accept="image/png,image/jpeg,image/webp" disabled={review?.humanDecision !== undefined && review.humanDecision !== 'PENDING'} onChange={event => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ''; void chooseImage(file); }} /></label>
+      {imageFile && <img src={imageFile} alt="Resultado de Aria cargado para QA visual" onLoad={event => {
+        if (activeImageUrlRef.current !== imageFile) return;
+        const pending = pendingImageRef.current;
+        if (!pending || event.currentTarget.naturalWidth < 1 || event.currentTarget.naturalHeight < 1 ||
+            !inspectionMatchesReceipt({ ...pending, previewLoaded: true }, receipt)) { imageLoadError(); return; }
+        const verified = { ...pending, previewLoaded: true };
+        verifiedImageRef.current = verified;
+        pendingImageRef.current = undefined;
+        setImageInspection(verified);
+        setImageReady(true);
+        setImageError(undefined);
+      }} onError={() => { if (activeImageUrlRef.current === imageFile) imageLoadError(); }} />}
+      {imageError && <p role="alert">{imageError}</p>}
+      {imageFile && !imageVerified && !imageError && <p role="status">Huella verificada; esperando carga visible de la vista previa.</p>}
+      {imageVerified && <p role="status">Archivo local verificado para {receipt.ariaImageId} · SHA-256 coincidente.</p>}
+      <label>Observaciones de Calidad<textarea value={qaNotes} maxLength={1500} onChange={event => setQaNotes(event.target.value)} /></label>
+      <div className="aria-actions"><button type="button" disabled={!imageVerified || !qaNotes.trim() || review?.humanDecision !== undefined && review.humanDecision !== 'PENDING'} onClick={() => reviewAction('QA_PASS')}>QA visual PASS</button><button type="button" disabled={!imageVerified || !qaNotes.trim() || review?.humanDecision !== undefined && review.humanDecision !== 'PENDING'} onClick={() => reviewAction('QA_FAIL')}>QA visual FAIL</button></div>
+      <p>Calidad: {review?.qaStatus ?? 'VISUAL_REVIEW_REQUIRED'}. {!review && 'No hay aprobación automática.'}</p>
+      {review?.qaStatus === 'PASS' && review.humanDecision === 'PENDING' && <div className="aria-actions"><button type="button" disabled={!imageVerified} onClick={() => reviewAction('HUMAN_APPROVE')}>Luis: aprobar fotografía</button><button type="button" disabled={!imageVerified} onClick={() => reviewAction('HUMAN_REJECT')}>Luis: rechazar fotografía</button></div>}
+      {review?.qaStatus === 'FAIL' && review.humanDecision === 'PENDING' && <button type="button" disabled={!imageVerified} onClick={() => reviewAction('HUMAN_REJECT')}>Luis: rechazar fotografía</button>}
+      <p>Decisión humana: {review?.humanDecision ?? 'PENDING'}. Sin publicación automática ni registro APPROVED en catálogo.</p>
+      {review && <button type="button" onClick={() => downloadJson(`${receipt.jobId}-review.json`, review)}>Exportar revisión y decisión</button>}
+    </div>}
     {message && <p role="alert" className="idea-form-error">{message}</p>}
   </section>;
 }

@@ -13,6 +13,8 @@ Comprobación de lectura realizada desde Codex el 18 de octubre de 2026. El MCP 
 
 Los nombres y parámetros anteriores provienen de las herramientas expuestas en la sesión Codex, no de una API HTTP supuesta. El precio es una observación, no una autorización ni garantía futura: se consulta de nuevo justo antes de generar y se comunica a Luis. El precio real devuelto por `generar_imagen` se registra después. No hay evidencia aún de un ID ni imagen producida para este piloto.
 
+El descubrimiento de solo lectura no comprobó que `estado_imagen` permita recuperar los bytes originales de la fotografía. Antes de cualquier QA, Codex debe verificar el ID y obtener el archivo real de esa ejecución, calcular su SHA-256 sobre los bytes completos y adjuntarlo al recibo. Si solo dispone de una URL o vista previa sin bytes confiables, deja `imageSha256` ausente; HQ permanece en `VISUAL_REVIEW_REQUIRED`. El hash demuestra coincidencia de archivos, no autentica por sí solo a Aria Studio.
+
 ## Ejecución desde otra aplicación
 
 OpenAI documenta el [Codex SDK](https://learn.chatgpt.com/docs/codex-sdk) para workflows programáticos y el [Codex app-server](https://learn.chatgpt.com/docs/app-server) para clientes con conversaciones, herramientas y aprobaciones. La documentación de app-server enumera `mcpServerStatus/list` y `mcpServer/tool/call`. Eso no demuestra que este navegador, este checkout o un proceso nuevo hereden la conexión Aria y sus credenciales de Codex Desktop. No se probó una autenticación, aislamiento ni confirmación de coste para una integración directa.
