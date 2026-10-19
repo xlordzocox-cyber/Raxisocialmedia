@@ -15,7 +15,7 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
   campaign: CampaignRecord; strategy?: CampaignStrategyRevision; order?: AriaPilotOrder; receipt?: AriaPilotReceipt; failure?: AriaPilotFailure; review?: AriaPilotReview;
   onOrder: (value: AriaPilotOrder) => void; onReceipt: (value: AriaPilotReceipt, order: AriaPilotOrder) => void;
   onFailure?: (value: AriaPilotFailure, order: AriaPilotOrder) => void;
-  onReview?: (value: AriaPilotReview | undefined, order: AriaPilotOrder) => void;
+  onReview?: (value: AriaPilotReview, order: AriaPilotOrder) => void;
   isOrderCurrent: (value: AriaPilotOrder) => boolean;
 }) {
   const rows = strategy?.status === 'APPROVED' ? strategy.deliverables.filter(item => item.format === 'PHOTO' && item.channel === 'INSTAGRAM_FEED' && item.contentLevel === 'PUBLIC_SOCIAL') : [];
@@ -74,7 +74,6 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
     setImageFile(undefined);
     setImageError(undefined);
     setQaNotes('');
-    if (review?.humanDecision === 'PENDING' && order) onReview?.(undefined, order);
   };
   useEffect(() => { resetImageInspection(); }, [receiptKey]);
   const chooseImage = async (file?: File) => {
@@ -101,7 +100,6 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
     setImageReady(false);
     setImageInspection(undefined);
     setImageError('La vista previa no pudo cargar la imagen.');
-    if (review?.humanDecision === 'PENDING' && order) onReview?.(undefined, order);
   };
   const reviewAction = (action: 'QA_PASS' | 'QA_FAIL' | 'HUMAN_APPROVE' | 'HUMAN_REJECT') => act(() => {
     if (!receipt || !order || !currentOrder || !isOrderCurrent(order)) throw new Error('Falta resultado de una orden vigente.');
@@ -154,6 +152,7 @@ export function AriaProductionPanel({ campaign, strategy, order, receipt, failur
       <label>Observaciones de Calidad<textarea value={qaNotes} maxLength={1500} disabled={!currentOrder} onChange={event => setQaNotes(event.target.value)} /></label>
       <div className="aria-actions"><button type="button" disabled={!currentOrder || !imageVerified || !qaNotes.trim() || review?.humanDecision !== undefined && review.humanDecision !== 'PENDING'} onClick={() => reviewAction('QA_PASS')}>QA visual PASS</button><button type="button" disabled={!currentOrder || !imageVerified || !qaNotes.trim() || review?.humanDecision !== undefined && review.humanDecision !== 'PENDING'} onClick={() => reviewAction('QA_FAIL')}>QA visual FAIL</button></div>
       <p>Calidad: {review?.qaStatus ?? 'VISUAL_REVIEW_REQUIRED'}. {!review && 'No hay aprobación automática.'}</p>
+      {review && <p className="idea-multiline">QA registrado {review.reviewedAt ?? '—'} · Observaciones: {review.qaNotes ?? '—'} · Imagen {review.ariaImageId} · SHA-256 {review.imageSha256}</p>}
       {review?.qaStatus === 'PASS' && review.humanDecision === 'PENDING' && <div className="aria-actions"><button type="button" disabled={!currentOrder || !imageVerified} onClick={() => reviewAction('HUMAN_APPROVE')}>Luis: aprobar fotografía</button><button type="button" disabled={!currentOrder || !imageVerified} onClick={() => reviewAction('HUMAN_REJECT')}>Luis: rechazar fotografía</button></div>}
       {review?.qaStatus === 'FAIL' && review.humanDecision === 'PENDING' && <button type="button" disabled={!currentOrder || !imageVerified} onClick={() => reviewAction('HUMAN_REJECT')}>Luis: rechazar fotografía</button>}
       <p>Decisión humana: {review?.humanDecision ?? 'PENDING'}. Sin publicación automática ni registro APPROVED en catálogo.</p>

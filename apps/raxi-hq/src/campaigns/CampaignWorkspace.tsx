@@ -85,7 +85,7 @@ export function CampaignWorkspace({ id, session, getSession, open, selectedId, g
       })}
       onReview={(value, expected) => updatePilotOutcome(current => {
         requireCurrentAriaPilotOrder(expected, pilotOrderRef.current, getSession(), getSelectedId());
-        if (!value && current.review && current.review.humanDecision !== 'PENDING') throw new Error('La decisión humana ya está registrada.');
+        if (current.review && current.review.humanDecision !== 'PENDING') throw new Error('La decisión humana ya está registrada.');
         return { ...current, review: value };
       })} />}
   </section>;

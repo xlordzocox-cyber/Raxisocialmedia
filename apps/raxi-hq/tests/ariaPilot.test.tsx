@@ -2,11 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { useState } from 'react';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import catalog from '../../../content/asset-library/ASSET_CATALOG.json';
 import type { CampaignRecord } from '../src/campaigns/campaignContracts';
 import { createCampaignSession, type CampaignSession } from '../src/campaigns/campaignSession';
 import type { CampaignStrategyRevision } from '../src/campaigns/strategyContracts';
 import { AriaProductionPanel } from '../src/production/AriaProductionPanel';
+import { CampaignWorkspace } from '../src/campaigns/CampaignWorkspace';
 import { applyAriaPilotFailure, applyAriaPilotReceipt, authorizeAriaPilot, createSerialAriaImports, importCurrentAriaManifest, isAriaPilotOrderCurrent, isAriaPilotOrderCurrentInSession, PILOT_SOURCE_ASSET_IDS, pilotJobId, pilotPollDecision, prepareAriaPilot, reconcileAriaPilotFailure, reconcileAriaPilotOrder, reconcileAriaPilotReceipt, recordAriaPilotReview, requireCurrentAriaPilotOrder, validateAriaPilotFailure, validateAriaPilotOrder, validateAriaPilotReceipt, type AriaPilotOutcome } from '../src/production/ariaPilot';
 import { createPilotImageSelection, inspectPilotImageFile, inspectionMatchesReceipt, type PilotImageFile, type PilotImageInspection } from '../src/production/pilotImage';
 
@@ -44,6 +47,116 @@ function inspected(result = receipt()): PilotImageInspection {
   return { jobId: result.jobId, ariaImageId: result.ariaImageId, sha256: result.imageSha256,
     width: 100, height: 100, visiblePixels: true, previewLoaded: true };
 }
+
+// Exercise the real React key/unmount path: CampaignWorkspace owns the durable QA record,
+// while every AriaProductionPanel instance owns only its local preview and file selection.
+async function mountPilotWorkspace() {
+  const other: CampaignRecord = { ...campaign, id: 'CAMPAIGN-002', title: 'Otra campaña' };
+  const initial: CampaignSession = { ...createCampaignSession(), campaigns: [campaign, other], strategies: [strategy] };
+  let liveSession = initial;
+  let selectedId = campaign.id;
+  let changeSession!: (value: CampaignSession) => void;
+  function Harness() {
+    const [session, setSession] = useState(initial);
+    const [selected, setSelected] = useState(campaign.id);
+    liveSession = session;
+    selectedId = selected;
+    changeSession = setSession;
+    return <CampaignWorkspace id="test-workspace" session={session} getSession={() => liveSession} open
+      selectedId={selected} getSelectedId={() => selectedId} onSelect={setSelected} onAction={() => false} />;
+  }
+  let tree!: ReactTestRenderer;
+  await act(async () => { tree = create(<Harness />); });
+  const panel = () => tree.root.findByType(AriaProductionPanel);
+  const button = (label: string) => tree.root.findAllByType('button').find(node =>
+    node.children.some(child => typeof child === 'string' && child.includes(label)));
+  const campaignButton = (id: string) => tree.root.findAllByType('button').find(node =>
+    node.findAllByType('code').some(code => code.children.includes(id)));
+  const navigate = async (id: string) => {
+    const target = campaignButton(id);
+    assert.ok(target, `campaign button ${id}`);
+    await act(async () => { target.props.onClick(); });
+  };
+  const seed = async (review: ReturnType<typeof recordAriaPilotReview>) => {
+    await act(async () => { panel().props.onOrder(authorized()); });
+    const order = panel().props.order;
+    const result = validateAriaPilotReceipt(receipt(), order);
+    await act(async () => { panel().props.onReceipt(result, order); });
+    await act(async () => { panel().props.onReview(review, order); });
+  };
+  return { tree, panel, button, navigate, seed, changeSession, getSession: () => liveSession };
+}
+
+function qaReview(status: 'QA_PASS' | 'QA_FAIL') {
+  const result = receipt();
+  return recordAriaPilotReview(result, undefined, status, '2026-10-17T00:00:10Z', 'Notas de QA preservadas', inspected(result));
+}
+
+test('mounted CampaignWorkspace preserves pending PASS QA through campaign navigation and requires a fresh verified file', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const workspace = await mountPilotWorkspace();
+  const oldBitmap = globalThis.createImageBitmap;
+  const oldDocument = globalThis.document;
+  const oldObjectUrl = URL.createObjectURL;
+  const oldRevokeUrl = URL.revokeObjectURL;
+  try {
+    const review = qaReview('QA_PASS');
+    await workspace.seed(review);
+    await workspace.navigate('CAMPAIGN-002');
+    await workspace.navigate(campaign.id);
+    assert.deepEqual(workspace.panel().props.review, review);
+    assert.match(JSON.stringify(workspace.tree.toJSON()), /Notas de QA preservadas/);
+    assert.equal(workspace.button('Luis: aprobar fotografía')?.props.disabled, true);
+    globalThis.createImageBitmap = async () => ({ width: 100, height: 100, close() {} }) as ImageBitmap;
+    globalThis.document = { createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray([0, 0, 0, 255]) }) }) }) } as unknown as Document;
+    URL.createObjectURL = () => 'blob:qa-fixture';
+    URL.revokeObjectURL = () => {};
+    const file = { type: 'image/png', size: png.length, arrayBuffer: async () => Uint8Array.from(png).buffer } as File;
+    const input = workspace.panel().findAllByType('input').find(node => node.props.type === 'file' && node.props.accept.includes('image/png'));
+    assert.ok(input);
+    await act(async () => { input.props.onChange({ currentTarget: { files: [file], value: 'fixture' } }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    const preview = workspace.panel().findByType('img');
+    await act(async () => { preview.props.onLoad({ currentTarget: { naturalWidth: 100, naturalHeight: 100 } }); });
+    assert.equal(workspace.button('Luis: aprobar fotografía')?.props.disabled, false);
+    assert.deepEqual(workspace.panel().props.review, review);
+  } finally {
+    globalThis.createImageBitmap = oldBitmap;
+    globalThis.document = oldDocument;
+    URL.createObjectURL = oldObjectUrl;
+    URL.revokeObjectURL = oldRevokeUrl;
+    await act(async () => workspace.tree.unmount());
+  }
+});
+
+test('mounted CampaignWorkspace preserves pending FAIL QA and final human decision through remount', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  for (const review of [qaReview('QA_FAIL'), recordAriaPilotReview(receipt(), qaReview('QA_PASS'), 'HUMAN_APPROVE', '2026-10-17T00:00:11Z', undefined, inspected())]) {
+    const workspace = await mountPilotWorkspace();
+    try {
+      await workspace.seed(review);
+      await workspace.navigate('CAMPAIGN-002');
+      await workspace.navigate(campaign.id);
+      assert.deepEqual(workspace.panel().props.review, review);
+      if (review.humanDecision === 'PENDING') assert.equal(workspace.button('Luis: rechazar fotografía')?.props.disabled, true);
+      else assert.equal(workspace.button('Luis: aprobar fotografía'), undefined);
+    } finally { await act(async () => workspace.tree.unmount()); }
+  }
+});
+
+test('a stale order keeps its recorded QA but cannot enable a new human decision after remount', async () => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const workspace = await mountPilotWorkspace();
+  try {
+    const review = qaReview('QA_PASS');
+    await workspace.seed(review);
+    await workspace.navigate('CAMPAIGN-002');
+    await act(async () => workspace.changeSession({ ...workspace.getSession(), campaigns: [{ ...campaign, status: 'BLOCKED' }, workspace.getSession().campaigns[1]] }));
+    await workspace.navigate(campaign.id);
+    assert.deepEqual(workspace.panel().props.review, review);
+    assert.equal(workspace.button('Luis: aprobar fotografía')?.props.disabled, true);
+    assert.match(JSON.stringify(workspace.tree.toJSON()), /obsoleta/);
+  } finally { await act(async () => workspace.tree.unmount()); }
+});
 
 test('only an approved Strategy and its own public Instagram PHOTO can prepare one job', () => {
   const job = prepared();
