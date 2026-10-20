@@ -38,16 +38,29 @@ export class RealIdeaStore {
   private generation = 0;
   private pending: CreateRealIdea | null = null;
   private inFlight = false;
+  private disposed = false;
   constructor(private repository: RealIdeaRepository, private userId: string, private uuid = () => crypto.randomUUID()) {}
   getSnapshot = () => this.state;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   private set(next: RealIdeaState) { this.state = next; this.listeners.forEach(listener => listener()); }
-  dispose() { ++this.generation; this.pending = null; this.inFlight = false; }
+  /** Terminal session invalidation. Visual unmounts must never call this. */
+  dispose() {
+    if (this.disposed) return;
+    this.disposed = true; ++this.generation; this.pending = null; this.inFlight = false;
+    this.set({ phase: 'loading', workspace: null, ideas: [], error: null, savedId: null });
+  }
+  hasPendingWrite = () => !this.disposed && this.pending !== null;
+  retryPending = () => this.pending ? this.save(this.pending.input) : Promise.resolve(false);
+  /** Attach a view without invalidating an active write or a confirmed result. */
+  async resume() {
+    if (this.disposed || this.inFlight || (this.state.phase === 'ready' && !this.pending)) return;
+    await this.load();
+  }
   private checkWorkspace(workspace: RealWorkspace) {
     if (workspace.ownerId !== this.userId || workspace.name !== 'raxi-hq') throw new Error('El workspace no pertenece a la sesión autenticada.');
   }
   async load() {
-    if (this.inFlight) return;
+    if (this.disposed || this.inFlight) return;
     const generation = ++this.generation;
     this.set({ ...this.state, phase: 'loading', error: null, savedId: null, refreshWarning: undefined });
     try {
@@ -65,7 +78,7 @@ export class RealIdeaStore {
     } catch (cause) { if (generation === this.generation) this.fail(cause); }
   }
   async createWorkspace() {
-    if (this.inFlight || this.state.phase !== 'needsWorkspace') return;
+    if (this.disposed || this.inFlight || this.state.phase !== 'needsWorkspace') return;
     this.inFlight = true;
     const generation = this.generation;
     this.set({ ...this.state, phase: 'saving', error: null });
@@ -116,7 +129,7 @@ export class RealIdeaStore {
     this.set({ ...this.state, phase: 'error', savedId: null, error: cause instanceof Error ? cause.message : 'La operación no se confirmó. Reintenta la conexión.' });
   }
   async save(input: ManualIdeaInput): Promise<boolean> {
-    if (this.inFlight || !this.state.workspace || !['ready', 'error'].includes(this.state.phase)) return false;
+    if (this.disposed || this.inFlight || !this.state.workspace || !['ready', 'error'].includes(this.state.phase)) return false;
     const workspace = this.state.workspace;
     let command: CreateRealIdea;
     try {

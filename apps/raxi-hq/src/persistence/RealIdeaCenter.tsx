@@ -8,7 +8,8 @@ export function RealIdeaCenter({ store }: { store: RealIdeaStore }) {
   const [open, setOpen] = useState(true);
   const [selectedId, setSelectedId] = useState<string>();
   const selectionKey = state.workspace ? `raxi-hq:idea-selection:${state.workspace.ownerId}:${state.workspace.id}` : undefined;
-  useEffect(() => { void store.load(); return () => store.dispose(); }, [store]);
+  // This is a visual subscription only; AuthStore owns session invalidation.
+  useEffect(() => { void store.resume(); }, [store]);
   useEffect(() => {
     if (!selectionKey || state.phase === 'loading' || state.phase === 'saving') return;
     let remembered: string | null = null;
@@ -29,6 +30,8 @@ export function RealIdeaCenter({ store }: { store: RealIdeaStore }) {
     {state.error && !state.workspace && <p role="alert">{state.error} No se ha confirmado ningún guardado nuevo.</p>}
     {state.refreshWarning && <p role="alert">{state.refreshWarning}</p>}
     {state.phase === 'loading' && <p role="status">Consultando el workspace y sus ideas persistidas…</p>}
+    {store.hasPendingWrite() && <p role="status">Hay un guardado pendiente de confirmar. La operación conserva su ID y clave de reintento al navegar entre REAL y DEMO.</p>}
+    {store.hasPendingWrite() && <button type="button" disabled={state.phase === 'saving' || state.phase === 'loading'} onClick={() => { void store.retryPending(); }}>Reintentar guardado pendiente</button>}
     {state.phase === 'needsWorkspace' && <div><p>No tienes un workspace raxi-hq. Puedes crearlo para empezar a guardar tus ideas.</p><button type="button" onClick={() => { void store.createWorkspace(); }}>Crear mi workspace raxi-hq</button></div>}
     {state.phase === 'error' && !state.workspace && <button type="button" onClick={() => { void store.load(); }}>Reintentar conexión</button>}
     {state.workspace && <>

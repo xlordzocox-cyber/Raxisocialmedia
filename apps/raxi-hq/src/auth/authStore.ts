@@ -1,4 +1,5 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js';
+import type { RealIdeaStore } from '../persistence/realIdeaStore';
 
 type AuthApi = Pick<SupabaseClient['auth'], 'getUser' | 'onAuthStateChange' | 'signInWithPassword' | 'signOut'>;
 export type AuthState = { status: 'loading' | 'signedOut' | 'signedIn' | 'unconfigured'; user: User | null; error: string | null };
@@ -8,13 +9,25 @@ export class AuthStore {
   private listeners = new Set<() => void>();
   private revision = 0;
   private loggingOut = false;
+  private realIdeas: RealIdeaStore | null = null;
 
   constructor(private auth: AuthApi | null) {
     this.state = { status: auth ? 'loading' : 'unconfigured', user: null, error: null };
   }
   getSnapshot = () => this.state;
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
-  private set(state: AuthState) { this.state = state; this.listeners.forEach(listener => listener()); }
+  private set(state: AuthState) {
+    // Session ownership, independent of App/panel mount and StrictMode effect cleanup.
+    if (state.status !== 'signedIn' || state.user?.id !== this.state.user?.id) {
+      this.realIdeas?.dispose();
+      this.realIdeas = null;
+    }
+    this.state = state; this.listeners.forEach(listener => listener());
+  }
+  getRealIdeaStore = (create: (ownerId: string) => RealIdeaStore): RealIdeaStore => {
+    if (this.state.status !== 'signedIn' || !this.state.user) throw new Error('Se requiere una sesión verificada.');
+    return this.realIdeas ??= create(this.state.user.id);
+  };
 
   // Validate against Auth instead of trusting the user object in local storage.
   async validate() {

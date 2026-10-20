@@ -7,16 +7,19 @@ import { CampusOverview } from './campus/CampusOverview';
 import { loadMockIdeaCenter } from './ideas/mockIdeas';
 import { useAuth } from './auth/AuthProvider';
 import { supabase } from './auth/client';
-import { RealIdeaStore } from './persistence/realIdeaStore';
+import { RealIdeaStore, type RealIdeaRepository } from './persistence/realIdeaStore';
 import { createSupabaseIdeaRepository } from './persistence/supabaseIdeaRepository';
 import { RealIdeaCenter } from './persistence/RealIdeaCenter';
 
-export default function App() {
+const defaultIdeaRepository = (ownerId: string) => createSupabaseIdeaRepository(supabase!, ownerId);
+
+export default function App({ ideaRepository = defaultIdeaRepository }: { ideaRepository?: (ownerId: string) => RealIdeaRepository } = {}) {
   const state = useHQState();
-  const { user, signOut } = useAuth();
+  const { signOut, getRealIdeaStore } = useAuth();
   const [campusMode, setCampusMode] = useState<'REAL' | 'DEMO'>('REAL');
   const ideaCenter = useMemo(() => campusMode === 'DEMO' ? loadMockIdeaCenter() : null, [campusMode]);
-  const realIdeas = useMemo(() => new RealIdeaStore(createSupabaseIdeaRepository(supabase!, user!.id), user!.id), [user!.id]);
+  // AuthStore owns this resource until verified session loss/account change.
+  const realIdeas = getRealIdeaStore(ownerId => new RealIdeaStore(ideaRepository(ownerId), ownerId));
   const host = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<OfficeScene | undefined>(undefined);
   const [hoveredId,setHoveredId] = useState<string>();
