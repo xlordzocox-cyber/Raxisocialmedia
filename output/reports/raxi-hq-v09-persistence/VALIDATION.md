@@ -1,6 +1,6 @@
 # Raxi HQ v0.9 — primera persistencia real
 
-Verificado el 19 de octubre de 2026 en `jrkefsylpfriiqefcmzq`. Rama: `feature/raxi-hq-v0.9-supabase-persistence`. Se conservaron los cambios locales de REAL/DEMO y la especificación existentes. El Auth anterior estaba en otra copia del workspace; se incorporó al checkout Git sin descartar esa copia.
+Guardado inicial verificado el 19 de octubre de 2026 y recuperación/validación final el 20 de octubre de 2026 en `jrkefsylpfriiqefcmzq`. Rama: `feature/raxi-hq-v0.9-supabase-persistence`. Se conservaron los cambios locales de REAL/DEMO y la especificación existentes. El Auth anterior estaba en otra copia del workspace; se incorporó al checkout Git sin descartar esa copia.
 
 ## Resultado operativo
 
@@ -16,7 +16,7 @@ El salto de secuencia anterior a la auditoría 2 corresponde a una prueba transa
 
 ## Pruebas de aceptación
 
-**A — Persistencia:** guardado real desde la UI, confirmación canónica y consulta directa en PostgreSQL PASS. Recarga completa y recuperación del mismo ID, texto, fecha y auditoría PASS. Cierre de sesión ejecutado; recuperación tras el nuevo login pendiente de completar por Luis en el formulario.
+**A — Persistencia:** guardado real desde la UI, confirmación canónica y consulta directa en PostgreSQL PASS. Recarga completa y recuperación del mismo ID, texto, fecha y auditoría PASS. Luis completó el nuevo login tras cerrar sesión y confirmó la recuperación. Después de los reinicios, la sesión autenticada y otra recarga recuperaron la misma idea desde Supabase. La comparación profunda del payload y auditoría contra la captura anterior pasó. No se recreó el workspace ni se añadió una segunda idea de producción durante la recuperación.
 
 **B — Protección:** PASS contra el esquema remoto. La Edge Function sin JWT respondió HTTP 401 (`anonymous-edge.json`). Las pruebas PostgreSQL ejercitaron roles reales `anon`, `authenticated` y `service_role`, un sujeto JWT distinto del propietario, lectura RLS, RPC de lectura ajena, propiedad falsificada, escritura directa incluso por el propietario, ejecución del RPC restringida al servidor, conflictos de idempotencia, ID externo duplicado y estado de aprobación inyectado. Las filas de prueba se revirtieron. `protection.json` recoge el resultado.
 
@@ -27,7 +27,8 @@ Repetir el comando original de la idea persistida devolvió el mismo UUID; perma
 ## Validación local y secretos
 
 - `npm run build` y TypeScript: PASS.
-- `npm test`: 272/272 PASS, incluidos Auth, frontera Edge, adaptador y persistencia de UI, además de la suite existente.
+- `npm test`: 276/276 PASS tras el segundo reinicio, incluidos Auth, frontera Edge, adaptador, formulario fallido, refresco tras guardado, selección y persistencia de UI, además de la suite existente.
+- La prueba intermitente de Aria espera la existencia real del preview tras WebCrypto/decodificación. Pasó la suite completa y cinco ejecuciones adicionales dirigidas. Los controles de aprobación de producción permanecen intactos.
 - `git diff --check`: PASS.
 - Instalación de dependencias: auditoría npm con cero vulnerabilidades reportadas. Supabase y router fijados a versiones exactas con lockfile.
 - `.env.local` está ignorado por Git. Solo contiene configuración publicable. No hay `SUPABASE_SERVICE_ROLE_KEY` ni valores con forma de clave secreta en `src/` o el bundle de producción.
@@ -41,3 +42,25 @@ Se recuperaron con CLI las tres migraciones existentes (`20261019030541`, `20261
 El SQL nuevo se validó transaccionalmente mediante `db query`. Tras las pruebas y advisors se registró su versión una vez con `migration repair --status applied`; el listado local/remoto coincide en las cuatro versiones. No se realizó reset, merge, seeding ni otro baseline duplicado. La Edge Function `create-real-idea` está desplegada y validó una escritura real con JWT.
 
 No se generaron imágenes, no se invocó Aria Studio, no se consumieron créditos de generación y no se publicó contenido. Campañas, fotografías, aprobaciones, agentes autónomos y Realtime no se integraron.
+
+## Centro de Ideas compartido y revisión visual
+
+REAL adapta los registros canónicos al `IdeaCenterPanel` original compartido con DEMO: métricas, tarjetas, detalle y formulario compacto integrado. El guardado conserva el servicio anterior, refresca la lista desde Supabase y selecciona el registro creado. Si el guardado ya fue aceptado pero falla el refresco, muestra la confirmación canónica y una advertencia de lectura diferenciada. Las pruebas verifican este caso y que una escritura fallida nunca muestra éxito.
+
+La UI REAL conserva ID externo, texto, fecha, procedencia y auditoría. No muestra porcentajes inventados: usa **Pendiente de evaluación**. Revisar, aprobar, archivar y enviar permanecen deshabilitados. Los UUID técnicos están en un bloque plegado por defecto. La selección se conserva al cerrar/reabrir y recuerda solo el ID externo, bajo una clave de sesión separada por propietario/workspace.
+
+Revisión en navegador autenticado: escritorio 1440 px, móvil 320 y 390 px, sin desbordamiento horizontal (anchos de documento 1425, 305 y 375 px respectivamente, con scrollbar). Se inspeccionaron formulario, detalle, fechas, evaluación pendiente y trazabilidad expandida. Cierre/reapertura conservó la selección. DEMO mostró siete tarjetas tras activación explícita; volver a REAL y recargar mostró únicamente la idea persistida. Las capturas son evidencia de UI, no fotografías generadas.
+
+- [Escritorio](real-desktop-overview.png)
+- [Formulario móvil](real-mobile-form-viewport.png)
+- [Detalle móvil](real-mobile-detail.png)
+
+El flujo de creación de una idea adicional y selección tras guardado se comprobó con el repositorio de pruebas; no se atribuye a una segunda escritura en producción. La escritura real inicial y su auditoría ya están verificadas arriba.
+
+La arquitectura futura está en `docs/RAXI_HQ_REAL_AGENTS_ARCHITECTURE.md`: Director y ejecutores en servidor, autorización humana, eventos verificables, reconciliación y Munder complementario. Es documentación; no activa agentes ni Realtime.
+
+## Alcance de la revisión de seguridad
+
+Revisión manual de las fronteras cambiadas y pruebas automatizadas: validación Auth en servidor, aislamiento por propietario/RLS, RPC de escritura reservado al servidor, validación de comandos, transacción idea/auditoría, idempotencia, errores sin credenciales y ausencia de claves privilegiadas en frontend/bundle. Las pruebas remotas de protección se repitieron el 20 de octubre con PASS y rollback de todas las filas de prueba. No se realizó un escaneo exhaustivo de todo el repositorio.
+
+El checkpoint de recuperación es `0b11335`; conserva los cambios antes de la revisión visual. v0.8 sigue fuera de main, por lo que el PR separado de v0.9 usa su rama como base para mostrar únicamente este incremento. No se hizo merge ni rebase.

@@ -30,7 +30,7 @@ Antes de añadir migraciones se deben recuperar y versionar exactamente las migr
 6. Confirmar que DEMO no aparece en REAL y que las investigaciones sin evidencia no figuran como verificadas.
 7. Confirmar que ningún secreto o clave de servicio llega al bundle y que los eventos MOCK no se mezclan con eventos persistidos.
 
-Esta especificación no afirma que el esquema o el servicio estén implementados: el SQL final debe derivarse de la instancia real.
+La visión general anterior incluye trabajo futuro. El incremento implementado y verificado se delimita a continuación; no acredita persistencia de campañas, fotografías ni agentes.
 
 ## Incremento implementado: primera idea manual
 
@@ -39,3 +39,5 @@ El incremento de este PR implementa exclusivamente workspace propio, Auth, captu
 Las siete ideas de demostración solo se cargan tras elegir Campus DEMO. La función de creación rechaza sus IDs y no permite elegir procedencia, actor ni transición. El registro manual usa el ID externo generado al iniciar su operación, `PROPOSED`, hora de PostgreSQL y una auditoría enlazada. Los reintentos conservan el ID y la clave de operación; cambiar el contenido pendiente produce un conflicto en vez de insertar otra idea silenciosamente.
 
 Detalle técnico y comandos: `supabase/README.md`. Evidencias verificadas: `output/reports/raxi-hq-v09-persistence/VALIDATION.md`.
+
+REAL y DEMO comparten `IdeaCenterPanel`, sin compartir repositorio de escritura ni seeds. REAL conserva los contratos originales y muestra evaluación pendiente y transiciones deshabilitadas hasta que exista soporte persistente. El diseño de la siguiente fase está en [Arquitectura futura de agentes reales](RAXI_HQ_REAL_AGENTS_ARCHITECTURE.md); es una propuesta y no activa ejecutores ni Realtime.
