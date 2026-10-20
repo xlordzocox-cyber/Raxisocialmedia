@@ -18,8 +18,8 @@ const workspace = { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', ownerId: owner, 
 const input = { title: 'Primera idea real de Raxi HQ', note: 'Entrada manual. Sin investigación verificada.', priority: 'MEDIUM' as const };
 const command: CreateRealIdea = { workspaceId: workspace.id, externalId: 'IDEA-REAL-cccccccc-cccc-4ccc-8ccc-cccccccccccc', operationId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', input };
 function canonical(cmd: CreateRealIdea): PersistedIdea {
-  return { databaseId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', workspaceId: workspace.id, ownerId: owner, auditId: 'audit-1', provenance: 'MANUAL_LUIS',
-    idea: { id: cmd.externalId, title: cmd.input.title, summary: cmd.input.note, priority: cmd.input.priority, reason: 'Captura manual', source: 'MANUAL_LUIS', status: 'PROPOSED', createdAt: '2026-10-19T20:00:00Z', updatedAt: '2026-10-19T20:00:00Z', fitScore: 0, confidenceScore: 0, suggestedChannels: [], tags: [], evidence: [] } };
+  return { databaseId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', workspaceId: workspace.id, ownerId: owner, auditId: '1', provenance: 'MANUAL_LUIS',
+    idea: { id: cmd.externalId, title: cmd.input.title, summary: cmd.input.note, priority: cmd.input.priority, reason: 'Captura manual', source: 'MANUAL_LUIS', status: 'PROPOSED', createdAt: '2026-10-19T20:00:00Z', updatedAt: '2026-10-19T20:00:00Z', fitScore: 0, confidenceScore: 0, suggestedChannels: [], tags: [], evidence: cmd.input.sourceRef === undefined ? [] : [{ id: `${cmd.externalId}-REF`, kind: 'MANUAL_NOTE', label: 'Referencia manual sin verificar', sourceRef: cmd.input.sourceRef, capturedAt: '2026-10-19T20:00:00Z' }] } };
 }
 function fixture() {
   let exists = true, failure = false, creates = 0;
@@ -173,4 +173,145 @@ test('a refresh failure after commit retains the canonical saved row and reports
   assert.equal(await f.store.save(input), true);
   assert.equal(f.store.getSnapshot().savedId, command.externalId); assert.equal(f.store.getSnapshot().ideas.length, 1);
   assert.match(f.store.getSnapshot().refreshWarning!, /se guardó/); assert.equal(f.store.getSnapshot().error, null);
+});
+
+/** Simulates an atomic, idempotent server commit followed by a lost HTTP response. */
+function lostResponseFixture(droppedResponses = 1) {
+  const f = fixture();
+  const committed = new Map<string, PersistedIdea>();
+  let drops = droppedResponses;
+  f.repository.createIdea = async cmd => {
+    f.commands.push(structuredClone(cmd));
+    let row = committed.get(cmd.operationId);
+    if (!row) {
+      row = canonical(cmd);
+      row.databaseId = cmd.externalId.slice(10);
+      row.auditId = String(committed.size + 1);
+      committed.set(cmd.operationId, row); f.rows.push(row);
+    }
+    if (drops-- > 0) throw new Error('Response lost after PostgreSQL commit');
+    return structuredClone(row);
+  };
+  const ids = [command.externalId.slice(10), command.operationId, '11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
+  return { ...f, store: new RealIdeaStore(f.repository, owner, () => ids.shift()!), committed };
+}
+
+test('lost commit response is reconciled by load and a different idea can then be saved in the same store', async () => {
+  const f = lostResponseFixture(); await f.store.load();
+  const withReference = { ...input, sourceRef: 'Referencia manual pendiente de verificar' };
+  assert.equal(await f.store.save(withReference), false);
+  assert.equal(f.rows.length, 1); assert.equal(f.store.getSnapshot().savedId, null);
+  const original = structuredClone(f.rows[0]);
+  await f.store.load();
+  assert.equal(f.store.getSnapshot().phase, 'ready'); assert.equal(f.store.getSnapshot().savedId, command.externalId);
+  assert.deepEqual(f.store.getSnapshot().ideas, [original]);
+  assert.equal(await f.store.save({ ...input, title: 'Otra idea diferente' }), true);
+  assert.equal(f.rows.length, 2); assert.equal(f.committed.size, 2); assert.deepEqual(f.rows[0], original);
+  assert.notEqual(f.commands[0].externalId, f.commands[1].externalId);
+  assert.notEqual(f.commands[0].operationId, f.commands[1].operationId);
+});
+
+test('load without the pending record retains the exact command through two idempotent retries', async () => {
+  const f = lostResponseFixture(2); await f.store.load();
+  assert.equal(await f.store.save(input), false);
+  f.repository.listIdeas = async () => [];
+  await f.store.load(); assert.equal(f.store.getSnapshot().phase, 'ready'); assert.equal(f.store.getSnapshot().savedId, null);
+  assert.equal(await f.store.save({ ...input, title: 'Cannot bypass pending' }), false);
+  assert.equal(f.commands.length, 1);
+  assert.equal(await f.store.save(input), false);
+  await f.store.load();
+  assert.equal(await f.store.save(input), true);
+  assert.equal(f.commands.length, 3);
+  assert.deepEqual(f.commands[0], f.commands[1]); assert.deepEqual(f.commands[1], f.commands[2]);
+  assert.equal(f.rows.length, 1); assert.equal(f.committed.size, 1);
+});
+
+const incompatible: Record<string, (row: PersistedIdea) => void> = {
+  owner: row => { row.ownerId = 'foreign-owner'; },
+  workspace: row => { row.workspaceId = 'foreign-workspace'; },
+  title: row => { row.idea.title = 'Other title'; },
+  note: row => { row.idea.summary = 'Other note'; },
+  priority: row => { row.idea.priority = 'URGENT'; },
+  reference: row => { row.idea.evidence[0].sourceRef = 'Other reference'; },
+  provenance: row => { row.idea.source = 'TREND_RADAR'; },
+  status: row => { row.idea.status = 'APPROVED_FOR_HQ'; },
+  audit: row => { row.auditId = ''; },
+  malformedAudit: row => { row.auditId = 'not-an-audit-id'; },
+  databaseId: row => { row.databaseId = 'untraced'; },
+  timestamp: row => { row.idea.createdAt = 'invalid'; },
+};
+for (const [field, mutate] of Object.entries(incompatible)) test(`pending reconciliation rejects incompatible ${field} without discarding the original command`, async () => {
+  const f = lostResponseFixture(); await f.store.load();
+  const draft = { ...input, sourceRef: 'Expected manual reference' };
+  assert.equal(await f.store.save(draft), false);
+  const original = structuredClone(f.rows[0]); const invalid = structuredClone(original); mutate(invalid);
+  f.repository.listIdeas = async () => [invalid];
+  await f.store.load();
+  assert.equal(f.store.getSnapshot().phase, 'error'); assert.equal(f.store.getSnapshot().savedId, null);
+  assert.match(f.store.getSnapshot().error!, /Conflicto/); assert.ok(f.store.getSnapshot().error!.includes(command.externalId));
+  assert.equal(await f.store.save({ ...draft, title: 'Different' }), false); assert.equal(f.commands.length, 1);
+  f.repository.listIdeas = async () => [original];
+  assert.equal(await f.store.save(draft), true); assert.deepEqual(f.commands[0], f.commands[1]);
+  assert.equal(f.rows.length, 1);
+});
+
+test('duplicate matches cannot release pending and a later valid read can resolve the conflict', async () => {
+  const f = lostResponseFixture(); await f.store.load(); await f.store.save(input);
+  f.repository.listIdeas = async () => [f.rows[0], structuredClone(f.rows[0])];
+  await f.store.load(); assert.equal(f.store.getSnapshot().phase, 'error'); assert.match(f.store.getSnapshot().error!, /múltiples/);
+  f.repository.listIdeas = async () => f.rows;
+  await f.store.load(); assert.equal(f.store.getSnapshot().savedId, command.externalId);
+  assert.equal(await f.store.save({ ...input, title: 'Next idea' }), true);
+});
+
+test('a late reconciliation read after logout cannot mutate the current generation or another user store', async () => {
+  const f = lostResponseFixture(); await f.store.load(); await f.store.save(input);
+  let resolve!: (rows: PersistedIdea[]) => void;
+  f.repository.listIdeas = () => new Promise(r => { resolve = r; });
+  const loading = f.store.load(); await Promise.resolve();
+  f.store.dispose(); const snapshot = f.store.getSnapshot();
+  const other = new RealIdeaStore({ ...f.repository, findWorkspace: async () => null }, 'another-owner');
+  await other.load(); const otherSnapshot = other.getSnapshot();
+  resolve(f.rows); await loading;
+  assert.equal(f.store.getSnapshot(), snapshot); assert.equal(other.getSnapshot(), otherSnapshot);
+  assert.equal(f.store.getSnapshot().savedId, null); assert.equal(otherSnapshot.ideas.length, 0);
+});
+
+test('a superseded load cannot confirm pending or overwrite the newer read', async () => {
+  const f = lostResponseFixture(); await f.store.load(); await f.store.save(input);
+  let resolve!: (rows: PersistedIdea[]) => void;
+  f.repository.listIdeas = () => new Promise(r => { resolve = r; });
+  const stale = f.store.load(); await Promise.resolve();
+  f.repository.listIdeas = async () => [];
+  await f.store.load(); const current = f.store.getSnapshot();
+  resolve(f.rows); await stale;
+  assert.equal(f.store.getSnapshot(), current); assert.equal(current.savedId, null);
+  assert.equal(await f.store.save({ ...input, title: 'Must remain blocked' }), false);
+  f.repository.listIdeas = async () => f.rows;
+  assert.equal(await f.store.save(input), true); assert.deepEqual(f.commands[0], f.commands[1]);
+  assert.equal(f.rows.length, 1);
+});
+
+test('mounted REAL flow recovers a lost response, closes the confirmed draft and accepts a different idea', async () => {
+  const f = lostResponseFixture(); let view!: ReactTestRenderer;
+  await act(async () => { view = create(<RealIdeaCenter store={f.store} />); });
+  const button = (label: string) => view.root.findAllByType('button').find(node => node.children.join('') === label)!;
+  await act(async () => { button('+ Nueva idea').props.onClick(); });
+  const form = () => view.root.findByProps({ 'aria-label': 'Nueva idea de Luis' });
+  const fillAndSave = async (title: string) => {
+    await act(async () => { form().findAllByType('input')[0].props.onChange({ target: { value: title } }); form().findByType('textarea').props.onChange({ target: { value: input.note } }); });
+    await act(async () => { form().props.onSubmit({ preventDefault() {} }); });
+  };
+  await fillAndSave(input.title);
+  assert.ok(view.root.findAllByProps({ role: 'alert' }).length > 0); assert.equal(f.store.getSnapshot().savedId, null);
+  await act(async () => { button('Recargar desde Supabase').props.onClick(); });
+  assert.equal(view.root.findAllByProps({ 'aria-label': 'Nueva idea de Luis' }).length, 0);
+  assert.equal(f.store.getSnapshot().savedId, command.externalId);
+  await act(async () => { button('+ Nueva idea').props.onClick(); });
+  assert.equal(form().findAllByType('input')[0].props.value, '');
+  await fillAndSave('Siguiente idea tras recuperar');
+  assert.equal(f.rows.length, 2);
+  const selected = view.root.findAllByType('button').find(node => node.props.className === 'idea-card' && node.props['aria-pressed']);
+  assert.equal(selected!.findByType('strong').children.join(''), 'Siguiente idea tras recuperar');
+  await act(async () => view.unmount());
 });

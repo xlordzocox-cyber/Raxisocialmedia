@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { IdeaRecord } from './ideaContracts';
 import { getIdeaById, getIdeasSortedByPriority, summarizeIdeas } from './ideaSelectors';
 import { ideaChannelLabel, ideaPriorityLabel, ideaProvenanceLabel, ideaSourceLabel, ideaStatusLabel } from './ideaPresentation';
@@ -36,6 +36,7 @@ export function IdeaCenterPanel({ id, ideas, open, session, onAction: sessionAct
   const [reviewDraftId, setReviewDraftId] = useState<string>();
   const [deleteDraftId, setDeleteDraftId] = useState<string>();
   const [sendIdeaId, setSendIdeaId] = useState<string>();
+  useEffect(() => { if (persistence?.savedId) setForm(undefined); }, [persistence?.savedId]);
   const selected = getIdeaById(ordered, (persistence ? persistence.selectedId : selectedId) ?? '') ?? ordered[0];
   const trace = selected ? persistence?.traces[selected.id] : undefined;
   const provenance = (idea: IdeaRecord) => persistence ? 'REAL · Supabase · entrada manual' : session ? ideaProvenanceLabel[ideaProvenance(session, idea.id)] : 'MOCK';

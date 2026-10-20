@@ -1,5 +1,7 @@
 # Raxi HQ v0.9 — primera persistencia real
 
+Actualización correctiva de PR #10: [reconciliación del comando pendiente](P2_PENDING_RECONCILIATION.md). Suite actual: **294/294 PASS**; las cifras siguientes conservan el contexto de la validación inicial.
+
 Guardado inicial verificado el 19 de octubre de 2026 y recuperación/validación final el 20 de octubre de 2026 en `jrkefsylpfriiqefcmzq`. Rama: `feature/raxi-hq-v0.9-supabase-persistence`. Se conservaron los cambios locales de REAL/DEMO y la especificación existentes. El Auth anterior estaba en otra copia del workspace; se incorporó al checkout Git sin descartar esa copia.
 
 ## Resultado operativo

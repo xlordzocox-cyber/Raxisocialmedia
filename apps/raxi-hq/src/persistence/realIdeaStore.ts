@@ -57,8 +57,11 @@ export class RealIdeaStore {
       this.checkWorkspace(workspace);
       const ideas = await this.repository.listIdeas(workspace.id);
       if (generation !== this.generation) return;
+      const confirmedId = this.reconcilePending(ideas, workspace);
       for (const item of ideas) this.checkIdea(item, workspace);
-      this.set({ phase: 'ready', workspace, ideas: [...ideas], error: null, savedId: null });
+      // Clear only after the entire canonical read passes validation in this generation.
+      if (confirmedId) this.pending = null;
+      this.set({ phase: 'ready', workspace, ideas: [...ideas], error: null, savedId: confirmedId });
     } catch (cause) { if (generation === this.generation) this.fail(cause); }
   }
   async createWorkspace() {
@@ -81,6 +84,34 @@ export class RealIdeaStore {
     if (item.ownerId !== this.userId || item.workspaceId !== workspace.id || !item.auditId || !item.databaseId ||
       item.provenance !== 'MANUAL_LUIS' || !item.idea.id.startsWith('IDEA-REAL-')) throw new Error('Respuesta de persistencia inválida.');
   }
+  private checkConfirmation(item: PersistedIdea, workspace: RealWorkspace, command: CreateRealIdea) {
+    const conflict = () => new Error(`Conflicto de confirmación para ${command.externalId}: el registro no coincide en identidad, contenido o trazabilidad. Se conserva la operación pendiente.`);
+    try { this.checkIdea(item, workspace); } catch { throw conflict(); }
+    const { idea } = item;
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const reference = command.input.sourceRef;
+    const evidenceMatches = reference === undefined ? idea.evidence.length === 0 :
+      idea.evidence.length === 1 && idea.evidence[0].id === `${command.externalId}-REF` &&
+      idea.evidence[0].kind === 'MANUAL_NOTE' && idea.evidence[0].sourceRef === reference &&
+      idea.evidence[0].capturedAt === idea.createdAt;
+    // Reads come from the owner-scoped RPC, which joins the actual creation audit.
+    // An external ID alone, or an untraced/mutated payload, cannot acknowledge a write.
+    if (command.workspaceId !== workspace.id || idea.id !== command.externalId ||
+      idea.title !== command.input.title || idea.summary !== command.input.note || idea.priority !== command.input.priority ||
+      idea.source !== 'MANUAL_LUIS' || idea.status !== 'PROPOSED' || !evidenceMatches ||
+      !uuid.test(item.databaseId) || !/^[1-9]\d*$/.test(item.auditId) ||
+      !Number.isFinite(Date.parse(idea.createdAt)) || !Number.isFinite(Date.parse(idea.updatedAt)) ||
+      Date.parse(idea.updatedAt) < Date.parse(idea.createdAt)) throw conflict();
+  }
+  private reconcilePending(ideas: PersistedIdea[], workspace: RealWorkspace): string | null {
+    if (!this.pending) return null;
+    if (this.pending.workspaceId !== workspace.id) throw new Error('Conflicto: el workspace cambió. Se conserva la operación pendiente.');
+    const matches = ideas.filter(item => item.idea.id === this.pending!.externalId);
+    if (matches.length === 0) return null;
+    if (matches.length !== 1) throw new Error(`Conflicto: múltiples registros para ${this.pending.externalId}. Se conserva la operación pendiente.`);
+    this.checkConfirmation(matches[0], workspace, this.pending);
+    return matches[0].idea.id;
+  }
   private fail(cause: unknown) {
     this.set({ ...this.state, phase: 'error', savedId: null, error: cause instanceof Error ? cause.message : 'La operación no se confirmó. Reintenta la conexión.' });
   }
@@ -102,8 +133,7 @@ export class RealIdeaStore {
     try {
       const saved = await this.repository.createIdea(command);
       if (generation !== this.generation) return false;
-      this.checkIdea(saved, workspace);
-      if (saved.idea.id !== command.externalId) throw new Error('El servidor no confirmó el ID original de la idea.');
+      this.checkConfirmation(saved, workspace, command);
       let ideas = [...this.state.ideas.filter(item => item.databaseId !== saved.databaseId), saved];
       let refreshWarning: string | undefined;
       try {
