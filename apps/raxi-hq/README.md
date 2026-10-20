@@ -1,6 +1,12 @@
-# Raxi HQ Office v0.5 — Live Office Foundation
+# Raxi HQ v0.9 — Supabase Auth and real ideas
 
-Local read-only office foundation. MOCK retains the v0.4 demo; LIVE_READ_ONLY is visibly disconnected until a documented Munder source is available. No external integrations, agent control or credentials are configured.
+The authenticated app defaults to Campus REAL, with manual ideas stored in Supabase. Campus DEMO must be selected explicitly and keeps all mock ideas and session-only campaigns separate. The office remains read-only and disconnected until a documented Munder source is available; no autonomous agents are configured.
+
+Copy `.env.example` to ignored `.env.local` and configure the project URL and an `sb_publishable_...` key. Never use a secret/service key in a `VITE_` variable. Start Vite and sign in with a confirmed Email account. `/login` is public; the office is protected. Production SPA hosting must rewrite application paths to `index.html`. Environment values are set at build time.
+
+In Campus REAL, create your own `raxi-hq` workspace if needed, enter a title/note and save. Only a canonical response from the authenticated Edge Function can show a successful save. Failed requests keep the fields editable; retry the original content to reuse the operation and external ID. Reload or sign out/in to fetch the persisted ideas again. Manual ideas start PROPOSED with no inferred research, production approvals or agent activity. Same-user token refresh keeps the form mounted; account changes clear the prior user's UI.
+
+See [backend boundaries and deployment](../../supabase/README.md), [schema baseline](../../supabase/schema-baseline.json), and [acceptance evidence](../../output/reports/raxi-hq-v09-persistence/VALIDATION.md). The client-side route guard is navigation protection; backend reads use RLS and the write service verifies Auth and ownership inside PostgreSQL.
 
 The source selector lets you choose MOCK or LIVE_READ_ONLY. LIVE never silently falls back to mock. Its source-health panel shows connection, source timestamps and loaded counts; the activity panel shows only validated source events. In this checkout no Munder feed was found, so production LIVE has no agents, tasks, events or live animation. Reintentar lectura checks the disconnected source again; returning to MOCK is a manual choice. See the [source discovery](../../docs/RAXI_HQ_V05_SOURCE_DISCOVERY.md) and [Munder boundary](src/adapters/munder/README.md).
 

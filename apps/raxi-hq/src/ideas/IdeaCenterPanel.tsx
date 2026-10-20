@@ -1,10 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { IdeaRecord } from './ideaContracts';
 import { getIdeaById, getIdeasSortedByPriority, summarizeIdeas } from './ideaSelectors';
 import { ideaChannelLabel, ideaPriorityLabel, ideaProvenanceLabel, ideaSourceLabel, ideaStatusLabel } from './ideaPresentation';
 import { ManualIdeaForm } from './ManualIdeaForm';
 import { IdeaReviewForm } from './IdeaReviewForm';
 import { ideaProvenance, type IdeaCenterSession, type IdeaSessionCommand } from './ideaCenterSession';
+import type { ManualIdeaInput } from './manualIdeaDraft';
+
+export interface PersistedIdeaPresentation {
+  traces: Readonly<Record<string, { databaseId: string; workspaceId: string; ownerId: string; auditId: string }>>;
+  saving: boolean;
+  savedId: string | null;
+  selectedId?: string;
+  onSelect: (id: string) => void;
+  onCreate: (input: ManualIdeaInput) => Promise<boolean>;
+}
+const localDate = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City', dateStyle: 'medium', timeStyle: 'medium' });
 
 interface IdeaCenterPanelProps {
   id: string;
@@ -13,9 +24,11 @@ interface IdeaCenterPanelProps {
   session?: IdeaCenterSession;
   onAction?: (action: IdeaSessionCommand) => boolean;
   error?: string;
+  persistence?: PersistedIdeaPresentation;
 }
 
-export function IdeaCenterPanel({ id, ideas, open, session, onAction, error }: IdeaCenterPanelProps) {
+export function IdeaCenterPanel({ id, ideas, open, session, onAction: sessionAction, error, persistence }: IdeaCenterPanelProps) {
+  const onAction = persistence ? undefined : sessionAction;
   const ordered = getIdeasSortedByPriority(ideas);
   const summary = summarizeIdeas(ideas);
   const [selectedId, setSelectedId] = useState<string | undefined>(ordered[0]?.id);
@@ -23,7 +36,10 @@ export function IdeaCenterPanel({ id, ideas, open, session, onAction, error }: I
   const [reviewDraftId, setReviewDraftId] = useState<string>();
   const [deleteDraftId, setDeleteDraftId] = useState<string>();
   const [sendIdeaId, setSendIdeaId] = useState<string>();
-  const selected = getIdeaById(ordered, selectedId ?? '') ?? ordered[0];
+  useEffect(() => { if (persistence?.savedId) setForm(undefined); }, [persistence?.savedId]);
+  const selected = getIdeaById(ordered, (persistence ? persistence.selectedId : selectedId) ?? '') ?? ordered[0];
+  const trace = selected ? persistence?.traces[selected.id] : undefined;
+  const provenance = (idea: IdeaRecord) => persistence ? 'REAL · Supabase · entrada manual' : session ? ideaProvenanceLabel[ideaProvenance(session, idea.id)] : 'MOCK';
   const reviewDraft = session?.manualDrafts.find(draft => draft.id === reviewDraftId);
   const deleteDraft = session?.manualDrafts.find(draft => draft.id === deleteDraftId);
   const metrics = [
@@ -35,16 +51,20 @@ export function IdeaCenterPanel({ id, ideas, open, session, onAction, error }: I
     ['Archivadas', summary.archivedCount],
   ] as const;
 
-  return <section id={id} className="idea-panel" role="region" aria-label="Centro de Ideas · MOCK + sesión local" hidden={!open}>
+  return <section id={id} className="idea-panel" role="region" aria-label={persistence ? 'Centro de Ideas · REAL' : 'Centro de Ideas · MOCK + sesión local'} hidden={!open}>
     <div className="idea-panel-heading">
-      <div><span className="campus-eyebrow">PROPUESTAS Y CAPTURA LOCAL</span><h3>Centro de Ideas <span className="idea-mode">MOCK + SESIÓN LOCAL</span></h3><p>Propuestas antes de entrar a producción</p></div>
+      <div><span className="campus-eyebrow">{persistence ? 'PROPUESTAS Y CAPTURA PERSISTENTE' : 'PROPUESTAS Y CAPTURA LOCAL'}</span><h3>Centro de Ideas <span className="idea-mode">{persistence ? 'REAL · SUPABASE' : 'MOCK + SESIÓN LOCAL'}</span></h3><p>Propuestas antes de entrar a producción</p></div>
       <div className="idea-count">{summary.totalIdeas} <span>{summary.totalIdeas === 1 ? 'idea' : 'ideas'} en el radar</span></div>
     </div>
-    <p className="idea-session-warning">Los cambios locales de esta fase viven solo durante esta sesión. Recargar la aplicación puede reiniciarlos.</p>
+    <p className="idea-session-warning">{persistence ? 'Ideas recuperadas de tu workspace. Un guardado solo se confirma después de ser aceptado por PostgreSQL.' : 'Los cambios locales de esta fase viven solo durante esta sesión. Recargar la aplicación puede reiniciarlos.'}</p>
     {error && <p className="idea-form-error" role="alert">{error}</p>}
-    <div className="idea-drafts"><div className="idea-drafts-heading"><h4>Borradores de Luis <span>{session?.manualDrafts.length ?? 0}</span></h4><button type="button" onClick={() => { setForm('new'); setReviewDraftId(undefined); }}>+ Nueva idea</button></div>
-      {form === 'new' && <ManualIdeaForm onSave={input => { if (onAction?.({ type: 'CREATE_DRAFT', input })) setForm(undefined); }} onCancel={() => setForm(undefined)} />}
-      {(session?.manualDrafts.length ?? 0) === 0 ? <p>Sin borradores locales.</p> : <div className="idea-draft-list">{session?.manualDrafts.map(draft => <article key={draft.id} className="idea-draft"><div><code>{draft.id}</code><strong>{draft.title}</strong><span>LOCAL · SESIÓN · {ideaPriorityLabel[draft.priority]} · {draft.createdAt}</span></div><div className="idea-draft-actions"><button type="button" onClick={() => { setReviewDraftId(draft.id); setForm('review'); }}>Preparar propuesta</button><button type="button" onClick={() => setDeleteDraftId(draft.id)}>Eliminar borrador</button></div></article>)}</div>}
+    {persistence?.savedId && <p className="idea-save-confirmation" role="status">Guardado confirmado por PostgreSQL. La idea creada está disponible en las propuestas.</p>}
+    <div className="idea-drafts"><div className="idea-drafts-heading"><h4>{persistence ? 'Captura manual de Luis' : <>Borradores de Luis <span>{session?.manualDrafts.length ?? 0}</span></>}</h4><button type="button" disabled={persistence?.saving} onClick={() => { setForm('new'); setReviewDraftId(undefined); }}>+ Nueva idea</button></div>
+      {form === 'new' && <ManualIdeaForm pending={persistence?.saving} real={!!persistence} onSave={input => {
+        if (persistence) { void persistence.onCreate(input).then(saved => { if (saved) setForm(undefined); }); }
+        else if (onAction?.({ type: 'CREATE_DRAFT', input })) setForm(undefined);
+      }} onCancel={() => setForm(undefined)} />}
+      {!persistence && ((session?.manualDrafts.length ?? 0) === 0 ? <p>Sin borradores locales.</p> : <div className="idea-draft-list">{session?.manualDrafts.map(draft => <article key={draft.id} className="idea-draft"><div><code>{draft.id}</code><strong>{draft.title}</strong><span>LOCAL · SESIÓN · {ideaPriorityLabel[draft.priority]} · {draft.createdAt}</span></div><div className="idea-draft-actions"><button type="button" onClick={() => { setReviewDraftId(draft.id); setForm('review'); }}>Preparar propuesta</button><button type="button" onClick={() => setDeleteDraftId(draft.id)}>Eliminar borrador</button></div></article>)}</div>)}
       {form === 'review' && reviewDraft && <IdeaReviewForm key={reviewDraft.id} draft={reviewDraft} onSave={input => { if (onAction?.({ type: 'PROMOTE_DRAFT', draftId: reviewDraft.id, input })) { setForm(undefined); setReviewDraftId(undefined); setSelectedId(reviewDraft.id); } }} onCancel={() => { setForm(undefined); setReviewDraftId(undefined); }} />}
       {deleteDraft && <div className="idea-confirm" role="group" aria-label="Confirmar eliminación de borrador"><p>¿Eliminar el borrador {deleteDraft.title}? Esta acción solo afecta la sesión local.</p><button type="button" onClick={() => { if (onAction?.({ type: 'DELETE_DRAFT', draftId: deleteDraft.id })) setDeleteDraftId(undefined); }}>Confirmar eliminación</button><button type="button" onClick={() => setDeleteDraftId(undefined)}>Cancelar</button></div>}
     </div>
@@ -54,14 +74,14 @@ export function IdeaCenterPanel({ id, ideas, open, session, onAction, error }: I
     <div className="idea-panel-body">
       <div className="idea-list" aria-label="Lista de ideas">
         <div className="idea-list-heading"><h4>Propuestas</h4><span>Por prioridad · ID</span></div>
-        {ordered.length === 0 ? <p>Sin ideas MOCK disponibles.</p> : ordered.map(idea =>
+        {ordered.length === 0 ? <p>{persistence ? 'Sin ideas reales guardadas. La demostración permanece aislada.' : 'Sin ideas MOCK disponibles.'}</p> : ordered.map(idea =>
           <button key={idea.id} type="button" className="idea-card" data-status={idea.status}
-            aria-pressed={selected?.id === idea.id} onClick={() => setSelectedId(idea.id)}>
+            aria-pressed={selected?.id === idea.id} onClick={() => { if (persistence) persistence.onSelect(idea.id); else setSelectedId(idea.id); }}>
             <span className="idea-card-top"><code>{idea.id}</code><span>{ideaPriorityLabel[idea.priority]}</span></span>
             <strong>{idea.title}</strong>
             <span className="idea-card-state">{ideaStatusLabel[idea.status]}{idea.status === 'APPROVED_FOR_HQ' && <em>LISTA PARA HQ</em>}</span>
-            <span className="idea-card-source">{ideaSourceLabel[idea.source]} · {session ? ideaProvenanceLabel[ideaProvenance(session, idea.id)] : 'MOCK'}</span>
-            <span className="idea-card-scores">Afinidad {idea.fitScore}% · Confianza {idea.confidenceScore}%</span>
+            <span className="idea-card-source">{ideaSourceLabel[idea.source]} · {provenance(idea)}</span>
+            <span className="idea-card-scores">{persistence ? 'Pendiente de evaluación' : <>Afinidad {idea.fitScore}% · Confianza {idea.confidenceScore}%</>}</span>
             <span className="idea-card-channels">{idea.suggestedChannels.map(ideaChannel => ideaChannelLabel[ideaChannel]).join(' · ') || 'Sin canales sugeridos'}</span>
           </button>)}
       </div>
@@ -69,7 +89,7 @@ export function IdeaCenterPanel({ id, ideas, open, session, onAction, error }: I
         {selected ? <>
           <div className="idea-detail-heading"><code>{selected.id}</code><span className="idea-detail-priority">Prioridad {ideaPriorityLabel[selected.priority]}</span></div>
           <h4>{selected.title}</h4>
-          <p className="idea-provenance">{session ? ideaProvenanceLabel[ideaProvenance(session, selected.id)] : 'MOCK'}</p>
+          <p className="idea-provenance">{provenance(selected)}</p>
           <div className="idea-detail-state"><span>{ideaStatusLabel[selected.status]}</span>{selected.status === 'APPROVED_FOR_HQ' && <strong>LISTA PARA HQ</strong>}</div>
           {selected.status === 'APPROVED_FOR_HQ' && <p className="idea-ready-note">Preparada para revisión del Centro de Operaciones.</p>}
           {onAction && <div className="idea-lifecycle" aria-label="Acciones de propuesta">
@@ -78,6 +98,7 @@ export function IdeaCenterPanel({ id, ideas, open, session, onAction, error }: I
             {selected.status === 'APPROVED_FOR_HQ' && <><button type="button" onClick={() => setSendIdeaId(selected.id)}>Enviar al Centro de Operaciones</button><button type="button" onClick={() => onAction({ type: 'TRANSITION', ideaId: selected.id, to: 'ARCHIVED' })}>Archivar</button></>}
             {selected.status === 'REJECTED' && <button type="button" onClick={() => onAction({ type: 'TRANSITION', ideaId: selected.id, to: 'ARCHIVED' })}>Archivar</button>}
           </div>}
+          {persistence && <div className="idea-lifecycle" aria-label="Transiciones persistentes pendientes"><p>Las decisiones y transiciones persistentes se habilitarán en un próximo incremento.</p>{['Revisar', 'Aprobar', 'Archivar', 'Enviar a Operaciones'].map(label => <button key={label} type="button" disabled title="Transición persistente todavía no implementada">{label}</button>)}</div>}
           {sendIdeaId === selected.id && selected.status === 'APPROVED_FOR_HQ' && <div className="idea-confirm" role="group" aria-label="Confirmar envío al Centro de Operaciones"><p>Esta acción enviará la propuesta al Centro de Operaciones. No crea una campaña y no publica contenido.</p><button type="button" onClick={() => { if (onAction?.({ type: 'SEND_TO_HQ', ideaId: selected.id })) setSendIdeaId(undefined); }}>Confirmar envío</button><button type="button" onClick={() => setSendIdeaId(undefined)}>Cancelar</button></div>}
           <p className="idea-detail-summary">{selected.summary}</p>
           <dl className="idea-detail-facts">
@@ -85,14 +106,17 @@ export function IdeaCenterPanel({ id, ideas, open, session, onAction, error }: I
             <div><dt>Estado</dt><dd>{ideaStatusLabel[selected.status]}</dd></div>
             <div><dt>Prioridad</dt><dd>{ideaPriorityLabel[selected.priority]}</dd></div>
             <div><dt>Motivo</dt><dd className="idea-multiline">{selected.reason}</dd></div>
+            {persistence && <><div><dt>Autor</dt><dd>Cuenta propietaria del workspace · captura manual</dd></div><div><dt>Creada · Ciudad de México</dt><dd><time dateTime={selected.createdAt}>{localDate.format(new Date(selected.createdAt))}</time></dd></div><div><dt>Actualizada · Ciudad de México</dt><dd><time dateTime={selected.updatedAt}>{localDate.format(new Date(selected.updatedAt))}</time></dd></div></>}
           </dl>
-          <div className="idea-score-grid">
+          {persistence ? <div className="idea-evaluation-pending"><strong>Pendiente de evaluación</strong><p>No existe una evaluación real de afinidad, confianza o tendencias para esta captura.</p></div> : <div className="idea-score-grid">
             <label>Afinidad con Raxi <strong>{selected.fitScore}%</strong><meter min={0} max={100} value={selected.fitScore}>{selected.fitScore}%</meter></label>
             <label>Confianza <strong>{selected.confidenceScore}%</strong><meter min={0} max={100} value={selected.confidenceScore}>{selected.confidenceScore}%</meter></label>
-          </div>
+          </div>}
           <div className="idea-detail-group"><h5>Canales sugeridos</h5><div className="idea-chips">{selected.suggestedChannels.length ? selected.suggestedChannels.map(channel => <span key={channel}>{ideaChannelLabel[channel]}</span>) : <span>Sin canales sugeridos</span>}</div></div>
           <div className="idea-detail-group"><h5>Tags</h5><div className="idea-chips">{selected.tags.length ? selected.tags.map(tag => <span key={tag}>{tag}</span>) : <span>Sin tags</span>}</div></div>
           <div className="idea-detail-group"><h5>Evidencias</h5>{selected.evidence.length ? <ul className="idea-evidence">{selected.evidence.map(item => <li key={item.id}><span>{item.kind}</span><strong>{item.label}</strong>{item.sourceRef && <code>{item.sourceRef}</code>}{item.capturedAt && <time dateTime={item.capturedAt}>{item.capturedAt}</time>}</li>)}</ul> : <p>Sin evidencias registradas.</p>}</div>
+          {persistence && <div className="idea-detail-group"><h5>Historial y auditoría</h5>{trace ? <p>Creación manual confirmada en PostgreSQL · auditoría <code>{trace.auditId}</code>.</p> : <p>Auditoría no disponible.</p>}<p>No se han habilitado decisiones de revisión persistentes. Una referencia manual no acredita investigación verificada.</p></div>}
+          {trace && <details className="idea-trace"><summary>Trazabilidad técnica</summary><dl className="idea-detail-secondary"><div><dt>ID PostgreSQL</dt><dd><code>{trace.databaseId}</code></dd></div><div><dt>Workspace</dt><dd><code>{trace.workspaceId}</code></dd></div><div><dt>Propietario autenticado</dt><dd><code>{trace.ownerId}</code></dd></div><div><dt>Auditoría de creación</dt><dd><code>{trace.auditId}</code></dd></div></dl></details>}
           {(selected.duplicateOfIdeaId || selected.relatedCampaignIds?.length || selected.approvedAt || selected.sentToHqAt) && <dl className="idea-detail-secondary">
             {selected.duplicateOfIdeaId && <div><dt>Duplicada de</dt><dd>{selected.duplicateOfIdeaId}</dd></div>}
             {!!selected.relatedCampaignIds?.length && <div><dt>Campañas relacionadas</dt><dd>{selected.relatedCampaignIds.join(', ')}</dd></div>}

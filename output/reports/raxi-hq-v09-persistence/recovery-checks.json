@@ -1,0 +1,30 @@
+{
+  "verified_on": "2026-10-20",
+  "checkpoint": "0b11335",
+  "build": "PASS",
+  "typecheck": "PASS",
+  "tests": { "passed": 276, "failed": 0 },
+  "aria_targeted_runs": { "passed": 5, "failed": 0 },
+  "npm_audit_vulnerabilities": 0,
+  "first_idea_and_audit_deep_comparison": "UNCHANGED",
+  "real_idea_count": 1,
+  "non_real_idea_count": 0,
+  "agent_event_count": 0,
+  "migration_versions": ["20261019030541", "20261019030659", "20261019030808", "20261019231655"],
+  "remote_authorization_idempotency_audit_tests": "PASS; ROLLBACK, no probe rows persisted",
+  "ui": {
+    "desktop_width": 1440,
+    "mobile_widths": [320, 390],
+    "horizontal_overflow": false,
+    "real_cards_after_reload": 1,
+    "demo_cards_only_after_explicit_selection": 7,
+    "trace_collapsed_by_default": true,
+    "real_score_meters": 0,
+    "unsupported_transitions_disabled": 4
+  },
+  "security_limits": [
+    "Manual review of changed trust boundaries and automated tests, not an exhaustive repository audit",
+    "One scanner match reviewed: SDK field-name literal access_token; no scanner suppression",
+    "Existing Supabase Auth warning: leaked password protection disabled"
+  ]
+}

@@ -1,4 +1,15 @@
 * { box-sizing: border-box; }
+.auth-shell { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
+.auth-card { width: 100%; max-width: 420px; padding: 28px; border: 1px solid #29364d; border-radius: 16px; background: var(--panel); }
+.auth-card h1 { font-size: 26px; }
+.auth-card form { display: grid; gap: 12px; margin: 24px 0; }
+.auth-card label { font-size: 14px; }
+.auth-card input { width: 100%; min-width: 0; padding: 12px; border: 1px solid #496180; border-radius: 8px; background: var(--bg); color: var(--ink); font: inherit; }
+.auth-card input:focus-visible { outline: 2px solid var(--accent); }
+.auth-card button { text-align: center; }
+.auth-card button:disabled { opacity: .6; cursor: wait; }
+.auth-card [role=alert] { color: #ffb4b4; }
+.real-idea-center code { overflow-wrap: anywhere; }
 body { margin: 0; color: var(--ink); background: var(--bg); font-family: 'Segoe UI', sans-serif; }
 main { max-width: 1600px; margin: auto; padding: 24px; }
 header, .controls, .campaign { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
