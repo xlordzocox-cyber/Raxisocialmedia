@@ -1,0 +1,4 @@
+{
+  "authorization_idempotency_audit": "PASS",
+  "disposition": "ROLLBACK: no probe rows persisted"
+}

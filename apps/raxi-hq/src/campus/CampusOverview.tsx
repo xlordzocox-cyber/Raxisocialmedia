@@ -26,7 +26,7 @@ function OperationsBuilding() {
   </svg>;
 }
 
-function IdeasBuilding() {
+export function IdeasBuilding() {
   return <svg viewBox="0 0 220 150" aria-hidden="true" focusable="false">
     <ellipse cx="110" cy="130" rx="96" ry="15" fill="#030910" opacity=".7" />
     <path d="M13 113 108 72 207 112 110 147Z" fill="#2c2453" stroke="#8673c7" strokeWidth="2" />

@@ -1,0 +1,4 @@
+project_id = "raxi-hq"
+
+[functions.create-real-idea]
+verify_jwt = true

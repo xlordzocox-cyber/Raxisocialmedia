@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { setImmediate as nextTurn } from 'node:timers/promises';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { useState } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
@@ -114,7 +115,13 @@ test('mounted CampaignWorkspace preserves pending PASS QA through campaign navig
     const file = { type: 'image/png', size: png.length, arrayBuffer: async () => Uint8Array.from(png).buffer } as File;
     const input = workspace.panel().findAllByType('input').find(node => node.props.type === 'file' && node.props.accept.includes('image/png'));
     assert.ok(input);
-    await act(async () => { input.props.onChange({ currentTarget: { files: [file], value: 'fixture' } }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    await act(async () => { input.props.onChange({ currentTarget: { files: [file], value: 'fixture' } }); });
+    // WebCrypto hashing and decoding finish asynchronously. Wait for the real
+    // preview state, rather than assuming a zero-ms timer completes that work.
+    const previewDeadline = performance.now() + 2000;
+    while (workspace.panel().findAllByType('img').length === 0 && performance.now() < previewDeadline) {
+      await act(async () => { await nextTurn(); });
+    }
     const preview = workspace.panel().findByType('img');
     await act(async () => { preview.props.onLoad({ currentTarget: { naturalWidth: 100, naturalHeight: 100 } }); });
     assert.equal(workspace.button('Luis: aprobar fotografía')?.props.disabled, false);

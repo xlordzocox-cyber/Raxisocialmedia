@@ -1,0 +1,338 @@
+{
+  "project_ref": "jrkefsylpfriiqefcmzq",
+  "captured_on": "2026-10-19",
+  "source": "CLI migration fetch plus read-only PostgreSQL catalog inspection",
+  "baseline_table_count": 18,
+  "all_baseline_tables_have_rls": true,
+  "buckets": [
+    {
+      "id": "raxi-hq-private",
+      "public": false
+    }
+  ],
+  "migrations": [
+    {
+      "version": "20261019030541",
+      "name": "raxi_hq_v09_private_core",
+      "file": "supabase/migrations/20261019030541_raxi_hq_v09_private_core.sql",
+      "sha256": "e0f0a828b5d4f31960f2153ad910bb84a399a449754db8761057e91047cd7ba0"
+    },
+    {
+      "version": "20261019030659",
+      "name": "raxi_hq_v09_fk_indexes",
+      "file": "supabase/migrations/20261019030659_raxi_hq_v09_fk_indexes.sql",
+      "sha256": "2967d26201b0e335edec509e5cb40cc0808e3c422ff5eceeff1251b3ae43cf49"
+    },
+    {
+      "version": "20261019030808",
+      "name": "raxi_hq_v09_workspace_onboarding",
+      "file": "supabase/migrations/20261019030808_raxi_hq_v09_workspace_onboarding.sql",
+      "sha256": "67472da139bbe3146f6e21ff8f1a5992a41a73fe80fd52800a9448ef15d3e375"
+    }
+  ],
+  "tables": [
+    {
+      "name": "raxi_workspaces",
+      "rls": true,
+      "columns": [
+        "id",
+        "owner_user_id",
+        "slug",
+        "name",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "raxi_ideas",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "external_id",
+        "kind",
+        "title",
+        "status",
+        "source",
+        "summary",
+        "priority",
+        "payload",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "raxi_idea_evidence",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "idea_id",
+        "external_id",
+        "kind",
+        "label",
+        "source_ref",
+        "payload",
+        "captured_at",
+        "created_at"
+      ]
+    },
+    {
+      "name": "raxi_idea_handoffs",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "idea_id",
+        "sent_at",
+        "payload",
+        "created_at"
+      ]
+    },
+    {
+      "name": "raxi_campaigns",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "external_id",
+        "source_idea_id",
+        "title",
+        "status",
+        "provenance",
+        "payload",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "raxi_strategy_revisions",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "campaign_id",
+        "revision",
+        "status",
+        "payload",
+        "approved_by",
+        "approved_at",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "raxi_strategy_deliverables",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "strategy_id",
+        "external_id",
+        "channel",
+        "content_level",
+        "format",
+        "quantity",
+        "payload",
+        "created_at"
+      ]
+    },
+    {
+      "name": "raxi_agent_profiles",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "agent_key",
+        "display_name",
+        "role",
+        "runtime_status",
+        "capability_config",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "raxi_agent_tasks",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "agent_id",
+        "campaign_id",
+        "external_id",
+        "title",
+        "status",
+        "input_snapshot",
+        "output_snapshot",
+        "started_at",
+        "completed_at",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "raxi_agent_events",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "agent_id",
+        "task_id",
+        "campaign_id",
+        "event_type",
+        "source_kind",
+        "evidence_status",
+        "source_ref",
+        "payload",
+        "occurred_at",
+        "recorded_at"
+      ]
+    },
+    {
+      "name": "raxi_production_jobs",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "campaign_id",
+        "strategy_id",
+        "deliverable_id",
+        "external_job_id",
+        "provider",
+        "model",
+        "status",
+        "execution_approval",
+        "approved_by",
+        "approved_at",
+        "price_ceiling_usd",
+        "order_snapshot",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "raxi_production_receipts",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "job_id",
+        "state",
+        "aria_image_id",
+        "image_sha256",
+        "price_usd",
+        "provider_payload",
+        "verified_source",
+        "received_at"
+      ]
+    },
+    {
+      "name": "raxi_assets",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "parent_asset_id",
+        "job_id",
+        "external_asset_id",
+        "aria_image_id",
+        "kind",
+        "bucket_id",
+        "object_path",
+        "mime_type",
+        "byte_size",
+        "sha256",
+        "qa_status",
+        "human_decision",
+        "metadata",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "raxi_asset_reviews",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "asset_id",
+        "review_version",
+        "image_sha256",
+        "qa_status",
+        "human_decision",
+        "notes",
+        "reviewer_user_id",
+        "reviewed_at",
+        "decided_by",
+        "decided_at",
+        "created_at"
+      ]
+    },
+    {
+      "name": "raxi_approvals",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "subject_kind",
+        "subject_id",
+        "action",
+        "actor_user_id",
+        "idempotency_key",
+        "context",
+        "decided_at",
+        "created_at"
+      ]
+    },
+    {
+      "name": "raxi_publication_plans",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "campaign_id",
+        "asset_id",
+        "channel",
+        "status",
+        "scheduled_at",
+        "content_snapshot",
+        "created_at",
+        "updated_at"
+      ]
+    },
+    {
+      "name": "raxi_memory_refs",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "namespace",
+        "memory_id",
+        "subject_kind",
+        "subject_id",
+        "sync_status",
+        "metadata",
+        "created_at"
+      ]
+    },
+    {
+      "name": "raxi_audit_events",
+      "rls": true,
+      "columns": [
+        "id",
+        "workspace_id",
+        "action",
+        "actor_kind",
+        "actor_user_id",
+        "resource_kind",
+        "resource_id",
+        "source_ref",
+        "details",
+        "occurred_at",
+        "recorded_at"
+      ]
+    }
+  ],
+  "hash_encoding": "SHA-256 of UTF-8 SQL with LF line endings, no BOM"
+}
