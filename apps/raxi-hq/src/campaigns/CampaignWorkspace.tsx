@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CampaignStatus } from './campaignContracts';
 import type { CampaignCommand, CampaignSession } from './campaignSession';
 import { currentStrategy } from './campaignSession';
@@ -6,6 +6,8 @@ import type { CampaignStrategyInput } from './strategyContracts';
 import { campaignStatusLabel, contentLevelLabel } from './campaignPresentation';
 import { ideaChannelLabel, ideaPriorityLabel, ideaProvenanceLabel } from '../ideas/ideaPresentation';
 import { StrategyStudio } from './StrategyStudio';
+import { AriaProductionPanel } from '../production/AriaProductionPanel';
+import { applyAriaPilotFailure, applyAriaPilotReceipt, isAriaPilotOrderCurrentInSession, reconcileAriaPilotOrder, requireCurrentAriaPilotOrder, type AriaPilotOrder, type AriaPilotOutcome } from '../production/ariaPilot';
 
 const futureStages = ['Assets', 'Copy', 'QA', 'Planner', 'Publishing', 'Analytics'];
 export interface PendingCampaignTransition { campaignId: string; to: CampaignStatus }
@@ -19,14 +21,26 @@ export function withoutStrategyDraft(drafts: Readonly<Record<string, CampaignStr
   delete next[key];
   return next;
 }
-export function CampaignWorkspace({ id, session, open, selectedId, onSelect, onAction }: {
-  id: string; session: CampaignSession; open: boolean; selectedId?: string;
+export function CampaignWorkspace({ id, session, getSession, open, selectedId, getSelectedId, onSelect, onAction }: {
+  id: string; session: CampaignSession; getSession: () => CampaignSession; open: boolean; selectedId?: string;
+  getSelectedId: () => string | undefined;
   onSelect: (id: string) => void; onAction: (action: CampaignCommand) => boolean;
 }) {
   const [pendingTransition, setPendingTransition] = useState<PendingCampaignTransition>();
   // Form edits live only in this mounted workspace, separate from canonical revisions and audit.
   const [strategyDrafts, setStrategyDrafts] = useState<Record<string, CampaignStrategyInput>>({});
   const [formReset, setFormReset] = useState(0);
+  const [pilotOrder, setPilotOrder] = useState<AriaPilotOrder>();
+  const pilotOrderRef = useRef<AriaPilotOrder | undefined>(undefined);
+  const [pilotOutcome, setPilotOutcome] = useState<AriaPilotOutcome>({});
+  const pilotOutcomeRef = useRef(pilotOutcome);
+  const pilotOrderIsCurrent = (value: AriaPilotOrder) => pilotOrderRef.current === value &&
+    isAriaPilotOrderCurrentInSession(value, getSession(), getSelectedId());
+  const updatePilotOutcome = (change: (current: AriaPilotOutcome) => AriaPilotOutcome) => {
+    const next = change(pilotOutcomeRef.current);
+    pilotOutcomeRef.current = next;
+    setPilotOutcome(next);
+  };
   useEffect(() => { setPendingTransition(undefined); }, [selectedId]);
   const selected = session.campaigns.find(item => item.id === selectedId) ?? session.campaigns[0];
   const activeTransition = pendingTransitionForSelection(pendingTransition, selectedId ?? selected?.id);
@@ -54,5 +68,25 @@ export function CampaignWorkspace({ id, session, open, selectedId, onSelect, onA
       onDraftChange={input => { if (selectedDraftKey) setStrategyDrafts(current => ({ ...current, [selectedDraftKey]: input })); }}
       onClearDraft={() => { if (selectedDraftKey) setStrategyDrafts(current => withoutStrategyDraft(current, selectedDraftKey)); }}
       onDiscardDraft={() => { if (selectedDraftKey) setStrategyDrafts(current => withoutStrategyDraft(current, selectedDraftKey)); setFormReset(current => current + 1); }} />}
+    {selected && <AriaProductionPanel key={`production-${selected.id}`} campaign={selected}
+      strategy={currentStrategy(session, selected.id)} order={pilotOrder?.campaign.id === selected.id ? pilotOrder : undefined}
+      receipt={pilotOutcome.receipt?.jobId === pilotOrder?.jobId && pilotOrder?.campaign.id === selected.id ? pilotOutcome.receipt : undefined}
+      failure={pilotOutcome.failure?.jobId === pilotOrder?.jobId && pilotOrder?.campaign.id === selected.id ? pilotOutcome.failure : undefined}
+      review={pilotOutcome.review?.jobId === pilotOrder?.jobId && pilotOrder?.campaign.id === selected.id ? pilotOutcome.review : undefined}
+      isOrderCurrent={pilotOrderIsCurrent}
+      onOrder={value => { const next = reconcileAriaPilotOrder(pilotOrderRef.current, value); pilotOrderRef.current = next; setPilotOrder(next); }}
+      onReceipt={(value, expected) => updatePilotOutcome(current => {
+        requireCurrentAriaPilotOrder(expected, pilotOrderRef.current, getSession(), getSelectedId());
+        return applyAriaPilotReceipt(current, value, expected);
+      })}
+      onFailure={(value, expected) => updatePilotOutcome(current => {
+        requireCurrentAriaPilotOrder(expected, pilotOrderRef.current, getSession(), getSelectedId());
+        return applyAriaPilotFailure(current, value, expected);
+      })}
+      onReview={(value, expected) => updatePilotOutcome(current => {
+        requireCurrentAriaPilotOrder(expected, pilotOrderRef.current, getSession(), getSelectedId());
+        if (current.review && current.review.humanDecision !== 'PENDING') throw new Error('La decisión humana ya está registrada.');
+        return { ...current, review: value };
+      })} />}
   </section>;
 }

@@ -47,6 +47,8 @@ export function CampusOverview({ ideas, clock = runtimeClock }: { ideas: readonl
   const [inboxOpen, setInboxOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>();
+  const selectedCampaignIdRef = useRef<string | undefined>(undefined);
+  const selectCampaign = (id: string) => { selectedCampaignIdRef.current = id; setSelectedCampaignId(id); };
   const sessionRef = useRef<IdeaCenterSession | null>(null);
   if (sessionRef.current === null) sessionRef.current = createIdeaCenterSession(ideas);
   const [session, setSession] = useState(sessionRef.current);
@@ -72,7 +74,7 @@ export function CampusOverview({ ideas, clock = runtimeClock }: { ideas: readonl
       campaignsRef.current = next;
       setCampaigns(next);
       if (action.type === 'CREATE_CAMPAIGN') {
-        setSelectedCampaignId(next.campaigns[next.campaigns.length - 1].id);
+        selectCampaign(next.campaigns[next.campaigns.length - 1].id);
         setWorkspaceOpen(true);
       }
       setActionError(undefined);
@@ -85,7 +87,7 @@ export function CampusOverview({ ideas, clock = runtimeClock }: { ideas: readonl
   const visibleIdeas = sessionIdeas(session);
   const summary = summarizeIdeas(visibleIdeas);
   return <section className="campus" aria-label="Raxi HQ Campus">
-    <div className="campus-heading"><div><span className="campus-eyebrow">RAXI HQ CAMPUS</span><h2>Un lugar para operar y pensar lo que sigue.</h2></div><span className="campus-phase">v0.7 · Campaign Workspace</span></div>
+    <div className="campus-heading"><div><span className="campus-eyebrow">RAXI HQ CAMPUS</span><h2>Un lugar para operar y pensar lo que sigue.</h2></div><span className="campus-phase">v0.8 · Producción Aria</span></div>
     <div className="campus-buildings">
       <button type="button" className="campus-building campus-building--operations" aria-label="Abrir bandeja del Centro de Operaciones" aria-expanded={inboxOpen} aria-controls={OPERATIONS_INBOX_ID} onClick={() => setInboxOpen(value => !value)}>
         <div className="campus-art"><OperationsBuilding /></div>
@@ -98,8 +100,10 @@ export function CampusOverview({ ideas, clock = runtimeClock }: { ideas: readonl
     </div>
     <div className="campaign-workspace-link"><button type="button" aria-expanded={workspaceOpen} aria-controls={CAMPAIGN_WORKSPACE_ID} onClick={() => setWorkspaceOpen(value => !value)}>{workspaceOpen ? 'Cerrar Campaign Workspace' : 'Abrir Campaign Workspace'} · {campaigns.campaigns.length}</button></div>
     {actionError && <p className="idea-form-error" role="alert">{actionError}</p>}
-    <OperationsInbox id={OPERATIONS_INBOX_ID} handoffs={session.handoffs} open={inboxOpen} campaigns={campaigns} onAction={applyCampaign} onOpenCampaign={id => { setSelectedCampaignId(id); setWorkspaceOpen(true); }} />
-    <CampaignWorkspace id={CAMPAIGN_WORKSPACE_ID} session={campaigns} open={workspaceOpen} selectedId={selectedCampaignId} onSelect={setSelectedCampaignId} onAction={applyCampaign} />
+    <OperationsInbox id={OPERATIONS_INBOX_ID} handoffs={session.handoffs} open={inboxOpen} campaigns={campaigns} onAction={applyCampaign} onOpenCampaign={id => { selectCampaign(id); setWorkspaceOpen(true); }} />
+    <CampaignWorkspace id={CAMPAIGN_WORKSPACE_ID} session={campaigns} getSession={() => campaignsRef.current!}
+      open={workspaceOpen} selectedId={selectedCampaignId} getSelectedId={() => selectedCampaignIdRef.current}
+      onSelect={selectCampaign} onAction={applyCampaign} />
     <IdeaCenterPanel id={IDEA_PANEL_ID} ideas={visibleIdeas} open={open} session={session} onAction={apply} error={actionError} />
   </section>;
 }
