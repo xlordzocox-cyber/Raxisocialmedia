@@ -4,6 +4,8 @@ import { IdeasBuilding } from '../campus/CampusOverview';
 import type { RealIdeaStore } from './realIdeaStore';
 import type { RealCampaignStore } from './realCampaignStore';
 import { RealCampaignCenter } from './RealCampaignCenter';
+import { RuntimeOfficePanel } from '../runtime/RuntimeOfficePanel';
+import { supabase } from '../auth/client';
 const noSubscription = () => () => {};
 const noCampaign = () => null;
 
@@ -60,6 +62,7 @@ export function RealIdeaCenter({ store, campaigns }: { store: RealIdeaStore; cam
       }} />
       {state.phase !== 'saving' && <button type="button" onClick={() => { void store.load(); }}>Recargar desde Supabase</button>}
       {campaignStore && <RealCampaignCenter store={campaignStore} ideas={store} />}
+      {supabase && <RuntimeOfficePanel key={`${state.workspace.ownerId}:${state.workspace.id}`} client={supabase} owner={state.workspace.ownerId} workspace={state.workspace.id} />}
     </>}
   </section>;
 }

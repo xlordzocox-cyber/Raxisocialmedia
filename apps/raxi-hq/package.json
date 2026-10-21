@@ -5,10 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node scripts/build-campaign-function.mjs --check && tsc -b && vite build",
+    "build": "node scripts/build-campaign-function.mjs --check && tsc -b && tsc -p ../../server/agent-runtime/tsconfig.json && vite build",
     "build:campaign-function": "node scripts/build-campaign-function.mjs",
     "preview": "vite preview",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -b && tsc -p ../../server/agent-runtime/tsconfig.json",
     "test": "node scripts/test.mjs"
   },
   "dependencies": {

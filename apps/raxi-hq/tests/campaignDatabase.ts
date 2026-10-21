@@ -1,6 +1,6 @@
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, readdirSync } from 'node:fs';
-export async function campaignDatabase() {
+export async function campaignDatabase(includeCampaignProposal = true) {
   const db = new PGlite();
   await db.exec(`
     create role anon; create role authenticated; create role service_role bypassrls;
@@ -16,6 +16,6 @@ export async function campaignDatabase() {
     alter default privileges in schema public grant all on tables to service_role;
     alter default privileges in schema public grant all on sequences to service_role;
   `);
-  for (const file of readdirSync('../../supabase/migrations').filter(f => f.endsWith('.sql')).sort()) await db.exec(readFileSync(`../../supabase/migrations/${file}`, 'utf8'));
+  for (const file of readdirSync('../../supabase/migrations').filter(f => f.endsWith('.sql') && (includeCampaignProposal || !f.includes('campaign_strategy_pending_review'))).sort()) await db.exec(readFileSync(`../../supabase/migrations/${file}`, 'utf8'));
   return db;
 }
