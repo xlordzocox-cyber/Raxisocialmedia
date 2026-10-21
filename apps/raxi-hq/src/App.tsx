@@ -10,11 +10,12 @@ import { supabase } from './auth/client';
 import { RealIdeaStore, type RealIdeaRepository } from './persistence/realIdeaStore';
 import { createSupabaseIdeaRepository } from './persistence/supabaseIdeaRepository';
 import { RealIdeaCenter } from './persistence/RealIdeaCenter';
-import { RealCampaignStore, createCampaignRepository } from './persistence/realCampaignStore';
+import { RealCampaignStore, createCampaignRepository, type CampaignRepository } from './persistence/realCampaignStore';
 
 const defaultIdeaRepository = (ownerId: string) => createSupabaseIdeaRepository(supabase!, ownerId);
+const defaultCampaignRepository = supabase ? () => createCampaignRepository(supabase!) : undefined;
 
-export default function App({ ideaRepository = defaultIdeaRepository }: { ideaRepository?: (ownerId: string) => RealIdeaRepository } = {}) {
+export default function App({ ideaRepository = defaultIdeaRepository, campaignRepository = defaultCampaignRepository }: { ideaRepository?: (ownerId: string) => RealIdeaRepository; campaignRepository?: (ownerId: string) => CampaignRepository } = {}) {
   const state = useHQState();
   const { signOut, getRealIdeaStore, getRealCampaignStore } = useAuth();
   const [campusMode, setCampusMode] = useState<'REAL' | 'DEMO'>('REAL');
@@ -57,7 +58,7 @@ export default function App({ ideaRepository = defaultIdeaRepository }: { ideaRe
     </div>
     {campusMode === 'DEMO'
       ? <CampusOverview ideas={ideaCenter!.ideas} />
-      : <RealIdeaCenter store={realIdeas} campaigns={supabase ? workspace => getRealCampaignStore(workspace, owner => new RealCampaignStore(createCampaignRepository(supabase!), owner, workspace)) : undefined} />}
+      : <RealIdeaCenter store={realIdeas} campaigns={campaignRepository ? workspace => getRealCampaignStore(workspace, owner => new RealCampaignStore(campaignRepository(owner), owner, workspace)) : undefined} />}
     <section className="campaign"><b>{state.mode === 'MOCK' ? campaign ? 'Centro de Operaciones · Office v0.5 · Demo MOCK' : 'Cargando…' : 'Centro de Operaciones · Office v0.5 · Munder en vivo · solo lectura'}</b><span>{state.mode === 'MOCK' ? `${campaign?.progress ?? 0}% · ${campaign?.status}` : `${state.sourceHealth.connection} · ${connectionLabel}`}</span></section>
     <div className="workspace"><section className="office"><div className="office-toolbar"><span>Arrastra el suelo · rueda para zoom · click para inspeccionar</span><div><button aria-label="Alejar cámara" onClick={()=>sceneRef.current?.zoom(0.85)}>−</button><output aria-label="Zoom de cámara">{zoomPercent}%</output><button aria-label="Acercar cámara" onClick={()=>sceneRef.current?.zoom(1.18)}>+</button><button aria-pressed={focusCritical} onClick={()=>{const enabled=!focusCritical;setFocusCritical(enabled);sceneRef.current?.setCriticalEventFocus(enabled);}}>Seguir críticos</button><button onClick={()=>sceneRef.current?.resetCamera()}>Centrar</button></div></div><div ref={host} className="canvas-host" />{hovered && <div className="hover-card"><b>{hovered.displayName}</b><span>{hovered.role}</span><span>{hovered.status} · {hovered.zone}</span><span>{hovered.securityState}</span></div>}{error && <p role="alert">{error}</p>}</section>
       <aside><h2>Agentes</h2><div className="agent-list">{Object.values(state.agents).map((agent) => <button key={agent.id} aria-pressed={agent.id === state.selectedAgentId} onClick={() => hqStore.selectAgent(agent.id)}>{agent.displayName}<span>{getStatusVisual(agent.status).label}</span></button>)}</div>{state.mode === 'LIVE_READ_ONLY' && Object.keys(state.agents).length === 0 && <div className="empty-agents" role="status"><strong>Sin agentes cargados</strong><p>{liveEmptyMessage}</p></div>}

@@ -24,9 +24,9 @@ export function RealCampaignCenter({ store, ideas }: { store: RealCampaignStore;
     {state.phase === 'saving' && <p role="status">Esperando confirmación de PostgreSQL…</p>}
     {state.error && state.phase !== 'unavailable' && <p role="alert">{state.error}</p>}
     {state.confirmedId && <p role="status">Operación confirmada por PostgreSQL · auditoría vinculada a esta versión.</p>}
-    {state.pending && <button disabled={state.phase === 'saving' || state.phase === 'loading'} onClick={() => { void store.retry(); }}>Reintentar operación pendiente</button>}
+    {state.pending && <button disabled={store.needsSynchronization() || state.phase === 'saving' || state.phase === 'loading'} onClick={() => { void store.retry(); }}>Reintentar operación pendiente</button>}
     {store.canReconsider() && <button onClick={() => store.reconsider()}>Revisar decisión sobre la versión actual</button>}
-    {snapshot && <fieldset className="real-campaign-fields" disabled={['loading','saving','unavailable'].includes(state.phase) || !!state.pending || ideas.hasPendingWrite()}>
+    {snapshot && <fieldset className="real-campaign-fields" disabled={store.needsSynchronization() || ['loading','saving','unavailable'].includes(state.phase) || !!state.pending || ideas.hasPendingWrite()}>
       <OperationsInbox real id="real-operations-inbox" handoffs={snapshot.handoffs} open={open} campaigns={snapshot.session} onAction={action} onOpenCampaign={select} />
       <CampaignWorkspace persistent id="real-campaign-workspace" session={snapshot.session} getSession={() => store.getSnapshot().snapshot!.session} open={open} selectedId={selected} getSelectedId={() => selectedRef.current} onSelect={select} onAction={action} />
     </fieldset>}

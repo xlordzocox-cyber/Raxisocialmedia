@@ -9,6 +9,8 @@ import { AuthProvider, useAuth } from '../src/auth/AuthProvider';
 import { AuthStore } from '../src/auth/authStore';
 import { ProtectedRoute } from '../src/auth/AuthRoutes';
 import { RealIdeaStore, type CreateRealIdea, type PersistedIdea, type RealIdeaRepository } from '../src/persistence/realIdeaStore';
+import { RealCampaignStore, type CampaignRepository } from '../src/persistence/realCampaignStore';
+import { applyCampaignOperation, emptyCampaignSnapshot, type CampaignOperation, type CampaignSnapshot } from '../src/persistence/campaignCommands';
 
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true });
 const storage = new Map<string, string>();
@@ -21,11 +23,12 @@ const otherOwner = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const title = 'Captura de prueba de navegación';
 const note = 'Solo repositorio de pruebas; ninguna escritura de producción.';
 
-function SessionOffice({ repository, revision }: { repository: (id: string) => RealIdeaRepository; revision: number }) {
+function SessionOffice({ repository, campaigns, revision }: { repository: (id: string) => RealIdeaRepository; campaigns?: (id: string) => CampaignRepository; revision: number }) {
   const { user } = useAuth();
-  return <App key={`${user!.id}:${revision}`} ideaRepository={repository} />;
+  return <App key={`${user!.id}:${revision}`} ideaRepository={repository} campaignRepository={campaigns} />;
 }
-function fixture() {
+function fixture(options: { campaigns?: boolean; holdCampaignReads?: boolean; unavailable?: boolean } = {}) {
+  const workspaceId = (id: string) => options.campaigns ? (id === owner ? 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' : 'dddddddd-dddd-4ddd-8ddd-dddddddddddd') : `workspace-${id}`;
   let user: User | null = { id: owner } as User;
   const auth = new AuthStore({
     getUser: async () => ({ data: { user }, error: null }),
@@ -37,7 +40,7 @@ function fixture() {
   const requests: Array<{ cmd: CreateRealIdea; ownerId: string; resolve: (row: PersistedIdea) => void; reject: (error: Error) => void }> = [];
   let visible = true;
   const repository = (ownerId: string): RealIdeaRepository => ({
-    findWorkspace: async () => ({ id: `workspace-${ownerId}`, ownerId, name: 'raxi-hq' }),
+    findWorkspace: async () => ({ id: workspaceId(ownerId), ownerId, name: 'raxi-hq' }),
     createWorkspace: async () => { throw new Error('Workspace already exists'); },
     listIdeas: async () => visible ? [...ledger.values()].filter(row => row.ownerId === ownerId).map(row => structuredClone(row)) : [],
     createIdea: cmd => {
@@ -57,15 +60,38 @@ function fixture() {
     }
     if (lost) request.reject(new Error('HTTP response lost after commit')); else request.resolve(structuredClone(row));
   };
+  const snapshots = new Map<string, CampaignSnapshot>();
+  const campaignCommands: CampaignOperation[] = [];
+  const campaignReads: Array<{ ownerId: string; snapshot: CampaignSnapshot; resolve: (s: unknown) => void; reject: (e: Error) => void }> = [];
+  let holdCampaignReads = options.holdCampaignReads ?? false;
+  let campaignReadCount = 0;
+  const serverSnapshot = (id: string) => ({ ...(snapshots.get(id) ?? emptyCampaignSnapshot(id, workspaceId(id))),
+    serverTime: '2026-10-21T12:00:00Z', ideas: [...ledger.values()].filter(r => r.ownerId === id).map(r => structuredClone(r.idea)) });
+  const campaignRepository = (id: string): CampaignRepository => ({
+    read: async () => {
+      campaignReadCount++;
+      if (options.unavailable) throw new Error('SERVICE_NOT_DEPLOYED');
+      const snapshot = structuredClone(serverSnapshot(id));
+      if (!holdCampaignReads) return snapshot;
+      return new Promise((resolve, reject) => campaignReads.push({ ownerId: id, snapshot, resolve, reject }));
+    },
+    execute: async command => {
+      campaignCommands.push(structuredClone(command));
+      const next = applyCampaignOperation(serverSnapshot(id), command); snapshots.set(id, next);
+      for (const row of ledger.values()) if (row.ownerId === id) row.idea = structuredClone(next.ideas.find(i => i.id === row.idea.id)!);
+      return structuredClone(next);
+    },
+  });
   let view!: ReactTestRenderer;
   const tree = (revision = 0) => <StrictMode><AuthProvider store={auth}><MemoryRouter><Routes>
-    <Route element={<ProtectedRoute />}><Route path="/" element={<SessionOffice repository={repository} revision={revision} />} /></Route>
+    <Route element={<ProtectedRoute />}><Route path="/" element={<SessionOffice repository={repository} campaigns={options.campaigns ? campaignRepository : undefined} revision={revision} />} /></Route>
     <Route path="/login" element={<p>Sesión cerrada</p>} />
   </Routes></MemoryRouter></AuthProvider></StrictMode>;
   const button = (label: string) => view.root.findAllByType('button').find(node => node.children.join('') === label)!;
   const click = async (label: string) => { await act(async () => { button(label).props.onClick(); }); };
   const real = () => view.root.findAllByProps({ 'aria-label': 'Raxi HQ Campus REAL' });
   const store = () => auth.getRealIdeaStore(() => { throw new Error('App should own factory initialization'); });
+  const campaigns = () => auth.getRealCampaignStore(workspaceId(auth.getSnapshot().user!.id), () => { throw new Error('App should initialize campaigns'); });
   const begin = async (newTitle = title) => {
     await click('+ Nueva idea');
     const form = view.root.findByProps({ 'aria-label': 'Nueva idea de Luis' });
@@ -76,6 +102,8 @@ function fixture() {
     await act(async () => { form.props.onSubmit({ preventDefault() {} }); });
   };
   return { auth, ledger, commands, requests, complete, click, button, real, store, begin,
+    campaigns, campaignCommands, campaignReads, readCount: () => campaignReadCount,
+    holdCampaignReads: (hold: boolean) => { holdCampaignReads = hold; },
     hideRows: (hidden: boolean) => { visible = !hidden; },
     mount: async () => { await act(async () => { view = create(tree()); }); },
     remountApp: async () => { await act(async () => { view.update(tree(1)); }); },
@@ -208,4 +236,73 @@ test('provider visual cleanup/remount for the same verified session cannot retir
   await act(async () => { f.complete(0); });
   assert.equal(f.commands.length, 1); assert.equal(f.ledger.size, 1);
   assert.equal(original.getSnapshot().savedId, f.commands[0].externalId); await f.close();
+});
+
+test('mounted App refreshes READY campaigns after a confirmed idea and reviews it without browser reload', async () => {
+  const f = fixture({ campaigns: true }); await f.mount();
+  assert.ok(f.store() instanceof RealIdeaStore); assert.ok(f.campaigns() instanceof RealCampaignStore);
+  assert.equal(f.campaigns().getSnapshot().phase, 'ready'); assert.equal(f.campaigns().getSnapshot().snapshot!.ideas.length, 0);
+  const initialReads = f.readCount(); f.holdCampaignReads(true);
+  await f.begin(); assert.equal(f.ledger.size, 0);
+  await act(async () => { f.complete(0); });
+  assert.equal(f.store().getSnapshot().ideas.length, 1); assert.equal(f.campaigns().getSnapshot().snapshot!.ideas.length, 0);
+  assert.equal(f.readCount(), initialReads + 1); assert.equal(f.campaigns().getSnapshot().phase, 'loading');
+  assert.equal(f.button('Revisar').props.disabled, true);
+  const row = f.store().getSnapshot().ideas[0].idea;
+  assert.equal(await f.campaigns().execute({ type: 'REVIEW_IDEA', ideaId: row.id, expectedUpdatedAt: row.updatedAt, confirmed: true }), false);
+  assert.equal(f.campaignCommands.length, 0);
+  await act(async () => { f.campaignReads[0].resolve(f.campaignReads[0].snapshot); });
+  assert.equal(f.campaigns().getSnapshot().snapshot!.ideas[0].id, row.id);
+  assert.equal(f.button('Revisar').props.disabled, false);
+  await f.click('Revisar'); await f.click('Confirmar decisión');
+  assert.equal(f.campaignCommands.length, 1); assert.equal(f.campaignCommands[0].action.type, 'REVIEW_IDEA');
+  assert.equal(f.store().getSnapshot().ideas[0].idea.status, 'UNDER_REVIEW');
+  assert.equal(f.campaigns().getSnapshot().snapshot!.receipts.length, 1);
+  assert.equal(f.ledger.size, 1); await f.close();
+});
+
+test('mounted App queues one canonical read after an older read, across REAL/DEMO and StrictMode remounts', async () => {
+  const f = fixture({ campaigns: true, holdCampaignReads: true }); await f.mount();
+  assert.equal(f.campaignReads.length, 1); const campaignStore = f.campaigns();
+  await f.begin(); await act(async () => { f.complete(0); });
+  await f.click('Campus DEMO · datos ficticios'); await f.click('Campus REAL'); await f.remountApp();
+  assert.equal(f.campaigns(), campaignStore); assert.equal(f.readCount(), 1);
+  assert.equal(f.button('Revisar').props.disabled, true);
+  const exposed: number[] = []; const unsubscribe = campaignStore.subscribe(() => {
+    if (campaignStore.getSnapshot().phase === 'ready') exposed.push(campaignStore.getSnapshot().snapshot!.ideas.length);
+  });
+  await act(async () => { f.campaignReads[0].resolve(f.campaignReads[0].snapshot); });
+  assert.equal(f.readCount(), 2); assert.equal(campaignStore.getSnapshot().phase, 'loading'); assert.deepEqual(exposed, []);
+  await act(async () => { f.campaignReads[1].resolve(f.campaignReads[1].snapshot); });
+  assert.deepEqual(exposed, [1]); assert.equal(f.button('Revisar').props.disabled, false);
+  await f.click('Revisar'); await f.click('Confirmar decisión');
+  assert.equal(f.campaignCommands.length, 1); assert.equal(f.ledger.size, 1);
+  assert.equal(campaignStore.getSnapshot().snapshot!.receipts.length, 1);
+  await f.click('Campus DEMO · datos ficticios'); await f.click('Campus REAL');
+  assert.equal(f.readCount(), 2); unsubscribe(); await f.close();
+});
+
+test('an idea confirmed in DEMO invalidates campaigns on return; old account reads cannot expose late results', async () => {
+  const f = fixture({ campaigns: true }); await f.mount(); const old = f.campaigns();
+  await f.begin(); await f.click('Campus DEMO · datos ficticios');
+  await act(async () => { f.complete(0); }); assert.equal(old.getSnapshot().snapshot!.ideas.length, 0);
+  f.holdCampaignReads(true); await f.click('Campus REAL');
+  assert.equal(f.campaignReads.length, 1); assert.equal(old.getSnapshot().phase, 'loading');
+  await f.changeUser(otherOwner); const next = f.campaigns(); assert.notEqual(next, old);
+  assert.equal(f.campaignReads.length, 2); assert.equal(old.getSnapshot().snapshot, null);
+  await act(async () => { f.campaignReads[1].resolve(f.campaignReads[1].snapshot); });
+  const current = next.getSnapshot(); assert.equal(current.snapshot!.ownerId, otherOwner);
+  await act(async () => { f.campaignReads[0].resolve(f.campaignReads[0].snapshot); });
+  assert.equal(next.getSnapshot(), current); assert.equal(current.snapshot!.ideas.length, 0);
+  assert.equal(old.getSnapshot().snapshot, null); assert.equal(f.campaignCommands.length, 0);
+  await f.close();
+});
+
+test('mounted App keeps new transitions disabled after idea creation when campaign service is not deployed', async () => {
+  const f = fixture({ campaigns: true, unavailable: true }); await f.mount();
+  await f.begin(); await act(async () => { f.complete(0); });
+  assert.equal(f.campaigns().getSnapshot().phase, 'unavailable'); assert.equal(f.button('Revisar').props.disabled, true);
+  assert.match(JSON.stringify(f.view().toJSON()), /pendiente de despliegue autorizado/);
+  assert.equal(f.campaigns().getSnapshot().snapshot, null); assert.equal(f.campaignCommands.length, 0);
+  await f.close();
 });

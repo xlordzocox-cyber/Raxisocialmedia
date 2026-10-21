@@ -14,7 +14,12 @@ export function RealIdeaCenter({ store, campaigns }: { store: RealIdeaStore; cam
   const selectionKey = state.workspace ? `raxi-hq:idea-selection:${state.workspace.ownerId}:${state.workspace.id}` : undefined;
   const campaignStore = state.workspace && campaigns ? campaigns(state.workspace.id) : null;
   const campaignState = useSyncExternalStore(campaignStore?.subscribe ?? noSubscription, campaignStore?.getSnapshot ?? noCampaign, campaignStore?.getSnapshot ?? noCampaign);
-  useEffect(() => { void campaignStore?.resume(); }, [campaignStore, state.savedId]);
+  useEffect(() => {
+    if (state.savedId) void campaignStore?.synchronizeIdea(state.savedId);
+    else void campaignStore?.resume();
+  }, [campaignStore, state.savedId]);
+  const campaignIdeasCurrent = !!campaignState?.snapshot && state.ideas.every(({ idea }) =>
+    campaignState.snapshot!.ideas.some(canonical => canonical.id === idea.id && canonical.updatedAt === idea.updatedAt && canonical.status === idea.status));
   // This is a visual subscription only; AuthStore owns session invalidation.
   useEffect(() => { void store.resume(); }, [store]);
   useEffect(() => {
@@ -47,8 +52,8 @@ export function RealIdeaCenter({ store, campaigns }: { store: RealIdeaStore; cam
         traces: Object.fromEntries(state.ideas.map(item => [item.idea.id, item])),
         saving: state.phase === 'saving' || state.phase === 'loading', savedId: state.savedId, selectedId, onSelect: select,
         onCreate: input => store.save(input),
-        transitionsBusy: campaignState?.phase === 'saving' || state.phase === 'loading' || store.hasPendingWrite(),
-        onTransition: campaignStore && campaignState?.phase === 'ready' && !store.hasPendingWrite() ? async (idea, type) => {
+        transitionsBusy: campaignState?.phase !== 'ready' || !campaignIdeasCurrent || state.phase !== 'ready' || store.hasPendingWrite() || !!campaignState?.pending,
+        onTransition: campaignStore && campaignState?.phase === 'ready' && campaignIdeasCurrent && !store.hasPendingWrite() && !campaignState.pending ? async (idea, type) => {
           const saved = await campaignStore.execute({ type, ideaId: idea.id, expectedUpdatedAt: idea.updatedAt, confirmed: true });
           if (saved) await store.load(); return saved;
         } : undefined,

@@ -175,3 +175,45 @@ test('mounted original campaign brief waits for server confirmation and retains 
  assert.equal(request.operationId,original.operationId);assert.equal(store.getSnapshot().snapshot!.session.campaigns.length,1);
  assert.ok(!JSON.stringify(view.toJSON()).includes('Aria Studio Pilot'));await act(async()=>view.unmount());
 });
+
+test('idea synchronization retains an uncertain command through queued reads and retries with its original keys', async () => {
+ let snapshot=emptyCampaignSnapshot(owner,workspace,[idea]); const commands:CampaignOperation[]=[];
+ const reads:Array<{resolve:(s:unknown)=>void;reject:(e:Error)=>void}>=[]; let hold=false;
+ const store=new RealCampaignStore({read:async()=>hold?new Promise((resolve,reject)=>reads.push({resolve,reject})):structuredClone(snapshot),
+  execute:async c=>{commands.push(structuredClone(c));throw new Error('HTTP lost');}},owner,workspace);
+ await store.load(); await store.execute({type:'REVIEW_IDEA',ideaId:idea.id,expectedUpdatedAt:idea.updatedAt,confirmed:true});
+ const pending=structuredClone(store.getSnapshot().pending); hold=true;
+ const loading=store.load(); void store.synchronizeIdea('new-confirmed-one'); void store.synchronizeIdea('new-confirmed-two');
+ void store.synchronizeIdea('new-confirmed-two'); assert.equal(reads.length,1);
+ reads[0].resolve(structuredClone(snapshot)); await new Promise<void>(resolve=>setImmediate(resolve));
+ assert.equal(reads.length,2); assert.equal(store.getSnapshot().phase,'loading'); assert.deepEqual(store.getSnapshot().pending,pending);
+ reads[1].reject(new Error('canonical read failed')); await loading;
+ assert.equal(store.needsSynchronization(),true); assert.equal(store.getSnapshot().phase,'error');
+ assert.equal(await store.retry(),false); assert.equal(commands.length,1); assert.deepEqual(store.getSnapshot().pending,pending);
+ hold=false; await store.load(); assert.deepEqual(store.getSnapshot().pending,pending);
+ await store.retry(); assert.deepEqual(commands[0],commands[1]);
+ snapshot=applyCampaignOperation(snapshot,commands[0]); await store.load();
+ assert.equal(store.getSnapshot().pending,null); assert.equal(store.getSnapshot().confirmedId,commands[0].operationId);
+});
+
+test('synchronization queued during a write runs after its failure and preserves the operation receipt conflict', async () => {
+ const snapshot=emptyCampaignSnapshot(owner,workspace,[idea]);let fail!:(e:Error)=>void;let reads=0; let incompatible=false;
+ let command!:CampaignOperation;
+ const store=new RealCampaignStore({read:async()=>{reads++;return incompatible?{...snapshot,receipts:[{operationId:command.operationId,command:{...command,action:{...command.action,confirmed:false}}}]}:snapshot;},
+  execute:c=>{command=c;return new Promise((_resolve,reject)=>{fail=reject;});}},owner,workspace);
+ await store.load(); const writing=store.execute({type:'REVIEW_IDEA',ideaId:idea.id,expectedUpdatedAt:idea.updatedAt,confirmed:true});
+ const pending=store.getSnapshot().pending; void store.synchronizeIdea('confirmed-other-idea');
+ assert.equal(reads,1); assert.equal(store.getSnapshot().phase,'saving');
+ incompatible=true; fail(new Error('uncertain')); await writing; await store.load();
+ assert.equal(reads,2); assert.equal(store.getSnapshot().pending,pending); assert.equal(store.getSnapshot().confirmedId,null);
+ assert.match(store.getSnapshot().error!,/Conflicto verificable/); assert.equal(await store.retry(),false);
+});
+
+test('logout discards queued reconciliation and ignores the old read without starting another request', async () => {
+ let finish!:(s:unknown)=>void;let reads=0;
+ const store=new RealCampaignStore({read:()=>{reads++;return new Promise(resolve=>{finish=resolve;});},execute:async()=>{throw new Error('unused');}},owner,workspace);
+ const loading=store.load(); void store.synchronizeIdea('confirmed-before-logout');
+ store.dispose(); const retired=store.getSnapshot(); finish(emptyCampaignSnapshot(owner,workspace,[idea])); await loading;
+ assert.equal(reads,1); assert.equal(store.getSnapshot(),retired); assert.equal(retired.snapshot,null);
+ await store.load(); void store.synchronizeIdea('another-idea'); assert.equal(reads,1);
+});

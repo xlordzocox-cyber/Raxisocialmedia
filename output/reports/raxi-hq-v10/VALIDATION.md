@@ -1,5 +1,7 @@
 # Raxi HQ v1.0 — validación del primer incremento
 
+Actualización P1: [sincronización canónica tras guardar una idea](P1_CAMPAIGN_SNAPSHOT_SYNC.md), **321/321 pruebas PASS** y nueva revisión solicitada en el mismo PR #11. Los resultados de 314 pruebas que siguen documentan la entrega inicial.
+
 ## Alcance y estado
 
 Campañas y Strategy persistentes, con aprobación de ideas y handoff, planificación, revisiones y aprobación humana ligada a una versión. Se reutiliza la interfaz editorial existente. Código para revisión; **quinta migración y Edge Function NO desplegadas en producción**. Fototeca y ejecutores de agentes son planes separados, sin ejecución ni consumo Aria.
