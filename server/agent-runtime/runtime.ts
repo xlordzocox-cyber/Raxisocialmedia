@@ -4,6 +4,23 @@ export interface TaskSpec {
  authorization: { confirmed: true; maxCostMicros: number; expiresAt: string };
 }
 export interface Source { id: string; url: string; content: string; sha256: string; capturedAt: string }
+// Public field limits use UTF-16 units; the complete result uses UTF-8 jsonb text bytes.
+export const RUNTIME_RESULT_MAX_BYTES=196608;
+function postgresString(value:unknown,max:number):value is string {
+ return typeof value==='string'&&value.length<=max&&!/\u0000|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(value);
+}
+// jsonb text inserts one space after commas/colons. Key ordering does not affect size.
+// Canonical runtime results contain strings, booleans, arrays and objects, never numbers.
+export function runtimeResultBytes(value:unknown):number {
+ const serialize=(v:unknown):string=>{
+  if(typeof v==='string'){if(!postgresString(v,Infinity))throw Error('Invalid PostgreSQL Unicode');return JSON.stringify(v);}
+  if(v===null||typeof v==='boolean')return JSON.stringify(v);
+  if(Array.isArray(v))return '['+v.map(serialize).join(', ')+']';
+  if(v&&typeof v==='object')return '{'+Object.entries(v).map(([k,item])=>serialize(k)+': '+serialize(item)).join(', ')+'}';
+  throw Error('Unsupported result value');
+ };
+ return new TextEncoder().encode(serialize(value)).byteLength;
+}
 export interface Claim {
  task: { id: string; input_snapshot: { spec: TaskSpec; policy: { simulated: boolean; max_output_tokens: number } } };
  run: { id: string; lease_token: string; lease_until: string; stage: 'DIRECTOR'|'RESEARCHER'; simulated: boolean; provider: string; model: string; reserved_micros: number };
@@ -49,7 +66,11 @@ export function requestHandler(deps:{verifyUser(token:string):Promise<{id:string
 async function verifiedSources(sources:Source[],hosts:ReadonlySet<string>):Promise<Source[]> {
  if(sources.length>4)throw Error('Source limit');
  const ids=new Set<string>();
- for(const s of sources){const url=new URL(s.url);if(url.protocol!=='https:'||!hosts.has(url.hostname)||url.username||url.password||ids.has(s.id)||!s.id||s.content.length>3000||!s.content||!Number.isFinite(Date.parse(s.capturedAt)))throw Error('Untrusted source receipt');
+ for(const s of sources){
+  if(!s||Object.keys(s).some(k=>!['id','url','content','sha256','capturedAt'].includes(k))||
+   !postgresString(s.id,128)||!s.id||!postgresString(s.url,2048)||!postgresString(s.content,3000)||!s.content||
+   !postgresString(s.capturedAt,64)||!Number.isFinite(Date.parse(s.capturedAt))||typeof s.sha256!=='string'||! /^[a-f0-9]{64}$/.test(s.sha256))throw Error('Untrusted source receipt');
+  const url=new URL(s.url);if(url.protocol!=='https:'||!hosts.has(url.hostname)||url.username||url.password||ids.has(s.id))throw Error('Untrusted source receipt');
   const hash=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(s.content))),x=>x.toString(16).padStart(2,'0')).join('');
   if(hash!==s.sha256)throw Error('Source integrity');ids.add(s.id);
  }return structuredClone(sources);
@@ -77,11 +98,12 @@ export async function runOne(deps:{repository:RuntimeRepository;providers:Readon
   if(typeof output.receipt!=='string'||!output.receipt||output.receipt.length>200)throw Error('Provider did not acknowledge');
   await deps.repository.step(run.id,run.lease_token,'ack',undefined,output.receipt);
   const result=output.output as {summary:string;sourceIds:string[]};
-  if(!result||Object.keys(result).some(k=>!['summary','sourceIds'].includes(k))||typeof result.summary!=='string'||!result.summary.trim()||result.summary.length>6000||
+  if(!result||Object.keys(result).some(k=>!['summary','sourceIds'].includes(k))||!postgresString(result.summary,6000)||!result.summary.trim()||
    !Array.isArray(result.sourceIds)||new Set(result.sourceIds).size!==result.sourceIds.length||result.sourceIds.some(id=>!sources.some(s=>s.id===id))||
    (spec.externalResearch&&run.stage==='RESEARCHER'&&result.sourceIds.length===0))throw Error('Unsupported output or citations');
-  const canonical={summary:result.summary,sourceIds:result.sourceIds,sources:sources.filter(s=>result.sourceIds.includes(s.id)),simulated:run.simulated,
+  const canonical={summary:result.summary,sourceIds:result.sourceIds,sources,simulated:run.simulated,
    verification:result.sourceIds.length?'CITED_SOURCES_NOT_FACT_CHECKED':'MODEL_OUTPUT_NOT_FACT_CHECKED'};
+  if(runtimeResultBytes(canonical)>RUNTIME_RESULT_MAX_BYTES)throw Error('Serialized result limit');
   await deps.repository.step(run.id,run.lease_token,'finish',canonical,undefined,output.knownCostMicros);
   return {claimed:true,stage:run.stage,simulated:run.simulated};
  }catch{

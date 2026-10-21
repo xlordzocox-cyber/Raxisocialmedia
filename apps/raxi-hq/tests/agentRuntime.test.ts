@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { campaignDatabase } from './campaignDatabase';
-import { rpcRepository, requestHandler, runOne, taskSpec, type Provider, type TaskSpec } from '../../../server/agent-runtime/runtime';
+import { rpcRepository, requestHandler, runOne, taskSpec, runtimeResultBytes, RUNTIME_RESULT_MAX_BYTES, type Source, type Provider, type TaskSpec } from '../../../server/agent-runtime/runtime';
 import { simulatedProvider, openAIProvider } from '../../../server/agent-runtime/providers';
 import { RuntimeOfficeStore, projectRuntime } from '../src/runtime/runtimeOfficeStore';
 import { RuntimeOfficePanel } from '../src/runtime/RuntimeOfficePanel';
@@ -10,6 +10,7 @@ import { createElement, StrictMode } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import type { SupabaseClient } from '@supabase/supabase-js';
 const owner='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', workspace='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const hashText=async(content:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(content))),x=>x.toString(16).padStart(2,'0')).join('');
 async function fixture(live=false){
  const db=await campaignDatabase(false);await db.exec(readFileSync('../../supabase/proposals/agent_runtime.sql','utf8'));
  await db.query('insert into auth.users(id) values($1)',[owner]);
@@ -218,5 +219,101 @@ test('revocation after adapter entry preserves the started call receipt/cost and
   await assert.rejects(runOne(deps,id));assert.equal(calls,1);
   const run=(await f.db.query<{status:string;provider_receipt:string;cost_micros:string}>('select status,provider_receipt,cost_micros from public.raxi_agent_runs')).rows[0];
   assert.equal(run.status,'SUCCEEDED');assert.match(run.provider_receipt,/SIMULATED:/);assert.equal(Number(run.cost_micros),0);
+ }finally{await f.db.close();}
+});
+
+for(const live of [false,true])for(const acknowledged of [false,true])test(`expired ${live?'REAL':'SIMULATED'} ${acknowledged?'acknowledged':'claimed'} run preserves provenance, audit and mounted Office/Pixi projection`,async()=>{
+ const f=await fixture(live);let view:ReactTestRenderer|undefined;try{
+  const id=await f.create(),claim=(await f.repository.claim(id,'expiry-fixture'))!,run=claim.run;
+  if(acknowledged){await f.repository.step(run.id,run.lease_token,'dispatch');await f.repository.step(run.id,run.lease_token,'ack',undefined,'LOCAL-FIXTURE-RECEIPT');}
+  await f.db.exec('update public.raxi_runtime_policies set simulated=not simulated,enabled=false');
+  await f.db.query("update public.raxi_agent_runs set lease_until=clock_timestamp()-interval '1 second' where id=$1",[run.id]);
+  assert.equal(await f.repository.claim(id,'expiry-recovery'),null);
+  assert.equal(await f.repository.claim(id,'expiry-repeated'),null);
+  const event=(await f.db.query<{source_kind:string;evidence_status:string;agent_id:string;task_id:string;payload:Record<string,unknown>}>("select * from public.raxi_agent_events where event_type='RUNTIME_LEASE_UNKNOWN'")).rows;
+  assert.equal(event.length,1);assert.equal(event[0].source_kind,live?'AGENT_EXECUTOR':'MOCK');assert.equal(event[0].evidence_status,live?'VERIFIED':'UNVERIFIED');
+  assert.equal(event[0].agent_id,(await f.db.query<{agent_id:string}>('select agent_id from public.raxi_agent_runs where id=$1',[run.id])).rows[0].agent_id);
+  assert.equal(event[0].task_id,id);assert.equal(event[0].payload.runId,run.id);assert.equal(event[0].payload.attempt,1);assert.equal(event[0].payload.simulated,!live);
+  assert.equal(event[0].payload.providerAcknowledged,acknowledged);assert.equal(event[0].payload.operationalReceiptOnly,true);
+  const audit=(await f.db.query<{resource_id:string;details:Record<string,unknown>}>("select * from public.raxi_audit_events where action='RUNTIME_LEASE_UNKNOWN'")).rows;
+  assert.equal(audit.length,1);assert.equal(audit[0].resource_id,run.id);assert.equal(audit[0].details.taskId,id);assert.equal(audit[0].details.attempt,1);
+  const saved=(await f.db.query<{status:string;provider_receipt:string}>('select status,provider_receipt from public.raxi_agent_runs where id=$1',[run.id])).rows[0];
+  assert.equal(saved.status,'UNKNOWN');assert.equal(saved.provider_receipt,acknowledged?'LOCAL-FIXTURE-RECEIPT':null);
+  assert.equal(Number((await f.db.query<{reserved_micros:string}>('select reserved_micros from public.raxi_runtime_policies')).rows[0].reserved_micros),20);
+  await f.db.exec('reset role');await f.db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:owner})]);await f.db.exec('set role authenticated');
+  const snapshot=(await f.db.query<{v:unknown}>('select public.raxi_runtime_office($1) v',[workspace])).rows[0].v;
+  const projected=projectRuntime(snapshot,owner,workspace);assert.ok(Object.values(projected.hq.agents).every(a=>a.status!=='RUNNING'));
+  if(live){assert.equal(Object.keys(projected.hq.agents).length,1);assert.equal(Object.values(projected.hq.agents)[0].status,'BLOCKED');}
+  else {assert.deepEqual(projected.hq.agents,{});assert.deepEqual(projected.hq.events,[]);assert.deepEqual(projected.hq.tasks,{});}
+  Object.defineProperty(globalThis,'IS_REACT_ACT_ENVIRONMENT',{value:true,configurable:true});
+  const client={rpc:async()=>({data:snapshot,error:null})} as unknown as SupabaseClient;
+  await act(async()=>{view=create(createElement(StrictMode,null,createElement(RuntimeOfficePanel,{client,owner,workspace})));});
+  assert.match(JSON.stringify(view!.toJSON()),live?/1 agentes con eventos reales confirmados/:/0 agentes con eventos reales confirmados/);
+  assert.equal(view!.root.findAll(n=>n.props.className==='canvas-host').length,live?1:0);
+  if(!live)assert.match(JSON.stringify(view!.toJSON()),/SIMULACIÓN · no acredita IA real/);
+  assert.ok(view!.root.findAllByType('button').every(b=>b.props.disabled));
+ }finally{if(view)await act(async()=>view!.unmount());await f.db.close();}
+});
+
+for(const flavor of ['ascii','unicode','escaped','quotes'] as const)test(`complete result persists four maximum sources and maximum summary: ${flavor}`,async()=>{
+ const f=await fixture();try{
+  f.spec.externalResearch=true;const id=await f.create();
+  const content=flavor==='unicode'?'漢'.repeat(3000):flavor==='escaped'?'\u0001'.repeat(3000):flavor==='quotes'?'"\\\n'.repeat(1000):'s'.repeat(3000);
+  const summary=flavor==='unicode'?'😀'.repeat(3000):flavor==='escaped'?'\u0001'.repeat(6000):flavor==='quotes'?'"\\\n'.repeat(2000):'a'.repeat(6000);
+  const sources:Source[]=await Promise.all(Array.from({length:4},async(_,i)=>({id:(i+'-').padEnd(128,flavor==='escaped'?'\u0001':'i'),url:('https://example.org/'+i).padEnd(2048,'q'),content,sha256:await hashText(content),capturedAt:'2026-10-21T12:00:00.'.padEnd(63,'0')+'Z'})));
+  let calls=0;const provider:Provider={id:'simulated',simulated:true,async start(input){calls++;return {receipt:'SIMULATED:max-result',knownCostMicros:5,output:{summary,sourceIds:input.stage==='DIRECTOR'?[]:sources.map(s=>s.id)}};}};
+  const deps={repository:f.repository,providers:new Map([['simulated',provider]]),workerId:'max-result',sourceHosts:new Set(['example.org']),retrieve:async()=>sources};
+  await runOne(deps,id);assert.equal((await runOne(deps,id)).stage,'RESEARCHER');assert.equal(calls,2);
+  const saved=(await f.db.query<{output_snapshot:{summary:string;sources:Source[];sourceIds:string[]}}>('select output_snapshot from public.raxi_agent_tasks where id=$1',[id])).rows[0].output_snapshot;
+  assert.equal(saved.summary,summary);assert.deepEqual(saved.sources,sources);assert.deepEqual(saved.sourceIds,sources.map(s=>s.id));
+  const measured=Number((await f.db.query<{bytes:number}>("select octet_length(convert_to(output_snapshot::text,'UTF8')) bytes from public.raxi_agent_tasks where id=$1",[id])).rows[0].bytes);
+  assert.equal(runtimeResultBytes(saved),measured);assert.ok(measured>16000&&measured<=RUNTIME_RESULT_MAX_BYTES);
+  assert.equal((await runOne(deps,id)).claimed,false);assert.equal(calls,2);
+ }finally{await f.db.close();}
+});
+
+for(const delta of [-1,0,1])test(`SQL and server agree on exact serialized UTF-8 budget ${delta}`,async()=>{
+ const f=await fixture();try{
+  const id=await f.create(),run=(await f.repository.claim(id,'byte-boundary'))!.run;
+  await f.repository.step(run.id,run.lease_token,'dispatch');await f.repository.step(run.id,run.lease_token,'ack',undefined,'SIMULATED:boundary');
+  const prefix='😀"\n\\\u0001';
+  const value={pad:prefix+'x'.repeat(RUNTIME_RESULT_MAX_BYTES+delta-runtimeResultBytes({pad:prefix}))};
+  assert.equal(runtimeResultBytes(value),RUNTIME_RESULT_MAX_BYTES+delta);
+  assert.equal(Number((await f.db.query<{bytes:number}>("select octet_length(convert_to($1::jsonb::text,'UTF8')) bytes",[JSON.stringify(value)])).rows[0].bytes),runtimeResultBytes(value));
+  if(delta<=0)await f.repository.step(run.id,run.lease_token,'finish',value,undefined,5);
+  else {await assert.rejects(f.repository.step(run.id,run.lease_token,'finish',value,undefined,5));await f.repository.step(run.id,run.lease_token,'unknown',undefined,undefined,5);}
+  const saved=(await f.db.query<{status:string;cost_micros:string;provider_receipt:string}>('select status,cost_micros,provider_receipt from public.raxi_agent_runs where id=$1',[run.id])).rows[0];
+  assert.equal(saved.status,delta<=0?'SUCCEEDED':'UNKNOWN');assert.equal(Number(saved.cost_micros),5);assert.equal(saved.provider_receipt,'SIMULATED:boundary');
+ }finally{await f.db.close();}
+});
+
+test('invalid output retains receipt and known cost, blocks replay; invalid source metadata never enters provider',async()=>{
+ const f=await fixture();try{
+  await f.db.exec('update public.raxi_runtime_policies set max_tasks=100,total_budget_micros=10000');
+  let calls=0;const provider:Provider={id:'simulated',simulated:true,async start(){calls++;return {receipt:'SIMULATED:invalid-result',knownCostMicros:5,output:{summary:'x'.repeat(6001),sourceIds:[]}};}};
+  const id=await f.create(),deps={repository:f.repository,providers:new Map([['simulated',provider]]),workerId:'invalid-result'};
+  assert.equal((await runOne(deps,id)).uncertain,true);assert.equal((await runOne(deps,id)).claimed,false);assert.equal(calls,1);
+  const saved=(await f.db.query<{status:string;provider_receipt:string;cost_micros:string}>('select status,provider_receipt,cost_micros from public.raxi_agent_runs where task_id=$1',[id])).rows[0];
+  assert.equal(saved.status,'UNKNOWN');assert.equal(saved.provider_receipt,'SIMULATED:invalid-result');assert.equal(Number(saved.cost_micros),5);
+  const source:Source={id:'s',url:'https://example.org/',content:'source',sha256:await hashText('source'),capturedAt:new Date().toISOString()};
+  for(const change of [{id:'x'.repeat(129)},{url:'https://example.org/'+'x'.repeat(2048)},{capturedAt:'x'.repeat(65)},{content:'x'.repeat(3001)},{id:'bad\u0000'},{id:'bad\ud800'},{extra:'forbidden'}]){
+   f.spec.externalResearch=true;const task=await f.create();
+   await runOne({repository:f.repository,providers:new Map([['simulated',simulatedProvider]]),workerId:'director-fixture'},task);
+   const before=calls;
+   assert.equal((await runOne({...deps,sourceHosts:new Set(['example.org']),retrieve:async()=>[{...source,...change}]},task)).uncertain,true);assert.equal(calls,before,'ZERO provider calls for invalid metadata');
+  }
+  assert.throws(()=>runtimeResultBytes({summary:'bad\u0000'}));assert.throws(()=>runtimeResultBytes({summary:'bad\ud800'}));
+ }finally{await f.db.close();}
+});
+
+test('verified but uncited sources remain intact in canonical result',async()=>{
+ const f=await fixture();try{
+  f.spec.externalResearch=true;const id=await f.create();const content='Uncited verified fixture';
+  const sources=await Promise.all(['cited','uncited'].map(async id=>({id,url:'https://example.org/'+id,content,sha256:await hashText(content),capturedAt:new Date().toISOString()})));
+  const provider:Provider={id:'simulated',simulated:true,async start(input){return {receipt:'SIMULATED:all-sources',output:{summary:'Evidence retained',sourceIds:input.stage==='DIRECTOR'?[]:['cited']}};}};
+  const deps={repository:f.repository,providers:new Map([['simulated',provider]]),workerId:'all-sources',sourceHosts:new Set(['example.org']),retrieve:async()=>sources};
+  await runOne(deps,id);await runOne(deps,id);
+  const saved=(await f.db.query<{output_snapshot:{sources:Source[];sourceIds:string[]}}>('select output_snapshot from public.raxi_agent_tasks where id=$1',[id])).rows[0].output_snapshot;
+  assert.deepEqual(saved.sources,sources);assert.deepEqual(saved.sourceIds,['cited']);
  }finally{await f.db.close();}
 });

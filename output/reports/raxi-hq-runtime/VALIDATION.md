@@ -1,5 +1,7 @@
 # Preparación de ensayo y primer runtime — 2026-10-21
 
+Segunda corrección P1 del PR #13: [expiración y resultado serializado](P1_EXPIRY_RESULT_SIZE.md), **352/352 PASS**, build/typecheck PASS y npm audit 0. Incluye regresiones SQL, panel React montado/proyección Pixi, cuatro fuentes máximas, Unicode/escapes y límites exactos; sin ejecución IA auténtica ni despliegues.
+
 Actualización P1 del PR #13: [revocación de política](P1_POLICY_REVOCATION.md), **339/339 PASS**. Los resultados de 332 que siguen corresponden al incremento original.
 
 ## Estado recuperado

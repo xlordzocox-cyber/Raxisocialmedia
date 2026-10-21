@@ -115,12 +115,19 @@ begin
  select * into task from public.raxi_agent_tasks where id=p_task and input_snapshot->>'runtime'='true' for update;
  if not found then raise exception 'runtime task required'; end if;
  -- Expiration is an uncertain effect, not permission to charge a second time.
- if exists(select 1 from public.raxi_agent_runs where task_id=p_task and status in ('CLAIMED','RUNNING') and lease_until<=clock_timestamp()) then
-  update public.raxi_agent_runs set status='UNKNOWN',finished_at=clock_timestamp() where task_id=p_task and status in ('CLAIMED','RUNNING');
+ select * into run from public.raxi_agent_runs where task_id=p_task and status in ('CLAIMED','RUNNING') and lease_until<=clock_timestamp() for update;
+ if found then
+  update public.raxi_agent_runs set status='UNKNOWN',finished_at=clock_timestamp() where id=run.id;
   update public.raxi_agent_tasks set status='BLOCKED' where id=p_task;
   update public.raxi_agent_profiles set runtime_status='NOT_CONNECTED' where id in (select agent_id from public.raxi_agent_runs where task_id=p_task);
-  insert into public.raxi_agent_events(workspace_id,task_id,event_type,source_kind,evidence_status,occurred_at,payload)
-  values(task.workspace_id,p_task,'RUNTIME_LEASE_UNKNOWN','AGENT_EXECUTOR','VERIFIED',clock_timestamp(),'{"reconciliationRequired":true}');
+  insert into public.raxi_agent_events(workspace_id,agent_id,task_id,event_type,source_kind,evidence_status,occurred_at,payload)
+  values(run.workspace_id,run.agent_id,run.task_id,'RUNTIME_LEASE_UNKNOWN',case when run.simulated then 'MOCK' else 'AGENT_EXECUTOR' end,
+   case when run.simulated then 'UNVERIFIED' else 'VERIFIED' end,clock_timestamp(),
+   jsonb_build_object('runId',run.id,'attempt',run.attempt,'simulated',run.simulated,'stage',run.stage,'leaseUntil',run.lease_until,
+    'reconciliationRequired',true,'operationalReceiptOnly',true,'providerAcknowledged',run.provider_receipt is not null));
+  insert into public.raxi_audit_events(workspace_id,action,actor_kind,resource_kind,resource_id,details)
+  values(run.workspace_id,'RUNTIME_LEASE_UNKNOWN','SYSTEM','RUN',run.id::text,
+   jsonb_build_object('taskId',run.task_id,'attempt',run.attempt,'stage',run.stage,'simulated',run.simulated,'receipt',run.provider_receipt));
   return null;
  end if;
  if task.status<>'QUEUED' or exists(select 1 from public.raxi_agent_runs where task_id=p_task and status in ('CLAIMED','RUNNING','UNKNOWN','FAILED')) then return null; end if;
@@ -162,7 +169,8 @@ begin
   update public.raxi_agent_tasks set status='RUNNING',agent_id=run.agent_id,started_at=coalesce(started_at,clock_timestamp()),updated_at=run.lease_until-interval '90 seconds' where id=run.task_id;
   event:='RUNTIME_ACKNOWLEDGED';
  elsif p_kind='finish' then
-  if run.status<>'RUNNING' or jsonb_typeof(p_result) is distinct from 'object' or length(p_result::text)>16000 or coalesce(p_cost,0)<0 or coalesce(p_cost,0)>run.reserved_micros then raise exception 'invalid completion'; end if;
+  -- Same UTF-8 jsonb text budget as runtimeResultBytes; includes escaping and metadata.
+  if run.status<>'RUNNING' or jsonb_typeof(p_result) is distinct from 'object' or octet_length(convert_to(p_result::text,'UTF8'))>196608 or coalesce(p_cost,0)<0 or coalesce(p_cost,0)>run.reserved_micros then raise exception 'invalid completion'; end if;
   update public.raxi_agent_runs set status='SUCCEEDED',result=p_result,cost_micros=p_cost,finished_at=clock_timestamp() where id=p_run;
   update public.raxi_agent_profiles set runtime_status='NOT_CONNECTED' where id=run.agent_id;
   update public.raxi_agent_tasks set status=case when run.stage='DIRECTOR' then 'QUEUED' else 'COMPLETED' end,output_snapshot=case when run.stage='RESEARCHER' then p_result else output_snapshot end,completed_at=case when run.stage='RESEARCHER' then clock_timestamp() else null end where id=run.task_id;
