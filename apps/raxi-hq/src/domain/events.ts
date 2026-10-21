@@ -32,6 +32,6 @@ export interface HQEvent {
   taskId?: string;
   assetId?: string;
   payload?: Record<string, unknown>;
-  source: 'mock' | 'munder' | 'github' | 'aria' | 'supermemory';
+  source: 'mock' | 'munder' | 'github' | 'aria' | 'supermemory' | 'runtime';
   verified: boolean;
 }

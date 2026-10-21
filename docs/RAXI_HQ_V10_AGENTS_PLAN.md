@@ -1,5 +1,7 @@
 # Agentes reales — siguiente incremento separado
 
+Propuesta implementada para revisión: [primer recorrido Director/Investigador](RAXI_HQ_FIRST_AGENT_RUNTIME.md). Núcleo local probado con simulaciones; ningún servicio o agente real ha sido desplegado/habilitado.
+
 Estado: diseño, sin ejecutores, colas, Realtime ni agentes activos añadidos por este PR. Complementa `RAXI_HQ_REAL_AGENTS_ARCHITECTURE.md` y conserva su distinción entre presentación Pixi y ejecución auténtica.
 
 ## Entrada y autorización
