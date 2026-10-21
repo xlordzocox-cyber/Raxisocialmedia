@@ -3,6 +3,7 @@
 create table public.raxi_runtime_policies (
  workspace_id uuid primary key references public.raxi_workspaces(id),
  enabled boolean not null default false, simulated boolean not null default true,
+ authorization_version bigint not null default 1 check(authorization_version>0),
  provider text not null, model text not null,
  total_budget_micros bigint not null check(total_budget_micros>=0),
  reserved_micros bigint not null default 0 check(reserved_micros>=0),
@@ -11,6 +12,19 @@ create table public.raxi_runtime_policies (
  task_count integer not null default 0, max_output_tokens integer not null default 256 check(max_output_tokens between 32 and 1024),
  expires_at timestamptz not null, check(reserved_micros<=total_budget_micros)
 );
+create function public.raxi_runtime_policy_version() returns trigger language plpgsql security invoker set search_path='' as $$
+begin
+ if new.reserved_micros<old.reserved_micros or new.task_count<old.task_count then
+  raise exception 'runtime reservation accounting is monotonic';
+ end if;
+ new.authorization_version:=old.authorization_version;
+ if (to_jsonb(new)-array['authorization_version','reserved_micros','task_count']) is distinct from
+    (to_jsonb(old)-array['authorization_version','reserved_micros','task_count']) then
+  new.authorization_version:=old.authorization_version+1;
+ end if;
+ return new;
+end; $$;
+create trigger raxi_runtime_policy_version before update on public.raxi_runtime_policies for each row execute function public.raxi_runtime_policy_version();
 create table public.raxi_agent_runs (
  id uuid primary key default gen_random_uuid(), workspace_id uuid not null,
  task_id uuid not null, agent_id uuid not null, stage text not null check(stage in ('DIRECTOR','RESEARCHER')),
@@ -20,7 +34,7 @@ create table public.raxi_agent_runs (
  lease_token uuid not null default gen_random_uuid(), lease_until timestamptz not null,
  worker_id text not null check(length(worker_id) between 1 and 128),
  reserved_micros bigint not null check(reserved_micros>=0), cost_micros bigint check(cost_micros>=0),
- provider_receipt text, result jsonb, created_at timestamptz not null default now(), finished_at timestamptz,
+ provider_receipt text, result jsonb, dispatch_authorized_at timestamptz, created_at timestamptz not null default now(), finished_at timestamptz,
  foreign key(workspace_id,task_id) references public.raxi_agent_tasks(workspace_id,id),
  foreign key(workspace_id,agent_id) references public.raxi_agent_profiles(workspace_id,id), unique(task_id,stage,attempt)
 );
@@ -73,6 +87,26 @@ begin
  return tid;
 end; $$;
 
+create function public.raxi_runtime_assert_authorization(p_task public.raxi_agent_tasks) returns void
+language plpgsql security invoker set search_path='' as $$
+declare policy public.raxi_runtime_policies;
+begin
+ if current_user<>'service_role' then raise exception 'server required' using errcode='42501'; end if;
+ select * into policy from public.raxi_runtime_policies where workspace_id=p_task.workspace_id for share;
+ if not found or not policy.enabled or policy.expires_at<=clock_timestamp() or
+    (p_task.input_snapshot#>>'{policy,simulated}')::boolean is distinct from policy.simulated or
+    (to_jsonb(policy)-array['reserved_micros','task_count']) is distinct from
+      ((p_task.input_snapshot->'policy')-array['reserved_micros','task_count']) or
+    p_task.input_snapshot#>>'{spec,provider}' is distinct from policy.provider or
+    p_task.input_snapshot#>>'{spec,model}' is distinct from policy.model or
+    p_task.input_snapshot#>>'{spec,authorization,confirmed}' is distinct from 'true' or
+    coalesce((p_task.input_snapshot#>>'{spec,authorization,maxCostMicros}')::bigint,-1)<2*policy.per_call_micros or
+    coalesce((p_task.input_snapshot#>>'{spec,authorization,expiresAt}')::timestamptz,'-infinity')<=clock_timestamp() or
+    policy.reserved_micros>policy.total_budget_micros then
+  raise exception 'authorization expired or revoked';
+ end if;
+end; $$;
+
 create function public.raxi_runtime_claim(p_task uuid,p_worker text) returns jsonb
 language plpgsql security invoker set search_path='' as $$
 declare task public.raxi_agent_tasks; run public.raxi_agent_runs; v_stage text; aid uuid; policy public.raxi_runtime_policies;
@@ -90,10 +124,8 @@ begin
   return null;
  end if;
  if task.status<>'QUEUED' or exists(select 1 from public.raxi_agent_runs where task_id=p_task and status in ('CLAIMED','RUNNING','UNKNOWN','FAILED')) then return null; end if;
+ perform public.raxi_runtime_assert_authorization(task);
  select * into policy from public.raxi_runtime_policies where workspace_id=task.workspace_id;
- if not policy.enabled or policy.expires_at<=clock_timestamp() or
-    task.input_snapshot#>>'{spec,provider}' is distinct from policy.provider or task.input_snapshot#>>'{spec,model}' is distinct from policy.model or
-    (task.input_snapshot#>>'{spec,authorization,expiresAt}')::timestamptz<=clock_timestamp() then raise exception 'authorization expired or revoked'; end if;
  v_stage:=case when exists(select 1 from public.raxi_agent_runs where task_id=p_task and stage='DIRECTOR' and status='SUCCEEDED') then 'RESEARCHER' else 'DIRECTOR' end;
  if exists(select 1 from public.raxi_agent_runs where task_id=p_task and stage=v_stage and status='SUCCEEDED') then return null; end if;
  insert into public.raxi_agent_profiles(workspace_id,agent_key,display_name,role,runtime_status)
@@ -118,8 +150,13 @@ begin
  if run.status='SUCCEEDED' and p_kind='finish' and run.result=p_result then return to_jsonb(run); end if;
  if run.lease_until<=clock_timestamp() or run.status not in ('CLAIMED','RUNNING') then raise exception 'stale lease'; end if;
  select * into task from public.raxi_agent_tasks where id=run.task_id for update;
- if p_kind='ack' then
-  if run.status<>'CLAIMED' or coalesce(length(p_receipt),0) not between 1 and 200 then raise exception 'provider receipt required'; end if;
+ if p_kind='dispatch' then
+  if run.status<>'CLAIMED' or run.dispatch_authorized_at is not null then raise exception 'dispatch already admitted'; end if;
+  perform public.raxi_runtime_assert_authorization(task);
+  update public.raxi_agent_runs set dispatch_authorized_at=clock_timestamp() where id=p_run returning * into run;
+  return to_jsonb(run);
+ elsif p_kind='ack' then
+  if run.status<>'CLAIMED' or run.dispatch_authorized_at is null or coalesce(length(p_receipt),0) not between 1 and 200 then raise exception 'provider receipt required'; end if;
   update public.raxi_agent_runs set status='RUNNING',provider_receipt=p_receipt where id=p_run;
   update public.raxi_agent_profiles set runtime_status=case when run.simulated then 'NOT_CONNECTED' else 'CONNECTED' end where id=run.agent_id;
   update public.raxi_agent_tasks set status='RUNNING',agent_id=run.agent_id,started_at=coalesce(started_at,clock_timestamp()),updated_at=run.lease_until-interval '90 seconds' where id=run.task_id;
@@ -157,3 +194,5 @@ end; $$;
 revoke all on function public.raxi_runtime_request(uuid,uuid,uuid,jsonb),public.raxi_runtime_claim(uuid,text),public.raxi_runtime_step(uuid,uuid,text,jsonb,text,bigint),public.raxi_runtime_office(uuid) from public,anon,authenticated;
 grant execute on function public.raxi_runtime_request(uuid,uuid,uuid,jsonb),public.raxi_runtime_claim(uuid,text),public.raxi_runtime_step(uuid,uuid,text,jsonb,text,bigint) to service_role;
 grant execute on function public.raxi_runtime_office(uuid) to authenticated;
+revoke all on function public.raxi_runtime_assert_authorization(public.raxi_agent_tasks) from public,anon,authenticated;
+grant execute on function public.raxi_runtime_assert_authorization(public.raxi_agent_tasks) to service_role;

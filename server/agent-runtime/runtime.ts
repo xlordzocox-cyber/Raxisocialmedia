@@ -12,7 +12,7 @@ export interface Claim {
 export interface RuntimeRepository {
  request(actor: string,workspace: string,key: string,spec: TaskSpec): Promise<string>;
  claim(task: string,worker: string): Promise<Claim|null>;
- step(run: string,token: string,kind: 'ack'|'finish'|'unknown',result?: unknown,receipt?: string,cost?: number): Promise<unknown>;
+ step(run: string,token: string,kind: 'dispatch'|'ack'|'finish'|'unknown',result?: unknown,receipt?: string,cost?: number): Promise<unknown>;
 }
 export interface Provider {
  id: string; simulated: boolean;
@@ -68,6 +68,9 @@ export async function runOne(deps:{repository:RuntimeRepository;providers:Readon
   }
   const deadline=Math.min(Date.parse(run.lease_until),Date.parse(spec.authorization.expiresAt));
   if(!Number.isFinite(deadline)||deadline<=Date.now()+45000)throw Error('Insufficient authorized lease for provider call');
+  // Final durable admission after retrieval, immediately before entering the adapter.
+  // ACK/finish deliberately do not recheck policy: a started call must retain its receipts/cost.
+  await deps.repository.step(run.id,run.lease_token,'dispatch');
   // No tools, credentials, approval methods or SQL are available to the model.
   const output=await provider.start({stage:run.stage,model:run.model,question:spec.question,previous:claim.previous?.summary??null,sources,maxOutputTokens:claim.task.input_snapshot.policy.max_output_tokens,runId:run.id},AbortSignal.timeout(45000));
   if(output.knownCostMicros!==undefined){if(!Number.isSafeInteger(output.knownCostMicros)||output.knownCostMicros<0)throw Error('Invalid cost receipt');knownCost=output.knownCostMicros;}

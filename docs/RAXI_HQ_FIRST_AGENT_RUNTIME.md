@@ -2,6 +2,8 @@
 
 Base: main `43b1ec3213c52b74ad0006c4499790533815bf40`. Rama independiente de staging: `feature/raxi-hq-director-research-runtime`. Este incremento contiene un núcleo ejecutable de servidor y pruebas locales, no un servicio alojado activo. No autoriza costes ni despliega un ejecutor. La quinta migración/campaign-command permanecen sin desplegar; este SQL no depende de ellos.
 
+Correctivo P1: [política vigente, versión de autorización y despacho](../output/reports/raxi-hq-runtime/P1_POLICY_REVOCATION.md). Claim y despacho rechazan cambios REAL/simulación en ambos sentidos y cualquier cambio de configuración autorizada. El despacho es un punto de admisión; no hace atómicos PostgreSQL y el HTTP del proveedor ni cancela una llamada ya admitida/iniciada. Los recibos y costes posteriores a una revocación se conservan.
+
 ## Recorrido acotado
 
 1. `requestHandler` recibe JWT y comando humano `{workspaceId, requestKey, spec}`. El host debe proporcionar verificación Auth real con `getUser(token)`; no se acepta actor del cuerpo. Se limita tamaño y campos. Una autorización captura pregunta, investigación externa sí/no, proveedor/modelo, límite de coste y caducidad. `raxi_runtime_request` verifica propietario y política habilitada de servidor, reserva presupuesto y persiste tarea, aprobación TASK y auditoría en una transacción. El modelo no dispone de ese endpoint como herramienta.

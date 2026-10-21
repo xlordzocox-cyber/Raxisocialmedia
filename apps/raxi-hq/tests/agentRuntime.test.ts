@@ -152,3 +152,71 @@ test('an expiring lease prevents provider contact and a known cost overrun is re
   const cost=await f.db.query<{cost_micros:number}>('select cost_micros from public.raxi_agent_runs where task_id=$1',[id]);assert.equal(Number(cost.rows[0].cost_micros),100);
  }finally{await f.db.close();}
 });
+
+for(const live of [false,true])test(`authorization fence ${live?'REAL':'SIMULATED'}: changed policy rejects claims with ZERO provider calls and preserves reservation/request`,async()=>{
+ const f=await fixture(live);try{
+  const cases=[['simulated','not simulated'],['enabled','false'],['expires_at',"clock_timestamp()-interval '1 second'"],['provider',"'changed-provider'"],['model',"'changed-model'"],['per_call_micros','11'],['per_call_micros','9'],['max_output_tokens','512'],['total_budget_micros','9000'],['max_tasks','99']] as const;
+  let calls=0;const provider:Provider={id:f.spec.provider,simulated:!live,async start(){calls++;throw Error('No provider call permitted in rejected fixture');}};
+  for(const [column,value] of cases){
+   await f.db.query("update public.raxi_runtime_policies set enabled=true,simulated=$1,provider=$2,model=$3,total_budget_micros=10000,per_call_micros=10,max_tasks=100,max_output_tokens=256,expires_at=clock_timestamp()+interval '1 hour'",[!live,f.spec.provider,f.spec.model]);
+   const key=crypto.randomUUID(),id=await f.repository.request(owner,workspace,key,f.spec);
+   const before=(await f.db.query<{reserved_micros:string}>('select reserved_micros from public.raxi_runtime_policies')).rows[0].reserved_micros;
+   // Identifiers/expressions are a closed test matrix; never user input.
+   await f.db.exec(`update public.raxi_runtime_policies set ${column}=${value}`);
+   await assert.rejects(runOne({repository:f.repository,providers:new Map([[provider.id,provider]]),workerId:'rejected-fixture',liveEnabled:true},id));
+   assert.equal(calls,0,`${live?'REAL':'SIMULATED'} ${column}: ZERO provider calls`);
+   assert.equal((await f.db.query<{reserved_micros:string}>('select reserved_micros from public.raxi_runtime_policies')).rows[0].reserved_micros,before);
+   assert.equal(await f.repository.request(owner,workspace,key,f.spec),id,'Idempotent request survives rejection');
+  }
+  assert.equal((await f.db.query('select id from public.raxi_agent_runs')).rows.length,0);
+ }finally{await f.db.close();}
+});
+
+test('restoring a revoked policy cannot resurrect its old authorization; ZERO provider calls',async()=>{
+ const f=await fixture();try{
+  const id=await f.create();
+  await assert.rejects(f.db.exec('update public.raxi_runtime_policies set reserved_micros=0'));
+  await assert.rejects(f.db.exec('update public.raxi_runtime_policies set task_count=0'));
+  await f.db.exec('update public.raxi_runtime_policies set enabled=false');await f.db.exec('update public.raxi_runtime_policies set enabled=true,authorization_version=1');
+  let calls=0;const provider:Provider={...simulatedProvider,async start(input,signal){calls++;return simulatedProvider.start(input,signal);}};
+  await assert.rejects(runOne({repository:f.repository,providers:new Map([['simulated',provider]]),workerId:'restored-policy'},id));
+  assert.equal(calls,0);assert.equal(Number((await f.db.query<{authorization_version:string}>('select authorization_version from public.raxi_runtime_policies')).rows[0].authorization_version),3);
+ }finally{await f.db.close();}
+});
+
+for(const live of [false,true])test(`policy flips after ${live?'REAL':'SIMULATED'} claim but before dispatch: ZERO provider calls`,async()=>{
+ const f=await fixture(live);try{
+  const id=await f.create();let calls=0;
+  const provider:Provider={id:f.spec.provider,simulated:!live,async start(){calls++;throw Error('Must not enter adapter');}};
+  const repository={...f.repository,claim:async(task:string,worker:string)=>{const claim=await f.repository.claim(task,worker);await f.db.exec('update public.raxi_runtime_policies set simulated=not simulated');return claim;}};
+  assert.equal((await runOne({repository,providers:new Map([[provider.id,provider]]),workerId:'revoked-after-claim',liveEnabled:true},id)).uncertain,true);
+  assert.equal(calls,0);assert.equal(Number((await f.db.query<{reserved_micros:string}>('select reserved_micros from public.raxi_runtime_policies')).rows[0].reserved_micros),20);
+  assert.equal((await f.db.query<{status:string}>('select status from public.raxi_agent_runs')).rows[0].status,'UNKNOWN');
+ }finally{await f.db.close();}
+});
+
+test('revocation during external retrieval rejects final dispatch: ZERO additional provider calls; Director receipt retained',async()=>{
+ const f=await fixture();try{
+  f.spec.externalResearch=true;const id=await f.create();let calls=0;
+  const provider:Provider={...simulatedProvider,async start(input,signal){calls++;return simulatedProvider.start(input,signal);}};
+  const deps={repository:f.repository,providers:new Map([['simulated',provider]]),workerId:'retrieval-fence'};
+  await runOne(deps,id);assert.equal(calls,1);
+  const content='Fixture source';const sha256=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(content))),x=>x.toString(16).padStart(2,'0')).join('');
+  const result=await runOne({...deps,sourceHosts:new Set(['example.org']),retrieve:async()=>{await f.db.exec('update public.raxi_runtime_policies set enabled=false');return [{id:'source',url:'https://example.org/fixture',content,sha256,capturedAt:new Date().toISOString()}];}},id);
+  assert.equal(result.uncertain,true);assert.equal(calls,1,'ZERO additional provider calls after retrieval revocation');
+  const director=(await f.db.query<{status:string;provider_receipt:string;cost_micros:string}>("select status,provider_receipt,cost_micros from public.raxi_agent_runs where stage='DIRECTOR'")).rows[0];
+  assert.equal(director.status,'SUCCEEDED');assert.match(director.provider_receipt,/SIMULATED:/);assert.equal(Number(director.cost_micros),0);
+ }finally{await f.db.close();}
+});
+
+test('revocation after adapter entry preserves the started call receipt/cost and rejects the next stage',async()=>{
+ const f=await fixture();try{
+  const id=await f.create();let calls=0;
+  const provider:Provider={...simulatedProvider,async start(input,signal){calls++;await f.db.exec('update public.raxi_runtime_policies set enabled=false');return simulatedProvider.start(input,signal);}};
+  const deps={repository:f.repository,providers:new Map([['simulated',provider]]),workerId:'already-started'};
+  assert.equal((await runOne(deps,id)).stage,'DIRECTOR');
+  await assert.rejects(runOne(deps,id));assert.equal(calls,1);
+  const run=(await f.db.query<{status:string;provider_receipt:string;cost_micros:string}>('select status,provider_receipt,cost_micros from public.raxi_agent_runs')).rows[0];
+  assert.equal(run.status,'SUCCEEDED');assert.match(run.provider_receipt,/SIMULATED:/);assert.equal(Number(run.cost_micros),0);
+ }finally{await f.db.close();}
+});

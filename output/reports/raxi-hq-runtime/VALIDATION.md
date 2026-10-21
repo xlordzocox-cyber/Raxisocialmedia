@@ -1,5 +1,7 @@
 # Preparación de ensayo y primer runtime — 2026-10-21
 
+Actualización P1 del PR #13: [revocación de política](P1_POLICY_REVOCATION.md), **339/339 PASS**. Los resultados de 332 que siguen corresponden al incremento original.
+
 ## Estado recuperado
 
 Checkout inicialmente limpio en `feature/raxi-hq-v1.0-campaign-strategy-persistence`, HEAD `27a7efe`. Se verificó que estaba integrado en origin/main y main avanzó únicamente por fast-forward a `43b1ec3213c52b74ad0006c4499790533815bf40`. No se descartaron cambios ni quedaron commits locales fuera de ese historial.
