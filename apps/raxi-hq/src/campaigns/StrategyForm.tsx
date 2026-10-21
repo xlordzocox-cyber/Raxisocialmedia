@@ -25,10 +25,10 @@ function nextRow(rows: readonly StrategyDeliverable[], campaign: CampaignRecord)
   return { id: `STRATEGY-ITEM-${String(number).padStart(3, '0')}`, channel, contentLevel,
     format: 'PHOTO', quantity: 1, purpose: '', creativeAngle: '' };
 }
-export function StrategyForm({ campaign, revision, draft, onDraftChange, onSave, onSubmitReview }: {
-  campaign: CampaignRecord; revision?: CampaignStrategyRevision; onSave: (input: CampaignStrategyInput) => boolean;
+export function StrategyForm({ campaign, revision, draft, onDraftChange, onSave, onSubmitReview, real = false }: {
+  campaign: CampaignRecord; revision?: CampaignStrategyRevision; onSave: (input: CampaignStrategyInput) => boolean | Promise<boolean>; real?: boolean;
   draft?: CampaignStrategyInput; onDraftChange?: (input: CampaignStrategyInput) => void;
-  onSubmitReview?: (input: CampaignStrategyInput) => boolean;
+  onSubmitReview?: (input: CampaignStrategyInput) => boolean | Promise<boolean>;
 }) {
   const eligibleChannels = campaign.channels.filter(channel => compatibleLevels(channel, campaign.contentLevels).length > 0);
   const [text, setText] = useState<Record<TextField, string>>(() => draft || revision ? Object.fromEntries(fields.map(([key]) => [key, (draft ?? revision)![key]])) as Record<TextField, string> : blank());
@@ -43,9 +43,9 @@ export function StrategyForm({ campaign, revision, draft, onDraftChange, onSave,
     setSaved(false);
   };
   if (eligibleChannels.length === 0) return <p role="alert">El Campaign Brief no tiene una combinación compatible de canal y nivel editorial. No se puede crear una matriz válida con este brief.</p>;
-  return <form className="strategy-form idea-form" aria-label="Estrategia editorial" onSubmit={event => {
+  return <form className="strategy-form idea-form" aria-label="Estrategia editorial" onSubmit={async event => {
     event.preventDefault();
-    setSaved(onSave(currentInput()));
+    setSaved(await onSave(currentInput()));
   }}>
     <h5>Plan editorial · revisión {revision?.revision ?? 1}</h5>
     <p className="idea-form-hint">Escribe decisiones y criterios reales de Luis. Las piezas son propuestas de producción, no assets existentes.</p>
@@ -67,6 +67,6 @@ export function StrategyForm({ campaign, revision, draft, onDraftChange, onSave,
       </div>)}
       <button type="button" disabled={rows.length >= MAX_STRATEGY_ROWS} onClick={() => { const next = [...rows, nextRow(rows, campaign)]; setRows(next); onDraftChange?.(currentInput(text, next)); setSaved(false); }}>Añadir entregable</button>
     </fieldset>
-    <div className="idea-form-actions"><button type="submit">Guardar estrategia local</button>{onSubmitReview && <button type="button" onClick={() => onSubmitReview(currentInput())}>Enviar a revisión</button>}{saved && <span role="status">Borrador guardado en esta sesión.</span>}</div>
+    <div className="idea-form-actions"><button type="submit">{real ? 'Guardar estrategia real' : 'Guardar estrategia local'}</button>{onSubmitReview && <button type="button" onClick={() => onSubmitReview(currentInput())}>Enviar a revisión</button>}{saved && <span role="status">{real ? 'Guardado confirmado por PostgreSQL.' : 'Borrador guardado en esta sesión.'}</span>}</div>
   </form>;
 }

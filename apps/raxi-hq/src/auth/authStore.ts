@@ -1,5 +1,6 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 import type { RealIdeaStore } from '../persistence/realIdeaStore';
+import type { RealCampaignStore } from '../persistence/realCampaignStore';
 
 type AuthApi = Pick<SupabaseClient['auth'], 'getUser' | 'onAuthStateChange' | 'signInWithPassword' | 'signOut'>;
 export type AuthState = { status: 'loading' | 'signedOut' | 'signedIn' | 'unconfigured'; user: User | null; error: string | null };
@@ -10,6 +11,7 @@ export class AuthStore {
   private revision = 0;
   private loggingOut = false;
   private realIdeas: RealIdeaStore | null = null;
+  private realCampaigns: { workspace: string; store: RealCampaignStore } | null = null;
 
   constructor(private auth: AuthApi | null) {
     this.state = { status: auth ? 'loading' : 'unconfigured', user: null, error: null };
@@ -21,12 +23,18 @@ export class AuthStore {
     if (state.status !== 'signedIn' || state.user?.id !== this.state.user?.id) {
       this.realIdeas?.dispose();
       this.realIdeas = null;
+      this.realCampaigns?.store.dispose(); this.realCampaigns = null;
     }
     this.state = state; this.listeners.forEach(listener => listener());
   }
   getRealIdeaStore = (create: (ownerId: string) => RealIdeaStore): RealIdeaStore => {
     if (this.state.status !== 'signedIn' || !this.state.user) throw new Error('Se requiere una sesión verificada.');
     return this.realIdeas ??= create(this.state.user.id);
+  };
+  getRealCampaignStore = (workspace: string, create: (ownerId: string) => RealCampaignStore): RealCampaignStore => {
+    if (this.state.status !== 'signedIn' || !this.state.user) throw new Error('Se requiere una sesión verificada.');
+    if (this.realCampaigns?.workspace !== workspace) { this.realCampaigns?.store.dispose(); this.realCampaigns = { workspace, store: create(this.state.user.id) }; }
+    return this.realCampaigns.store;
   };
 
   // Validate against Auth instead of trusting the user object in local storage.

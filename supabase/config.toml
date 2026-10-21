@@ -2,3 +2,7 @@ project_id = "raxi-hq"
 
 [functions.create-real-idea]
 verify_jwt = true
+
+# Proposed v1.0 service. Deployment requires review and authorization.
+[functions.campaign-command]
+verify_jwt = true

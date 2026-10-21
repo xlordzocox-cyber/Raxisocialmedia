@@ -28,6 +28,7 @@ export const ideaProvenanceLabel: Record<IdeaProvenance, string> = {
   MOCK: 'MOCK',
   MOCK_SESSION_MODIFIED: 'MOCK · MODIFICADO EN SESIÓN',
   LOCAL_SESSION: 'LOCAL · SESIÓN',
+  REAL: 'REAL · SUPABASE',
 };
 
 export const ideaChannelLabel: Record<IdeaChannel, string> = {

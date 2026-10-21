@@ -2,12 +2,24 @@ import { useEffect, useState, useSyncExternalStore } from 'react';
 import { IdeaCenterPanel } from '../ideas/IdeaCenterPanel';
 import { IdeasBuilding } from '../campus/CampusOverview';
 import type { RealIdeaStore } from './realIdeaStore';
+import type { RealCampaignStore } from './realCampaignStore';
+import { RealCampaignCenter } from './RealCampaignCenter';
+const noSubscription = () => () => {};
+const noCampaign = () => null;
 
-export function RealIdeaCenter({ store }: { store: RealIdeaStore }) {
+export function RealIdeaCenter({ store, campaigns }: { store: RealIdeaStore; campaigns?: (workspace: string) => RealCampaignStore }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const [open, setOpen] = useState(true);
   const [selectedId, setSelectedId] = useState<string>();
   const selectionKey = state.workspace ? `raxi-hq:idea-selection:${state.workspace.ownerId}:${state.workspace.id}` : undefined;
+  const campaignStore = state.workspace && campaigns ? campaigns(state.workspace.id) : null;
+  const campaignState = useSyncExternalStore(campaignStore?.subscribe ?? noSubscription, campaignStore?.getSnapshot ?? noCampaign, campaignStore?.getSnapshot ?? noCampaign);
+  useEffect(() => {
+    if (state.savedId) void campaignStore?.synchronizeIdea(state.savedId);
+    else void campaignStore?.resume();
+  }, [campaignStore, state.savedId]);
+  const campaignIdeasCurrent = !!campaignState?.snapshot && state.ideas.every(({ idea }) =>
+    campaignState.snapshot!.ideas.some(canonical => canonical.id === idea.id && canonical.updatedAt === idea.updatedAt && canonical.status === idea.status));
   // This is a visual subscription only; AuthStore owns session invalidation.
   useEffect(() => { void store.resume(); }, [store]);
   useEffect(() => {
@@ -40,8 +52,14 @@ export function RealIdeaCenter({ store }: { store: RealIdeaStore }) {
         traces: Object.fromEntries(state.ideas.map(item => [item.idea.id, item])),
         saving: state.phase === 'saving' || state.phase === 'loading', savedId: state.savedId, selectedId, onSelect: select,
         onCreate: input => store.save(input),
+        transitionsBusy: campaignState?.phase !== 'ready' || !campaignIdeasCurrent || state.phase !== 'ready' || store.hasPendingWrite() || !!campaignState?.pending,
+        onTransition: campaignStore && campaignState?.phase === 'ready' && campaignIdeasCurrent && !store.hasPendingWrite() && !campaignState.pending ? async (idea, type) => {
+          const saved = await campaignStore.execute({ type, ideaId: idea.id, expectedUpdatedAt: idea.updatedAt, confirmed: true });
+          if (saved) await store.load(); return saved;
+        } : undefined,
       }} />
       {state.phase !== 'saving' && <button type="button" onClick={() => { void store.load(); }}>Recargar desde Supabase</button>}
+      {campaignStore && <RealCampaignCenter store={campaignStore} ideas={store} />}
     </>}
   </section>;
 }

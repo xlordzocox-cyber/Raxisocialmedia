@@ -1,5 +1,7 @@
 # Oficina con agentes reales — propuesta para la siguiente fase
 
+Revisión de planificación v1.0: `RAXI_HQ_V10_AGENTS_PLAN.md` concreta la entrada desde campañas/Strategy persistentes. Sigue siendo un incremento separado, sin runtime habilitado.
+
 Estado: **diseño futuro, no implementado en v0.9**. La oficina actual permanece en `LIVE_READ_ONLY / Munder Difflin / DISCONNECTED`, sin ejecutores, agentes ni actividad inventada. Este documento no habilita Realtime, nuevas tablas, motores, aprobaciones operativas ni consumo de proveedores.
 
 ## Responsabilidades y recorrido

@@ -10,12 +10,14 @@ import { supabase } from './auth/client';
 import { RealIdeaStore, type RealIdeaRepository } from './persistence/realIdeaStore';
 import { createSupabaseIdeaRepository } from './persistence/supabaseIdeaRepository';
 import { RealIdeaCenter } from './persistence/RealIdeaCenter';
+import { RealCampaignStore, createCampaignRepository, type CampaignRepository } from './persistence/realCampaignStore';
 
 const defaultIdeaRepository = (ownerId: string) => createSupabaseIdeaRepository(supabase!, ownerId);
+const defaultCampaignRepository = supabase ? () => createCampaignRepository(supabase!) : undefined;
 
-export default function App({ ideaRepository = defaultIdeaRepository }: { ideaRepository?: (ownerId: string) => RealIdeaRepository } = {}) {
+export default function App({ ideaRepository = defaultIdeaRepository, campaignRepository = defaultCampaignRepository }: { ideaRepository?: (ownerId: string) => RealIdeaRepository; campaignRepository?: (ownerId: string) => CampaignRepository } = {}) {
   const state = useHQState();
-  const { signOut, getRealIdeaStore } = useAuth();
+  const { signOut, getRealIdeaStore, getRealCampaignStore } = useAuth();
   const [campusMode, setCampusMode] = useState<'REAL' | 'DEMO'>('REAL');
   const ideaCenter = useMemo(() => campusMode === 'DEMO' ? loadMockIdeaCenter() : null, [campusMode]);
   // AuthStore owns this resource until verified session loss/account change.
@@ -48,7 +50,7 @@ export default function App({ ideaRepository = defaultIdeaRepository }: { ideaRe
       ? 'La lectura de Munder está degradada.'
       : 'La fuente Munder está desconectada.';
   return <main>
-    <header><div><h1>Raxi HQ <span>v0.9 · Persistencia REAL</span></h1><p>Campus de operaciones e ideas · fuentes independientes</p></div><button onClick={() => { void signOut(); }}>Cerrar sesión</button>
+    <header><div><h1>Raxi HQ <span>v1.0 · Campus REAL</span></h1><p>Campus de operaciones e ideas · fuentes independientes</p></div><button onClick={() => { void signOut(); }}>Cerrar sesión</button>
       <div className="controls"><button disabled={campusMode === 'REAL'} aria-pressed={state.mode === 'MOCK'} onClick={() => void hqStore.switchMode('MOCK')}>FUENTE: MOCK</button><button aria-pressed={state.mode === 'LIVE_READ_ONLY'} onClick={() => void hqStore.switchMode('LIVE_READ_ONLY')}>FUENTE: MUNDER EN VIVO · SOLO LECTURA</button>{state.mode === 'MOCK' ? <button onClick={() => hqStore.restartDemo()}>Reiniciar demo</button> : <button onClick={() => void hqStore.refreshLive()}>Reintentar lectura</button>}</div></header>
     <div className="controls" role="group" aria-label="Datos del Campus">
       <button type="button" aria-pressed={campusMode === 'REAL'} onClick={() => { void hqStore.switchMode('LIVE_READ_ONLY'); setCampusMode('REAL'); }}>Campus REAL</button>
@@ -56,7 +58,7 @@ export default function App({ ideaRepository = defaultIdeaRepository }: { ideaRe
     </div>
     {campusMode === 'DEMO'
       ? <CampusOverview ideas={ideaCenter!.ideas} />
-      : <RealIdeaCenter store={realIdeas} />}
+      : <RealIdeaCenter store={realIdeas} campaigns={campaignRepository ? workspace => getRealCampaignStore(workspace, owner => new RealCampaignStore(campaignRepository(owner), owner, workspace)) : undefined} />}
     <section className="campaign"><b>{state.mode === 'MOCK' ? campaign ? 'Centro de Operaciones · Office v0.5 · Demo MOCK' : 'Cargando…' : 'Centro de Operaciones · Office v0.5 · Munder en vivo · solo lectura'}</b><span>{state.mode === 'MOCK' ? `${campaign?.progress ?? 0}% · ${campaign?.status}` : `${state.sourceHealth.connection} · ${connectionLabel}`}</span></section>
     <div className="workspace"><section className="office"><div className="office-toolbar"><span>Arrastra el suelo · rueda para zoom · click para inspeccionar</span><div><button aria-label="Alejar cámara" onClick={()=>sceneRef.current?.zoom(0.85)}>−</button><output aria-label="Zoom de cámara">{zoomPercent}%</output><button aria-label="Acercar cámara" onClick={()=>sceneRef.current?.zoom(1.18)}>+</button><button aria-pressed={focusCritical} onClick={()=>{const enabled=!focusCritical;setFocusCritical(enabled);sceneRef.current?.setCriticalEventFocus(enabled);}}>Seguir críticos</button><button onClick={()=>sceneRef.current?.resetCamera()}>Centrar</button></div></div><div ref={host} className="canvas-host" />{hovered && <div className="hover-card"><b>{hovered.displayName}</b><span>{hovered.role}</span><span>{hovered.status} · {hovered.zone}</span><span>{hovered.securityState}</span></div>}{error && <p role="alert">{error}</p>}</section>
       <aside><h2>Agentes</h2><div className="agent-list">{Object.values(state.agents).map((agent) => <button key={agent.id} aria-pressed={agent.id === state.selectedAgentId} onClick={() => hqStore.selectAgent(agent.id)}>{agent.displayName}<span>{getStatusVisual(agent.status).label}</span></button>)}</div>{state.mode === 'LIVE_READ_ONLY' && Object.keys(state.agents).length === 0 && <div className="empty-agents" role="status"><strong>Sin agentes cargados</strong><p>{liveEmptyMessage}</p></div>}
