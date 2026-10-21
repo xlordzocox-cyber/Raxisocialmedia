@@ -5,7 +5,7 @@ import { ideaChannelLabel, ideaPriorityLabel } from '../ideas/ideaPresentation';
 import { CAMPAIGN_CONTENT_LEVELS, type CampaignBriefInput, type CampaignContentLevel } from './campaignContracts';
 import { contentLevelLabel } from './campaignPresentation';
 
-export function CampaignBriefForm({ handoff, onCreate, onCancel }: { handoff: IdeaHandoffToHQ; onCreate: (brief: CampaignBriefInput) => boolean; onCancel: () => void }) {
+export function CampaignBriefForm({ handoff, onCreate, onCancel, real = false }: { handoff: IdeaHandoffToHQ; onCreate: (brief: CampaignBriefInput) => boolean | Promise<boolean>; onCancel: () => void; real?: boolean }) {
   const [title, setTitle] = useState(handoff.title);
   const [objective, setObjective] = useState('');
   const [priority, setPriority] = useState<IdeaPriority>(handoff.priority);
@@ -18,10 +18,10 @@ export function CampaignBriefForm({ handoff, onCreate, onCancel }: { handoff: Id
   const toggle = <T extends string,>(items: T[], item: T, set: (value: T[]) => void) => set(items.includes(item) ? items.filter(value => value !== item) : [...items, item]);
   const input: CampaignBriefInput = { title, objective, priority, channels, contentLevels, keyMessage,
     cta: cta || undefined, notes: notes || undefined };
-  return <form className="campaign-brief idea-form" aria-label="Campaign Brief" onSubmit={event => {
+  return <form className="campaign-brief idea-form" aria-label="Campaign Brief" onSubmit={async event => {
     event.preventDefault();
     if (!confirm) { setConfirm(true); return; }
-    if (onCreate(input)) setConfirm(false);
+    if (await onCreate(input)) setConfirm(false);
   }}>
     <h4>Campaign Brief · {handoff.ideaId}</h4>
     <p className="idea-form-hint">Luis confirma el contexto editorial antes de crear una campaña interna. Nada se envía fuera del HQ.</p>
@@ -33,7 +33,7 @@ export function CampaignBriefForm({ handoff, onCreate, onCancel }: { handoff: Id
     <label className="campaign-wide">Mensaje clave<textarea required rows={3} maxLength={1500} value={keyMessage} onChange={event => { setKeyMessage(event.target.value); setConfirm(false); }} /></label>
     <label className="campaign-wide">CTA opcional<textarea rows={2} maxLength={500} value={cta} onChange={event => { setCta(event.target.value); setConfirm(false); }} /></label>
     <label className="campaign-wide">Notas opcionales<textarea rows={3} maxLength={2000} value={notes} onChange={event => { setNotes(event.target.value); setConfirm(false); }} /></label>
-    {confirm && <p className="campaign-confirm">Confirmar creación de una campaña DRAFT solo durante esta sesión. Esta acción aceptará la propuesta.</p>}
+    {confirm && <p className="campaign-confirm">{real ? 'Confirmar creación persistente de una campaña DRAFT. Solo se confirma tras PostgreSQL.' : 'Confirmar creación de una campaña DRAFT solo durante esta sesión. Esta acción aceptará la propuesta.'}</p>}
     <div className="idea-form-actions"><button type="submit">{confirm ? 'Crear campaña interna' : 'Revisar y confirmar brief'}</button><button type="button" onClick={onCancel}>Cancelar</button></div>
   </form>;
 }

@@ -98,7 +98,7 @@ export function validateCampaignRecord(value: unknown): CampaignRecord {
   const status = own(raw, 'status');
   const provenance = own(raw, 'provenance');
   if (typeof status !== 'string' || !CAMPAIGN_STATUSES.includes(status as CampaignStatus)) throw new Error('Estado de campaña inválido.');
-  if (provenance !== 'MOCK' && provenance !== 'MOCK_SESSION_MODIFIED' && provenance !== 'LOCAL_SESSION') throw new Error('Provenance inválida.');
+  if (provenance !== 'MOCK' && provenance !== 'MOCK_SESSION_MODIFIED' && provenance !== 'LOCAL_SESSION' && provenance !== 'REAL') throw new Error('Provenance inválida.');
   const result: CampaignRecord = { ...brief, id: campaignId(own(raw, 'id')), sourceIdeaId: safeId(own(raw, 'sourceIdeaId')),
     sourceHandoffSentAt: validateIdeaTimestamp(own(raw, 'sourceHandoffSentAt')), provenance, status: status as CampaignStatus,
     createdAt: validateIdeaTimestamp(own(raw, 'createdAt')), updatedAt: validateIdeaTimestamp(own(raw, 'updatedAt')) };

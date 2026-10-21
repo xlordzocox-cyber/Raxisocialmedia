@@ -14,6 +14,8 @@ export interface PersistedIdeaPresentation {
   selectedId?: string;
   onSelect: (id: string) => void;
   onCreate: (input: ManualIdeaInput) => Promise<boolean>;
+  transitionsBusy?: boolean;
+  onTransition?: (idea: IdeaRecord, action: 'REVIEW_IDEA' | 'APPROVE_IDEA' | 'HANDOFF_IDEA') => Promise<boolean>;
 }
 const localDate = new Intl.DateTimeFormat('es-MX', { timeZone: 'America/Mexico_City', dateStyle: 'medium', timeStyle: 'medium' });
 
@@ -36,6 +38,7 @@ export function IdeaCenterPanel({ id, ideas, open, session, onAction: sessionAct
   const [reviewDraftId, setReviewDraftId] = useState<string>();
   const [deleteDraftId, setDeleteDraftId] = useState<string>();
   const [sendIdeaId, setSendIdeaId] = useState<string>();
+  const [pendingReal, setPendingReal] = useState<{ idea: IdeaRecord; type: 'REVIEW_IDEA' | 'APPROVE_IDEA' | 'HANDOFF_IDEA' }>();
   useEffect(() => { if (persistence?.savedId) setForm(undefined); }, [persistence?.savedId]);
   const selected = getIdeaById(ordered, (persistence ? persistence.selectedId : selectedId) ?? '') ?? ordered[0];
   const trace = selected ? persistence?.traces[selected.id] : undefined;
@@ -98,7 +101,8 @@ export function IdeaCenterPanel({ id, ideas, open, session, onAction: sessionAct
             {selected.status === 'APPROVED_FOR_HQ' && <><button type="button" onClick={() => setSendIdeaId(selected.id)}>Enviar al Centro de Operaciones</button><button type="button" onClick={() => onAction({ type: 'TRANSITION', ideaId: selected.id, to: 'ARCHIVED' })}>Archivar</button></>}
             {selected.status === 'REJECTED' && <button type="button" onClick={() => onAction({ type: 'TRANSITION', ideaId: selected.id, to: 'ARCHIVED' })}>Archivar</button>}
           </div>}
-          {persistence && <div className="idea-lifecycle" aria-label="Transiciones persistentes pendientes"><p>Las decisiones y transiciones persistentes se habilitarán en un próximo incremento.</p>{['Revisar', 'Aprobar', 'Archivar', 'Enviar a Operaciones'].map(label => <button key={label} type="button" disabled title="Transición persistente todavía no implementada">{label}</button>)}</div>}
+          {persistence && <div className="idea-lifecycle" aria-label="Transiciones persistentes pendientes">{persistence.onTransition ? <><p>Decisiones humanas auditadas y ligadas a la versión actual de la idea.</p>{([['Revisar', 'REVIEW_IDEA', 'PROPOSED'], ['Aprobar', 'APPROVE_IDEA', 'UNDER_REVIEW'], ['Enviar a Operaciones', 'HANDOFF_IDEA', 'APPROVED_FOR_HQ']] as const).map(([label, type, status]) => <button key={type} disabled={persistence.transitionsBusy || selected.status !== status} onClick={() => setPendingReal({ idea: selected, type })}>{label}</button>)}<button disabled>Archivar</button></> : <><p>Las decisiones persistentes requieren el servicio desplegado y confirmado.</p>{['Revisar', 'Aprobar', 'Archivar', 'Enviar a Operaciones'].map(label => <button key={label} type="button" disabled title="Transición persistente todavía no implementada">{label}</button>)}</>}</div>}
+          {pendingReal?.idea.id === selected.id && <div className="idea-confirm" role="group" aria-label="Confirmar decisión persistente"><p>Confirmar decisión sobre {pendingReal.idea.id}, versión {pendingReal.idea.updatedAt}. No autoriza producción de imágenes ni publicación.</p><button disabled={persistence?.transitionsBusy || !persistence?.onTransition} onClick={async () => { if (await persistence?.onTransition?.(pendingReal.idea, pendingReal.type)) setPendingReal(undefined); }}>Confirmar decisión</button><button onClick={() => setPendingReal(undefined)}>Volver</button></div>}
           {sendIdeaId === selected.id && selected.status === 'APPROVED_FOR_HQ' && <div className="idea-confirm" role="group" aria-label="Confirmar envío al Centro de Operaciones"><p>Esta acción enviará la propuesta al Centro de Operaciones. No crea una campaña y no publica contenido.</p><button type="button" onClick={() => { if (onAction?.({ type: 'SEND_TO_HQ', ideaId: selected.id })) setSendIdeaId(undefined); }}>Confirmar envío</button><button type="button" onClick={() => setSendIdeaId(undefined)}>Cancelar</button></div>}
           <p className="idea-detail-summary">{selected.summary}</p>
           <dl className="idea-detail-facts">
@@ -115,7 +119,7 @@ export function IdeaCenterPanel({ id, ideas, open, session, onAction: sessionAct
           <div className="idea-detail-group"><h5>Canales sugeridos</h5><div className="idea-chips">{selected.suggestedChannels.length ? selected.suggestedChannels.map(channel => <span key={channel}>{ideaChannelLabel[channel]}</span>) : <span>Sin canales sugeridos</span>}</div></div>
           <div className="idea-detail-group"><h5>Tags</h5><div className="idea-chips">{selected.tags.length ? selected.tags.map(tag => <span key={tag}>{tag}</span>) : <span>Sin tags</span>}</div></div>
           <div className="idea-detail-group"><h5>Evidencias</h5>{selected.evidence.length ? <ul className="idea-evidence">{selected.evidence.map(item => <li key={item.id}><span>{item.kind}</span><strong>{item.label}</strong>{item.sourceRef && <code>{item.sourceRef}</code>}{item.capturedAt && <time dateTime={item.capturedAt}>{item.capturedAt}</time>}</li>)}</ul> : <p>Sin evidencias registradas.</p>}</div>
-          {persistence && <div className="idea-detail-group"><h5>Historial y auditoría</h5>{trace ? <p>Creación manual confirmada en PostgreSQL · auditoría <code>{trace.auditId}</code>.</p> : <p>Auditoría no disponible.</p>}<p>No se han habilitado decisiones de revisión persistentes. Una referencia manual no acredita investigación verificada.</p></div>}
+          {persistence && <div className="idea-detail-group"><h5>Historial y auditoría</h5>{trace ? <p>Creación manual confirmada en PostgreSQL · auditoría <code>{trace.auditId}</code>.</p> : <p>Auditoría no disponible.</p>}<p>{persistence.onTransition ? 'Las decisiones posteriores se registran en la auditoría de operaciones. Una referencia manual no acredita investigación verificada.' : 'Las decisiones persistentes requieren el servicio desplegado. Una referencia manual no acredita investigación verificada.'}</p></div>}
           {trace && <details className="idea-trace"><summary>Trazabilidad técnica</summary><dl className="idea-detail-secondary"><div><dt>ID PostgreSQL</dt><dd><code>{trace.databaseId}</code></dd></div><div><dt>Workspace</dt><dd><code>{trace.workspaceId}</code></dd></div><div><dt>Propietario autenticado</dt><dd><code>{trace.ownerId}</code></dd></div><div><dt>Auditoría de creación</dt><dd><code>{trace.auditId}</code></dd></div></dl></details>}
           {(selected.duplicateOfIdeaId || selected.relatedCampaignIds?.length || selected.approvedAt || selected.sentToHqAt) && <dl className="idea-detail-secondary">
             {selected.duplicateOfIdeaId && <div><dt>Duplicada de</dt><dd>{selected.duplicateOfIdeaId}</dd></div>}

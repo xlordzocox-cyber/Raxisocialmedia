@@ -1,11 +1,12 @@
 {
   "name": "raxi-hq",
-  "version": "0.5.0",
+  "version": "1.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node scripts/build-campaign-function.mjs --check && tsc -b && vite build",
+    "build:campaign-function": "node scripts/build-campaign-function.mjs",
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "test": "node scripts/test.mjs"
@@ -20,6 +21,7 @@
     "vite": "^7.1.10"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.10",
     "@types/react": "^19.2.2",
     "@types/react-dom": "^19.2.2",
     "@types/react-test-renderer": "19.1.0",

@@ -3,7 +3,7 @@ import { createManualIdeaDraft, validateMultilineText, validateSingleLineText, t
 import { createIdeaHandoff, MAX_IDEAS, MAX_REASON_LENGTH, MAX_SUMMARY_LENGTH, transitionIdea, validateIdeaCollection, validateIdeaRecord, validateIdeaTimestamp } from './ideaValidation';
 
 export type Clock = () => string;
-export type IdeaProvenance = 'MOCK' | 'MOCK_SESSION_MODIFIED' | 'LOCAL_SESSION';
+export type IdeaProvenance = 'MOCK' | 'MOCK_SESSION_MODIFIED' | 'LOCAL_SESSION' | 'REAL';
 /** Session-only envelope; canonical handoff content remains unchanged. */
 export interface OperationsInboxItem { handoff: IdeaHandoffToHQ; provenance: IdeaProvenance }
 export type IdeaAuditAction = 'DRAFT_CREATED' | 'DRAFT_DELETED' | 'DRAFT_PROMOTED' | 'REVIEW_STARTED' | 'APPROVED_FOR_HQ' | 'REJECTED' | 'ARCHIVED' | 'SENT_TO_HQ';

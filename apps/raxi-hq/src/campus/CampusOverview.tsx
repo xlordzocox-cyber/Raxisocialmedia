@@ -12,7 +12,7 @@ const OPERATIONS_INBOX_ID = 'operations-inbox';
 const CAMPAIGN_WORKSPACE_ID = 'campaign-workspace';
 const runtimeClock: Clock = () => new Date().toISOString();
 
-function OperationsBuilding() {
+export function OperationsBuilding() {
   return <svg viewBox="0 0 220 150" aria-hidden="true" focusable="false">
     <ellipse cx="111" cy="129" rx="99" ry="15" fill="#030910" opacity=".65" />
     <path d="M11 113 111 69 209 111 110 147Z" fill="#11324a" stroke="#3b7892" strokeWidth="2" />
