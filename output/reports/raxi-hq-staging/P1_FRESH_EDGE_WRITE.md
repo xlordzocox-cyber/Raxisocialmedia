@@ -21,4 +21,6 @@ Las cuatro pruebas usan fixtures PGlite aislados, Auth de prueba y transporte lo
 
 Validación de esta rama: **325/325** pruebas de aplicación, incluido el nuevo grupo de cuatro regresiones, y **1/1** guard de staging; build y typecheck PASS. Auditoría de dependencias: cero vulnerabilidades. El readback compara el estado JSON sin el reloj de lectura, reconstruyendo los timestamps de la transición desde el timestamp confirmado; los opcionales `undefined` del dominio se comparan con la misma omisión que aplica HTTP/JSON.
 
+Compatibilidad adicional: el commit de código `d5c13717fa2a468ad8fe18983a6cb5090ed590d2` se combinó virtualmente con main `c6976e63879efdf52edcc51aeb8cb135ebf2394e` mediante `git merge-tree`, sin crear merge commit. Árbol `f4bb138c0ba568f636554d3948a0e2cc381db8cf`, sin conflictos. Una copia aislada por `git archive` pasó instalación reproducible, build/typecheck frontend/servidor, **356/356** pruebas de aplicación y **1/1** guard. Incluye los correctivos anteriores de políticas, presupuesto, expiración, resultados e idempotencia del runtime. El verificador LF/CRLF compartido permanece intacto. Esta actualización posterior solo añade evidencia documental.
+
 La corrección documental del catálogo corresponde exclusivamente al PR #14; no se incorpora aquí. No se modifica la corrección LF/CRLF compartida con main.
