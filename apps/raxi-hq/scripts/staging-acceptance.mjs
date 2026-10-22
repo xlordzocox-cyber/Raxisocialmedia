@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { Client } from 'pg';
 import { stagingTarget } from './staging-target.mjs';
+import { verifyFreshEdgeWrite } from './staging-edge-write.mjs';
 import { applyCampaignOperation } from '../../../supabase/functions/_shared/campaign-domain.js';
 const target = stagingTarget(process.env); // Validate before any network operation.
 if (!process.argv.includes('--run')) throw new Error('Explicit --run required');
@@ -50,13 +51,11 @@ try {
  await first.query('begin'); await first.query('set local role service_role');
  await first.query('select public.raxi_campaign_commit($1,$2,$3)',[userA.id,JSON.stringify(rolled),JSON.stringify(applyCampaignOperation(snapshot,rolled))]); await first.query('rollback');
  assert.equal((await read()).version,snapshot.version); assert.ok(!(await read()).receipts.some(r=>r.operationId===rolled.operationId));
- // Lost-response recovery: intentionally discard the response body, then recover from canonical RPC.
- assert.ok((await request('/functions/v1/campaign-command',a.access_token,command)).ok);
- assert.ok((await read()).receipts.some(r=>r.operationId===command.operationId));
- await ok(await request('/functions/v1/campaign-command',a.access_token,command));
- assert.equal((await read()).version,snapshot.version);
- const changed={...command,action:{...command.action,confirmed:false}}; assert.equal((await request('/functions/v1/campaign-command',a.access_token,changed)).status,409);
+ // New operation: neither the concurrency command nor the rolled-back command can prove Edge writes.
+ const edgeCommand={workspaceId:workspace.id,operationId:crypto.randomUUID(),expectedVersion:snapshot.version,
+  action:{type:'APPROVE_IDEA',ideaId:externalId,expectedUpdatedAt:snapshot.ideas.find(i=>i.id===externalId).updatedAt,confirmed:true}};
+ snapshot=await verifyFreshEdgeWrite({read,send:body=>request('/functions/v1/campaign-command',a.access_token,body),command:edgeCommand});
  await ok(await request('/auth/v1/logout',a.access_token,{})); const again=await login('A');
- assert.equal((await ok(await rpc('raxi_campaign_snapshot',{p_workspace:workspace.id},again.access_token))).ideas.find(i=>i.id===externalId).status,'UNDER_REVIEW');
- console.log(JSON.stringify({suite:'ISOLATED_STAGING',auth:true,rls:true,crossAccountDenied:true,independentConnections:3,lockContention:true,idempotency:true,rollback:true,recovery:true,productionTouched:false}));
+ assert.equal((await ok(await rpc('raxi_campaign_snapshot',{p_workspace:workspace.id},again.access_token))).ideas.find(i=>i.id===externalId).status,'APPROVED_FOR_HQ');
+ console.log(JSON.stringify({suite:'ISOLATED_STAGING',auth:true,rls:true,crossAccountDenied:true,independentConnections:3,lockContention:true,freshEdgeWrite:true,idempotency:true,rollback:true,recovery:true,productionTouched:false}));
 } finally { await Promise.allSettled(clients.map(async c=>{try{await c.query('rollback');}finally{await c.end();}})); }

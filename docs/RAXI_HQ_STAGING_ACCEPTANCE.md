@@ -19,6 +19,14 @@ Desde `apps/raxi-hq`, tras revisión/autorización: `node scripts/staging-accept
 - Commit dentro de transacción externa seguido de ROLLBACK, sin avanzar versión ni dejar recibo. La suite PGlite existente cubre además fallo de constraint a mitad de commit con revisiones/entregables.
 - Descartar el cuerpo HTTP y recuperar el recibo canónico. Esto reproduce pérdida de respuesta desde el cliente, sin afirmar que se ha cortado una conexión real.
 
+### Correctivo P1: probar una escritura nueva a través de la Edge
+
+La operación de concurrencia PostgreSQL (`REVIEW_IDEA`) y la operación usada para ROLLBACK no prueban capacidad de escritura de la Edge. Después de ellas, el runner crea otro `operationId` para `APPROVE_IDEA`, con la versión y timestamp canónicos vigentes. `verifyFreshEdgeWrite` exige que ese ID no tenga recibo antes de llamar a `campaign-command`; solo la Edge recibe la orden, nunca se confirma directamente desde las conexiones PostgreSQL.
+
+Tras HTTP exitoso se descarta el cuerpo sin decodificarlo. La lectura canónica debe mostrar exactamente una versión adicional, la transición solicitada y un único recibo ligado al comando original, sin cambiar otros registros. El replay exacto devuelve el estado canónico sin otro efecto; cambiar payload bajo la misma clave exige 409 y estado intacto. El login posterior verifica `APPROVED_FOR_HQ`. La implementación alojada de `campaign-command` usa `raxi_campaign_commit`; una Edge de solo lectura o que devuelve recibos anteriores ya no puede satisfacer el ensayo.
+
+La regresión local monta el handler real con PostgreSQL embebido y un transporte sin red: comprueba una sola llamada al RPC de commit y una sola auditoría tras pérdida de cuerpo/replay/conflicto. Dos transportes negativos (solo recibos antiguos y RPC de escritura denegado) deben fallar, incluso con recibos previos válidos. Otro caso rechaza una operación ya confirmada antes de enviar HTTP. Son pruebas locales, no evidencia de despliegue o aceptación alojada. Ver [evidencia P1](../output/reports/raxi-hq-staging/P1_FRESH_EDGE_WRITE.md).
+
 Complementar en ensayo con el recorrido completo de Campaign Workspace/Strategy (guardar, revisar, aprobar, nueva revisión, historial), fallo de constraint a mitad del commit alojado y kill de conexión durante COMMIT: resolver resultado incierto por recibo antes de reintentar. La suite local de 321 pruebas y PGlite no acredita Auth alojado, despliegue Edge ni concurrencia física. El runner alojado permanece **sin ejecutar** hasta autorizar el proyecto y sus fixtures.
 
 ## Recuperación y evidencia

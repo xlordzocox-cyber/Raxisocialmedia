@@ -7,6 +7,7 @@ import { RealCampaignStore } from '../src/persistence/realCampaignStore';
 import { RealCampaignCenter } from '../src/persistence/RealCampaignCenter';
 import { RealIdeaStore } from '../src/persistence/realIdeaStore';
 import { createCampaignHandler } from '../../../supabase/functions/campaign-command/handler';
+import { verifyFreshEdgeWrite } from '../scripts/staging-edge-write.mjs';
 import { AuthStore } from '../src/auth/authStore';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { CampaignBriefForm } from '../src/campaigns/CampaignBriefForm';
@@ -216,4 +217,57 @@ test('logout discards queued reconciliation and ignores the old read without sta
  store.dispose(); const retired=store.getSnapshot(); finish(emptyCampaignSnapshot(owner,workspace,[idea])); await loading;
  assert.equal(reads,1); assert.equal(store.getSnapshot(),retired); assert.equal(retired.snapshot,null);
  await store.load(); void store.synchronizeIdea('another-idea'); assert.equal(reads,1);
+});
+
+async function stagingEdgeFixture(mode:'write'|'old-receipts'|'unwritable') {
+ const db=await campaignDatabase();
+ await db.query('insert into auth.users(id) values($1)',[owner]);
+ await db.query("insert into public.raxi_workspaces(id,owner_user_id,slug,name) values($1,$2,'edge-fixture','Local Edge fixture')",[workspace,owner]);
+ await db.query("insert into public.raxi_ideas(workspace_id,external_id,kind,title,status,source,summary,priority,payload) values($1,$2,'PROPOSAL',$3,'PROPOSED','MANUAL_LUIS',$4,'MEDIUM',$5)",[workspace,idea.id,idea.title,idea.summary,JSON.stringify(idea)]);
+ await db.exec('set role service_role');
+ const read=async()=>parseCampaignSnapshot((await db.query<{v:unknown}>('select public.raxi_campaign_snapshot($1,$2) v',[workspace,owner])).rows[0].v,owner,workspace);
+ const initial=await read();
+ const prior=operation(initial,{type:'REVIEW_IDEA',ideaId:idea.id,expectedUpdatedAt:initial.ideas[0].updatedAt,confirmed:true});
+ await db.query('select public.raxi_campaign_commit($1,$2,$3)',[owner,JSON.stringify(prior),JSON.stringify(applyCampaignOperation(initial,prior))]);
+ const before=await read();
+ const command=operation(before,{type:'APPROVE_IDEA',ideaId:idea.id,expectedUpdatedAt:before.ideas[0].updatedAt,confirmed:true});
+ let rpcWrites=0,requests=0;
+ const handler=createCampaignHandler({verifyUser:async()=>({id:owner,isAnonymous:false}),read:async()=>read(),commit:async(actor,c,next)=>{
+  rpcWrites++;if(mode==='unwritable')throw Error('Fixture denies RPC writes');
+  return (await db.query<{v:unknown}>('select public.raxi_campaign_commit($1,$2,$3) v',[actor,JSON.stringify(c),JSON.stringify(next)])).rows[0].v;
+ }});
+ const send=async(c:CampaignOperation)=>{requests++;
+  if(mode==='old-receipts')return Response.json(await read());
+  return handler(new Request('https://isolated.test/functions/v1/campaign-command',{method:'POST',headers:{Authorization:'Bearer local-fixture','Content-Type':'application/json'},body:JSON.stringify(c)}));
+ };
+ return {db,read,send,prior,command,before,counts:()=>({rpcWrites,requests})};
+}
+
+test('staging fresh Edge command commits via real handler/RPC, survives discarded body, replay and conflict exactly once',async()=>{
+ const f=await stagingEdgeFixture('write');try{
+  assert.equal(f.before.receipts.some(r=>r.operationId===f.command.operationId),false);
+  const saved=await verifyFreshEdgeWrite({read:f.read,send:f.send,command:f.command});
+  assert.deepEqual(f.counts(),{rpcWrites:1,requests:3});
+  assert.equal(saved.version,f.before.version+1);assert.equal(saved.ideas[0].status,'APPROVED_FOR_HQ');
+  assert.equal(saved.receipts.filter((r:{operationId:string})=>r.operationId===f.command.operationId).length,1);
+  const audit=await f.db.query<{n:number}>("select count(*)::integer n from public.raxi_audit_events where action='CAMPAIGN_COMMAND_COMMITTED' and details->'command'->>'operationId'=$1",[f.command.operationId]);
+  assert.equal(audit.rows[0].n,1);
+ }finally{await f.db.close();}
+});
+
+for(const mode of ['old-receipts','unwritable'] as const)test(`staging regression rejects Edge ${mode} despite previously committed PostgreSQL receipts`,async()=>{
+ const f=await stagingEdgeFixture(mode);try{
+  assert.equal(f.before.receipts.some(r=>r.operationId===f.prior.operationId),true);
+  await assert.rejects(verifyFreshEdgeWrite({read:f.read,send:f.send,command:f.command}),mode==='old-receipts'?/exactly one transition/:/Fresh Edge write failed: HTTP 503/);
+  assert.equal(f.counts().requests,1);assert.equal(f.counts().rpcWrites,mode==='unwritable'?1:0);
+  const after=await f.read();assert.equal(after.version,f.before.version);assert.equal(after.ideas[0].status,'UNDER_REVIEW');
+  assert.equal(after.receipts.some(r=>r.operationId===f.command.operationId),false);
+ }finally{await f.db.close();}
+});
+
+test('staging proof refuses a preconfirmed operation before sending any Edge request',async()=>{
+ const f=await stagingEdgeFixture('write');try{
+  await assert.rejects(verifyFreshEdgeWrite({read:f.read,send:f.send,command:f.prior}),/must have no prior receipt/);
+  assert.deepEqual(f.counts(),{rpcWrites:0,requests:0});
+ }finally{await f.db.close();}
 });
