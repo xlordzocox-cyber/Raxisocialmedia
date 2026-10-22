@@ -23,7 +23,7 @@ flowchart LR
  H --> A[Aria con orden y coste autorizados]
  A --> Q[QA visual y audiovisual real]
  Q --> F[Aprobación humana del resultado]
- F --> L[Fototeca: originales e historial]
+ F --> L[Fototeca y registro en catálogo canónico]
  J -->|cambios| S
  Q -->|defectos| V[Nueva revisión y autorización si implica coste]
  V --> J
@@ -97,10 +97,24 @@ Estos nombres describen contratos futuros, no tipos TypeScript, estados SQL ni c
 | `ReviewEvidence` | ID, clase EMPIRICAL_SOURCE/EDITORIAL_JUDGMENT/SIMULATED_AUDIENCE/MEDIA_INSPECTION/AUTOMATED_CHECK, referencias de fuente/asset/job/run, hash y tamaño cuando haya archivo, fecha, extracto o localización (fotograma/timecode/región), método y límites de inspección |
 | `HumanGateDecision` | ID, sujeto/revisión/digest, assessment de referencia, acción GENERATION/FINAL_ASSET/PUBLICATION, aprobador Auth, fecha, caducidad/revocación, decisión y alcance exacto. GENERATION liga orden/proveedor/modelo/coste máximo/moneda/cantidad; PUBLICATION liga paquete/destino/cuenta/fecha |
 | `ReviewExecutionReceipt` | Tarea/run/intento/lease e ID de ejecutor, modo de ejecución, proveedor/modelo, autorización, tiempos, recibo/coste conocido, resultado o incertidumbre. Solo el servidor confirma estos datos; no se derivan de texto del modelo |
+| `CatalogAssetBinding` | Entrada obligatoria de `content/asset-library/ASSET_CATALOG.json`: `asset_id` canónico único, `version`, `sha256` del original aprobado, `repo_path` portable y vínculo verificable al ID/versión/hash y aprobación de Fototeca. Debe declarar si la ruta contiene un original público autorizado o una referencia segura a un original privado; en este último caso, el hash del descriptor se registra por separado |
 
 Se distinguen dos ejes: **modo de ejecución** (humano, proveedor auténtico o fixture simulado) y **naturaleza de la valoración**. Una llamada auténtica de IA puede producir crítica de audiencia simulada: el recibo acredita la ejecución, nunca que la audiencia exista ni que la opinión sea empírica. Un fixture usa MOCK/UNVERIFIED y nunca alimenta actividad REAL. El servidor podrá verificar integridad/procedencia de un dictamen sin convertir su contenido subjetivo en un hecho demostrado.
 
 Los originales van a Storage privado/Fototeca con Asset ID estable, SHA-256, tamaño y referencia de versión; no a Supermemory. Una revisión usa IDs y referencias portables, sin rutas Windows, credenciales ni URLs firmadas duraderas como identidad. El contenido externo y los medios se tratan como datos no confiables; ninguna instrucción en ellos puede cambiar permisos, presupuesto o aprobaciones.
+
+### Catálogo canónico obligatorio y originales privados
+
+Todo asset visual aprobado debe registrarse en el [catálogo canónico](../content/asset-library/ASSET_CATALOG.json); el alta en Fototeca no sustituye esta obligación. El cierre del flujo de aprobación/alta exige verificar la correspondencia entre la entrada del catálogo y el asset exacto aprobado en Fototeca: mismo Asset ID externo, versión y SHA-256 de los bytes originales aprobados, con su decisión humana. No se inventa una entrada para un archivo inexistente ni se declara completado el registro por tener únicamente un hash o una ruta propuesta.
+
+`asset_id` es único en el catálogo. La versión identifica inequívocamente la versión aprobada y su historial en Fototeca; una nueva variante no reutiliza un ID ajeno y un cambio de bytes no conserva una aprobación anterior. Las versiones históricas, relaciones y decisiones permanecen trazables; cambiar la entrada vigente no borra el historial operativo ni el historial Git del catálogo.
+
+`repo_path` es una ruta relativa a la raíz del repositorio, con separadores `/`, sin rutas absolutas, prefijos Windows, `..`, URLs, tokens ni credenciales. Es una referencia portable del catálogo, **distinta** de `bucket_id`/`object_path` del original privado en Storage. El localizador privado se resuelve en servidor tras comprobar permisos; no se copia al catálogo público ni se sustituye por una URL firmada persistente.
+
+- Para un original cuya inclusión pública esté expresamente autorizada, `repo_path` puede apuntar a esos mismos bytes dentro del repositorio; su SHA-256 debe coincidir con `sha256` y con Fototeca. Aprobar visualmente un asset no autoriza hacerlo público.
+- Para un original privado —en especial FanView Feed o Chatting—, `repo_path` debe apuntar a un descriptor/referencia portable seguro, sin incluir el original, previews privados, miniaturas, Base64, URLs firmadas, ubicaciones privadas o credenciales en el repositorio público. La entrada declara que es una referencia: `sha256` sigue identificando el original aprobado en Fototeca y el SHA-256 del descriptor se conserva en un campo separado propuesto, `reference_sha256`. No se confunden ambos archivos o hashes ni se afirma que el descriptor sea una fotografía. La relación con el original solo se resuelve mediante el servicio autenticado.
+
+El formato discriminado de referencias privadas y sus validaciones requiere revisión antes de implementarlo. Este PR no añade campos, entradas, archivos de medios, descriptores ni código al catálogo actual. Si no puede registrarse una referencia sin revelar información privada, el cierre del alta queda bloqueado para revisión de acceso; nunca se resuelve copiando el original privado a un repositorio público. Un catálogo publicado solo contendrá los metadatos expresamente autorizados para esa exposición.
 
 ## Estados, transiciones y recuperación
 
@@ -110,7 +124,7 @@ Los originales van a Storage privado/Fototeca con Asset ID estable, SHA-256, tam
 | Gate humano | PENDING → APPROVED o REJECTED; revocación/caducidad invalidan su uso futuro. Solo el propietario autorizado decide. Ni jurado ni Director pueden aprobar |
 | Producción externa | Solo tras gate de generación vigente para el digest y orden exactos. Pérdida de respuesta → UNKNOWN/RECONCILIATION_REQUIRED; conserva recibos/reserva/comando y consulta al proveedor antes de otro efecto |
 | QA posterior | Resultado recibido → inspección de los archivos reales → recomendación de aprobación o cambios/bloqueo → gate final humano. Un archivo diferente requiere hash/revisión nuevos |
-| Fototeca | Guarda original e historial auténticos; solo el asset/version con gate final vigente resulta seleccionable como aprobado. Rechazados o pendientes se conservan identificados, sin presentarlos como utilizables |
+| Fototeca | Guarda original e historial auténticos y verifica el registro en el catálogo canónico. Solo el asset/version con gate final vigente y vínculo de catálogo confirmado resulta seleccionable como aprobado. Rechazados, pendientes o sin registro confirmado se conservan identificados, sin presentarlos como utilizables |
 
 Cambiar Strategy, guion, copy, medio, audio, plataforma, proveedor/modelo o alcance/coste exige volver a los controles afectados. No altera la decisión histórica: la autorización antigua deja de ser utilizable para el nuevo digest. Debe existir vínculo explícito entre revisiones y revisiones de QA; la aprobación de una versión no sirve para otra.
 
@@ -133,6 +147,8 @@ Supermemory conserva la decisión y contexto complementario. Supabase debe segui
 - Un crítico no puede aprobar su resultado; no se omite QA obligatorio mediante puntuaciones, excepciones genéricas o texto externo.
 - Sin presupuesto/autorización vigente hay cero llamadas al proveedor. Un doble clic, remount, cierre de sesión o pérdida de respuesta no duplica una generación/publicación ni borra el comando incierto.
 - Originales, fuentes, dictámenes, aprobaciones y costes conservan IDs, hashes, revisiones e historial verificables. Ninguna prueba inserta fotos inexistentes o reconstruye resultados perdidos.
+- Todo asset visual aprobado figura en `content/asset-library/ASSET_CATALOG.json` con Asset ID único, versión y SHA-256 coincidentes con Fototeca y su aprobación. Se rechazan IDs duplicados, versiones/hashes incompatibles, rutas inexistentes o no portables y referencias sin vínculo verificable. No basta un alta en Fototeca sin registro canónico confirmado.
+- Para originales públicos autorizados se verifican los bytes de `repo_path`; para privados se verifica el descriptor seguro y su `reference_sha256`, conservando por separado el hash original. Una referencia no se presenta como original ni confiere permiso de lectura o publicación. Ningún original/preview privado de FanView, credencial o localizador firmado/privado se expone en el repositorio público. La falta de un registro seguro bloquea el cierre, no relaja la privacidad.
 - Fotografía sin inspección queda VISUAL_REVIEW_REQUIRED; Reel/audio sin reproducción no obtiene PASS en esas áreas. Simulación no acredita inspección, ejecución real o audiencia empírica.
 - QA preventivo, aprobación de coste, QA posterior, aprobación de asset y aprobación de publicación se comprueban como gates distintos, con eventos confirmados por servidor.
 - Escritorio/móvil muestran estados y evidencias legibles en la interfaz original; Pixi solo proyecta eventos operativos auténticos, sin fabricar RUNNING.
