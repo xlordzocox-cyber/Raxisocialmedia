@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 await mkdir('.validation', { recursive: true });
 const domainCheck = spawnSync(process.execPath, ['scripts/build-campaign-function.mjs', '--check'], { stdio: 'inherit' });
 if (domainCheck.status !== 0) process.exit(domainCheck.status ?? 1);
-const entries = ['office.test.ts', 'ideaCenter.test.ts', 'ideaCenterUI.test.tsx', 'ideaCenterSession.test.tsx', 'campaignWorkspace.test.tsx', 'strategyStudio.test.tsx', 'ariaPilot.test.tsx', 'auth.test.tsx', 'realPersistence.test.tsx', 'appPersistenceLifecycle.test.tsx', 'realCampaignPersistence.test.tsx', 'agentRuntime.test.ts'];
+const entries = ['office.test.ts', 'ideaCenter.test.ts', 'ideaCenterUI.test.tsx', 'ideaCenterSession.test.tsx', 'campaignWorkspace.test.tsx', 'strategyStudio.test.tsx', 'ariaPilot.test.tsx', 'auth.test.tsx', 'realPersistence.test.tsx', 'appPersistenceLifecycle.test.tsx', 'realCampaignPersistence.test.tsx', 'agentRuntime.test.ts', 'supervisedSafety.test.ts'];
 await build({ entryPoints: entries.map(name => `tests/${name}`), outdir: '.validation', outExtension: { '.js': '.mjs' }, bundle: true, platform: 'node', format: 'esm', define: { 'import.meta.env': '{}' }, external: ['react', 'react-dom', 'react-router-dom', 'react-test-renderer', '@supabase/supabase-js', '@electric-sql/pglite'] });
 const result = spawnSync(process.execPath, ['--test', ...entries.map(name => `.validation/${name.replace(/\.tsx?$/, '.mjs')}`)], { stdio: 'inherit' });
 process.exitCode = result.status ?? 1;
