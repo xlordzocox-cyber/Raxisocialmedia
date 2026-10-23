@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { campaignDatabase } from './campaignDatabase';
 import { rpcRepository, requestHandler, runOne, taskSpec, runtimeResultBytes, RUNTIME_RESULT_MAX_BYTES, type Source, type Provider, type TaskSpec } from '../../../server/agent-runtime/runtime';
 import { simulatedProvider, openAIProvider } from '../../../server/agent-runtime/providers';
+import { PILOT_QUOTE, planPilotBudget } from '../../../server/agent-runtime/pilotBudget';
 import { RuntimeOfficeStore, projectRuntime } from '../src/runtime/runtimeOfficeStore';
 import { RuntimeOfficePanel } from '../src/runtime/RuntimeOfficePanel';
 import { createElement, StrictMode } from 'react';
@@ -11,6 +12,49 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import type { SupabaseClient } from '@supabase/supabase-js';
 const owner='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', workspace='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const hashText=async(content:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(content))),x=>x.toString(16).padStart(2,'0')).join('');
+const pilotPlan={inputTokensPerStage:8000,outputTokensPerStage:256,maxCostMicros:10000};
+test('offline pilot estimate bounds both stages and never represents an execution authorization',t=>{
+ t.mock.method(Date,'now',()=>Date.parse(PILOT_QUOTE.checkedAt));
+ const plan=planPilotBudget(pilotPlan);
+ assert.equal(plan.estimatedMaxMicros,1856);assert.equal(plan.proposedCeilingMicros,10000);
+ assert.equal(plan.kind,'UNAUTHORIZED_PLANNING_ONLY');assert.equal(plan.liveEnabled,false);
+ assert.equal(plan.model,'gpt-6-luna');assert.ok(Object.isFrozen(PILOT_QUOTE));
+ assert.equal(planPilotBudget({...pilotPlan,inputTokensPerStage:1,outputTokensPerStage:1}).estimatedMaxMicros,2);
+});
+for(const change of [
+ {inputTokensPerStage:8001},{outputTokensPerStage:257},{maxCostMicros:1855},
+ {maxCostMicros:10001},{inputTokensPerStage:NaN},{outputTokensPerStage:1.5},
+ {inputTokensPerStage:0},{maxCostMicros:-1},
+])test(`offline pilot rejects invalid limits: ${JSON.stringify(change)}`,t=>{
+ t.mock.method(Date,'now',()=>Date.parse(PILOT_QUOTE.checkedAt));
+ assert.throws(()=>planPilotBudget({...pilotPlan,...change}));
+});
+for(const [label,now,valid] of [
+ ['before checkedAt',Date.parse(PILOT_QUOTE.checkedAt)-1,false],
+ ['at checkedAt',Date.parse(PILOT_QUOTE.checkedAt),true],
+ ['last valid millisecond',Date.parse(PILOT_QUOTE.expiresAt)-1,true],
+ ['exact expiry',Date.parse(PILOT_QUOTE.expiresAt),false],
+ ['after expiry',Date.parse(PILOT_QUOTE.expiresAt)+1,false],
+ ['invalid process time',NaN,false],
+ ['infinite process time',Infinity,false],
+] as const)test(`offline pilot uses process clock: ${label}`,t=>{
+ t.mock.method(Date,'now',()=>now);
+ if(valid)assert.equal(planPilotBudget(pilotPlan).estimatedMaxMicros,1856);
+ else assert.throws(()=>planPilotBudget(pilotPlan),/Refresh the published quote/);
+});
+for(const forged of [PILOT_QUOTE.checkedAt,'invalid',PILOT_QUOTE.expiresAt,undefined]){
+ test(`expired quote cannot be revived by a request timestamp: ${String(forged)}`,t=>{
+  t.mock.method(Date,'now',()=>Date.parse(PILOT_QUOTE.expiresAt));
+  const request=JSON.parse(JSON.stringify({...pilotPlan,now:forged??null}));
+  assert.throws(()=>planPilotBudget(request),/Unsupported pilot input/);
+  assert.throws(()=>planPilotBudget(pilotPlan),/Refresh the published quote/);
+ });
+}
+test('request timestamps are rejected even while the process clock is within the quote window',t=>{
+ t.mock.method(Date,'now',()=>Date.parse(PILOT_QUOTE.checkedAt));
+ assert.throws(()=>planPilotBudget({...pilotPlan,now:PILOT_QUOTE.checkedAt} as typeof pilotPlan),/Unsupported pilot input/);
+ assert.equal(planPilotBudget(pilotPlan).liveEnabled,false);
+});
 async function fixture(live=false){
  const db=await campaignDatabase(false);await db.exec(readFileSync('../../supabase/proposals/agent_runtime.sql','utf8'));
  await db.query('insert into auth.users(id) values($1)',[owner]);
