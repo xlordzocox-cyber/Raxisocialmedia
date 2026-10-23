@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { campaignDatabase } from './campaignDatabase';
 import { rpcRepository, requestHandler, runOne, taskSpec, runtimeResultBytes, RUNTIME_RESULT_MAX_BYTES, type Source, type Provider, type TaskSpec } from '../../../server/agent-runtime/runtime';
 import { simulatedProvider, openAIProvider } from '../../../server/agent-runtime/providers';
+import { PILOT_QUOTE, planPilotBudget } from '../../../server/agent-runtime/pilotBudget';
 import { RuntimeOfficeStore, projectRuntime } from '../src/runtime/runtimeOfficeStore';
 import { RuntimeOfficePanel } from '../src/runtime/RuntimeOfficePanel';
 import { createElement, StrictMode } from 'react';
@@ -11,6 +12,22 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import type { SupabaseClient } from '@supabase/supabase-js';
 const owner='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', workspace='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const hashText=async(content:string)=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(content))),x=>x.toString(16).padStart(2,'0')).join('');
+const pilotPlan={inputTokensPerStage:8000,outputTokensPerStage:256,maxCostMicros:10000,now:'2026-10-22T18:05:00Z'};
+test('offline pilot estimate bounds both stages and never represents an execution authorization',()=>{
+ const plan=planPilotBudget(pilotPlan);
+ assert.equal(plan.estimatedMaxMicros,1856);assert.equal(plan.proposedCeilingMicros,10000);
+ assert.equal(plan.kind,'UNAUTHORIZED_PLANNING_ONLY');assert.equal(plan.liveEnabled,false);
+ assert.equal(plan.model,'gpt-6-luna');assert.ok(Object.isFrozen(PILOT_QUOTE));
+ assert.equal(planPilotBudget({...pilotPlan,inputTokensPerStage:1,outputTokensPerStage:1}).estimatedMaxMicros,2);
+});
+for(const change of [
+ {inputTokensPerStage:8001},{outputTokensPerStage:257},{maxCostMicros:1855},
+ {maxCostMicros:10001},{inputTokensPerStage:NaN},{outputTokensPerStage:1.5},
+ {inputTokensPerStage:0},{maxCostMicros:-1},
+ {now:'2026-10-22T17:59:59Z'},{now:PILOT_QUOTE.expiresAt},{now:'invalid'},
+])test(`offline pilot rejects invalid limits or stale quote: ${JSON.stringify(change)}`,()=>{
+ assert.throws(()=>planPilotBudget({...pilotPlan,...change}));
+});
 async function fixture(live=false){
  const db=await campaignDatabase(false);await db.exec(readFileSync('../../supabase/proposals/agent_runtime.sql','utf8'));
  await db.query('insert into auth.users(id) values($1)',[owner]);
