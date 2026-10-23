@@ -13,11 +13,16 @@ export const PILOT_QUOTE = Object.freeze({
  * A reservation alone cannot enforce billing limits on a remote provider.
  */
 export function planPilotBudget(input: {
- inputTokensPerStage: number; outputTokensPerStage: number; maxCostMicros: number; now: string;
+ inputTokensPerStage: number; outputTokensPerStage: number; maxCostMicros: number;
 }) {
+ if (!input || Object.keys(input).some(key => ![
+  'inputTokensPerStage', 'outputTokensPerStage', 'maxCostMicros',
+ ].includes(key))) throw Error('Unsupported pilot input');
  const q = PILOT_QUOTE;
- const now = Date.parse(input.now);
- if (!Number.isFinite(now) || now < Date.parse(q.checkedAt) || now >= Date.parse(q.expiresAt)) {
+ // Only the process clock determines freshness. No request field or exported clock override.
+ const now = Date.now(), checkedAt = Date.parse(q.checkedAt), expiresAt = Date.parse(q.expiresAt);
+ if (![now, checkedAt, expiresAt].every(Number.isFinite) || checkedAt >= expiresAt ||
+  now < checkedAt || now >= expiresAt) {
   throw Error('Refresh the published quote before planning');
  }
  for (const [value, maximum] of [

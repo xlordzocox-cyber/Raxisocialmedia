@@ -46,6 +46,8 @@ La disponibilidad de herramientas en Codex no instala esas conexiones dentro de 
 
 Se mantienen los contratos y adaptadores ya integrados; este PR no añade otro endpoint, proveedor, worker ni cola. `server/agent-runtime/pilotBudget.ts` añade únicamente un cálculo offline, con tarifa fechada, límites enteros, redondeo conservador y caducidad. Su salida siempre dice `UNAUTHORIZED_PLANNING_ONLY` y `liveEnabled:false`. No escribe políticas ni es un control de ejecución conectado al runtime.
 
+Correctivo P2 de #15: el contrato público contiene exclusivamente `inputTokensPerStage`, `outputTokensPerStage` y `maxCostMicros`. Se rechazan campos adicionales, incluido `now`. La vigencia se obtiene de `Date.now()` dentro del proceso: antes de `checkedAt`, desde `expiresAt` inclusive o ante tiempos no finitos/fechas de cotización inválidas, el cálculo falla. No hay reloj ni setter de prueba exportados. Las pruebas sustituyen temporalmente `Date.now` mediante `node:test` y restauran el método al acabar cada caso; ningún dato de solicitud controla ese reloj. No se renueva ni amplía la cotización original al corregir el contrato: cuando caduque, debe seguir rechazándose hasta revisar una tarifa nueva.
+
 ## Cotización para revisión, no autorización
 
 Proveedor propuesto: **OpenAI Responses, `gpt-6-luna`, texto Standard**. La [ficha oficial](https://developers.openai.com/api/docs/models/gpt-6-luna) consultada el 22/10/2026 publica **USD 0,10 por millón de tokens de entrada y USD 0,50 por millón de salida**, sin aplicar descuentos. La ficha indica usar ese identificador; no se inventa un snapshot fechado. Su acceso exige una cuenta API con facturación y disponibilidad comprobadas; una suscripción ChatGPT no demuestra acceso API.
