@@ -28,3 +28,29 @@ Aún se requieren host/secretos, ensayo de Auth/RLS con dos cuentas, SQL runtime
 Revisión local puntual del módulo: compilación TypeScript y pruebas básicas aisladas, sin red. **La ejecución completa de \`npm test\`, build, typecheck del monorepo y auditoría de dependencias debe efectuarla Codex en el checkout del proyecto** antes de aprobar merge. Los tests locales con un \`TrustedTokenMeter\` simulado no prueban que el futuro proveedor mida tokens correctamente. Mantener este PR en borrador hasta la revisión técnica y de seguridad.
 
 Ningún comando de este incremento debe desplegar servicios, modificar producción, consumir OpenAI/Aria, crear recursos facturables o hacer merge automático.
+
+## Correctivos P2 del PR #16
+
+### Cuerpo exacto e inmutable
+
+`inspectSupervisedPreflight` captura todos los valores de la solicitud y el método del medidor antes del primer `await`. Valida y mide esa cadena inmutable, aunque el llamador cambie después su objeto. El resultado congelado conserva `serializedRequest`, `requestSha256` (SHA-256 de UTF-8), `requestByteLength` y la caducidad capturada. No devuelve un objeto JSON mutable como cuerpo de transporte. Se rechazan sustitutos Unicode aislados para evitar reemplazos implícitos al codificar.
+
+El contrato del futuro transporte exige enviar **la cadena `serializedRequest` del resultado**, codificada UTF-8, sin reconstruir JSON ni consultar de nuevo el input original. Si una integración necesita otra representación, debe comprobar obligatoriamente su SHA-256 contra `requestSha256` inmediatamente antes del envío y rechazar cualquier diferencia; una comparación de objetos o de tokens no basta. Ese transporte sigue sin implementarse ni conectarse a `runOne`. La prueba usa un transporte local sin red y verifica que mutaciones durante la medición y después de finalizar no cambian los bytes disponibles para enviar. La huella y `PREFLIGHT_ONLY` no conceden permisos ni autorizan gasto.
+
+### Subconjunto cerrado del piloto
+
+Se admiten exclusivamente `model`, `store:false`, `max_output_tokens`, `tools:[]` e `input`; modelo y límite de salida deben coincidir con la configuración inspeccionada. `input` contiene un mensaje `user`, o un mensaje `developer` seguido de `user`, con solo `role` y `content` textual no vacío. No se aceptan mensajes de asistente/sistema, respuestas previas, referencias a items, llamadas de herramientas, archivos, imágenes o bloques de contenido. Es un subconjunto deliberado del API, no soporte de todos sus tipos.
+
+Cualquier propiedad adicional se rechaza antes de medir: por ejemplo `background` (incluso false), `conversation`, `previous_response_id`, `prompt`, `instructions`, `tool_choice`, `parallel_tool_calls`, `truncation` o `service_tier`. Nuevas capacidades requieren revisar el contrato y sus costes; no se habilitan por cambiar JSON.
+
+### Telemetría oficial y conciliación
+
+Se consultó el 23/10/2026 la [referencia oficial de Responses](https://developers.openai.com/api/reference/resources/responses/methods/create), incluida su versión Markdown. El envelope mínimo inspeccionado exige `object:response`, fecha Unix válida, modelo, estado reconocido y array de salida; un resultado completado no puede contener error o detalles de incompletitud. El ID `resp_*` se extrae antes y por separado: un envelope inválido mantiene ese ID, pero no acredita telemetría válida.
+
+El esquema de `usage` contiene `input_tokens`, `output_tokens`, `total_tokens`, `input_tokens_details` con `cached_tokens` y `cache_write_tokens`, y `output_tokens_details` con `reasoning_tokens`. Se exigen enteros seguros no negativos, total exactamente igual a entrada más salida sin overflow, detalles de caché dentro de la entrada y razonamiento dentro de la salida. Se conservan los detalles validados, sin valores por defecto. Campos de telemetría nuevos o incompatibles requieren conciliación/revisión de contrato, no descarte silencioso.
+
+Uso ausente, nulo, parcial, mal tipado o inconsistente retorna `RECONCILIATION_REQUIRED`, `usage:null` y el ID disponible, incluso si el texto generado es JSON válido. Un error al interpretar texto conserva ID y uso válido. `PARSED_UNVERIFIED` sigue sin acreditar verdad factual, efecto remoto, coste facturado o autorización. Los controles siguen desconectados de proveedores y persistencia; la futura integración debe conservar duraderamente esas evidencias antes de cualquier reintento.
+
+Resultados del correctivo: [evidencias locales](../output/reports/raxi-hq-runtime/SUPERVISED_PREFLIGHT_P2_VALIDATION.md). El PR permanece en borrador y no habilita ejecución real.
+
+La validación completa que figuraba pendiente en la entrega inicial se efectuó en este checkout: instalación reproducible, build y typecheck PASS; 443 pruebas de aplicación más 1 guard de staging, todas PASS y sin omitidas; auditoría de dependencias con cero vulnerabilidades. Las 66 pruebas enfocadas están incluidas en las 443. No se acreditan ejecuciones auténticas mediante estos resultados locales.
