@@ -40,6 +40,7 @@ export function taskSpec(value: unknown): TaskSpec {
  const s=value as TaskSpec;
  if(!s||Object.keys(s).some(k=>!['question','externalResearch','provider','model','authorization'].includes(k))||
    typeof s.question!=='string'||s.question.trim().length<5||s.question.length>1500||typeof s.externalResearch!=='boolean'||
+   typeof s.provider!=='string'||typeof s.model!=='string'||
    !/^[a-z0-9-]{1,50}$/.test(s.provider)||!/^[a-zA-Z0-9._-]{1,100}$/.test(s.model)||!s.authorization||
    Object.keys(s.authorization).some(k=>!['confirmed','maxCostMicros','expiresAt'].includes(k))||s.authorization.confirmed!==true||
    !Number.isSafeInteger(s.authorization.maxCostMicros)||s.authorization.maxCostMicros<0||
