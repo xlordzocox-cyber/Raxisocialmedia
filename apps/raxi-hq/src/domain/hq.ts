@@ -4,6 +4,7 @@ import type { HQEvent } from './events';
 import type { MemorySignal } from './memory';
 import type { TaskSnapshot } from './tasks';
 import type { OfficeMode, SourceHealth } from './source';
+import type { ReplayView } from '../observation/executionObservation';
 
 export interface HandoffVisual {
   id: string;
@@ -15,6 +16,7 @@ export interface HandoffVisual {
 }
 
 export interface HQState {
+  observation?: ReplayView;
   agents: Record<string, AgentSnapshot>;
   tasks: Record<string, TaskSnapshot>;
   campaigns: Record<string, CampaignSnapshot>;

@@ -125,7 +125,7 @@ export class OfficeScene {
       this.sprites.delete(id);
       this.motions.delete(id);
     }
-    const orderedAgents = syncAgentMotions(Object.values(state.agents), this.motions, state.mode === 'LIVE_READ_ONLY');
+    const orderedAgents = syncAgentMotions(Object.values(state.agents), this.motions, state.mode !== 'MOCK');
     orderedAgents.forEach((agent) => {
       let sprite = this.sprites.get(agent.id);
       if (!sprite) {

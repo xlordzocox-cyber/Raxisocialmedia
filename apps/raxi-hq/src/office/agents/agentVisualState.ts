@@ -9,6 +9,8 @@ export interface StatusVisual {
 
 export function getStatusVisual(status: AgentStatus): StatusVisual {
   switch (status) {
+    case 'HISTORICAL':
+      return { label: 'Histórico · sin estado actual', color: 0x99a3b8, icon: 'H', animation: 'idle' };
     case 'WALKING':
       return { label: 'Walking', color: 0x35e7ff, icon: '>', animation: 'walk' };
     case 'RUNNING':

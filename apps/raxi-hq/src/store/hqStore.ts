@@ -7,6 +7,8 @@ import type { TimedMockEvent } from '../adapters/mock/mockScenario';
 import { disconnectedLiveSource, type LiveOfficeSource } from '../adapters/munder/liveSource';
 import { normalizeLiveAgents, normalizeLiveTasks, normalizeLiveEvents, validateSourceTimestamp } from '../adapters/munder/canonicalFeed';
 import type { OfficeMode, SourceConnection, SourceHealth } from '../domain/source';
+import { admitReviewedCapture, projectReplay, type ObservationScope, type ReviewedCapture } from '../observation/executionObservation';
+import { codexCaptureText } from '../observation/codexCapture';
 
 function health(mode: OfficeMode, connection: SourceConnection, message?: string): SourceHealth {
   return { source: mode === 'MOCK' ? 'mock' : 'munder', mode, connection, eventsLoaded: 0, agentsLoaded: 0, tasksLoaded: 0, message };
@@ -32,6 +34,9 @@ export class HQStore {
   private timer?: number;
   private nextEventIndex = 0;
   private generation = 0;
+  private observationScope?: ObservationScope;
+  private capture?: ReviewedCapture;
+  private replayIndex = -1;
 
   constructor(private liveSource: LiveOfficeSource = disconnectedLiveSource) {}
 
@@ -41,6 +46,43 @@ export class HQStore {
   };
 
   getSnapshot = (): HQState => this.state;
+
+  setObservationScope(scope?: ObservationScope): void {
+    if (this.observationScope?.viewerId === scope?.viewerId && this.observationScope?.project === scope?.project) return;
+    this.stop();
+    this.observationScope = scope ? Object.freeze({ ...scope }) : undefined;
+  }
+
+  async loadHistoricalCapture(): Promise<boolean> {
+    const scope = this.observationScope;
+    if (!scope || this.state.mode === 'MOCK' || this.capture) return false;
+    const generation = ++this.generation;
+    window.clearInterval(this.timer);
+    this.state = emptyState('HISTORICAL_REPLAY', { ...health('HISTORICAL_REPLAY','DISCONNECTED'), source: 'codex', message: 'Validando archivo histórico; sin conexión en vivo.' });
+    this.emit();
+    try {
+      const capture = await admitReviewedCapture(codexCaptureText, scope);
+      if (generation !== this.generation || this.observationScope !== scope) return false;
+      this.capture = capture;
+      this.replayIndex = 0;
+      this.state = projectReplay(capture, 0, scope);
+      this.emit();
+      return true;
+    } catch {
+      if (generation !== this.generation || this.observationScope !== scope) return false;
+      this.state = emptyState('HISTORICAL_REPLAY', { ...health('HISTORICAL_REPLAY','DEGRADED'), source: 'codex', message: 'Captura rechazada. Estado desconocido; sin actividad visual.' });
+      this.emit();
+      return false;
+    }
+  }
+
+  nextHistoricalObservation(): boolean {
+    if (!this.capture || !this.observationScope || this.state.mode !== 'HISTORICAL_REPLAY'
+        || this.replayIndex + 1 >= this.capture.events.length) return false;
+    this.state = projectReplay(this.capture, ++this.replayIndex, this.observationScope);
+    this.emit();
+    return true;
+  }
 
   async initialize(): Promise<void> {
     const generation = ++this.generation;
@@ -67,6 +109,10 @@ export class HQStore {
   }
 
   async switchMode(mode: OfficeMode): Promise<void> {
+    // Historical mode requires the pinned adapter, never a generic mode toggle.
+    if (mode === 'HISTORICAL_REPLAY') return;
+    this.capture = undefined;
+    this.replayIndex = -1;
     if (mode === 'MOCK') {
       this.state = emptyState('MOCK',health('MOCK','CONNECTED'));
       this.emit();
@@ -146,6 +192,10 @@ export class HQStore {
   stop(): void {
     this.generation += 1;
     window.clearInterval(this.timer);
+    this.capture = undefined;
+    this.replayIndex = -1;
+    this.state = emptyState('LIVE_READ_ONLY',health('LIVE_READ_ONLY','DISCONNECTED','Sin evidencia vigente; estado desconocido.'));
+    this.emit();
   }
 
   private startTimeline(): void {
