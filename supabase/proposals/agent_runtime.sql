@@ -92,6 +92,10 @@ language plpgsql security invoker set search_path='' as $$
 declare policy public.raxi_runtime_policies;
 begin
  if current_user<>'service_role' then raise exception 'server required' using errcode='42501'; end if;
+  if p_task.input_snapshot ? 'supervised' then
+    perform public.raxi_supervised_assert(p_task);
+    return;
+  end if;
  select * into policy from public.raxi_runtime_policies where workspace_id=p_task.workspace_id for share;
  if not found or not policy.enabled or policy.expires_at<=clock_timestamp() or
     (p_task.input_snapshot#>>'{policy,simulated}')::boolean is distinct from policy.simulated or
@@ -133,7 +137,7 @@ begin
  if task.status<>'QUEUED' or exists(select 1 from public.raxi_agent_runs where task_id=p_task and status in ('CLAIMED','RUNNING','UNKNOWN','FAILED')) then return null; end if;
  perform public.raxi_runtime_assert_authorization(task);
  select * into policy from public.raxi_runtime_policies where workspace_id=task.workspace_id;
- v_stage:=case when exists(select 1 from public.raxi_agent_runs where task_id=p_task and stage='DIRECTOR' and status='SUCCEEDED') then 'RESEARCHER' else 'DIRECTOR' end;
+ v_stage:=coalesce(task.input_snapshot#>>'{supervised,stage}',case when exists(select 1 from public.raxi_agent_runs where task_id=p_task and stage='DIRECTOR' and status='SUCCEEDED') then 'RESEARCHER' else 'DIRECTOR' end);
  if exists(select 1 from public.raxi_agent_runs where task_id=p_task and stage=v_stage and status='SUCCEEDED') then return null; end if;
  insert into public.raxi_agent_profiles(workspace_id,agent_key,display_name,role,runtime_status)
  values(task.workspace_id,'RUNTIME_'||v_stage,case when v_stage='DIRECTOR' then 'Director IA' else 'Investigador' end,v_stage,'NOT_CONNECTED')
@@ -141,7 +145,7 @@ begin
  select id into aid from public.raxi_agent_profiles where workspace_id=task.workspace_id and agent_key='RUNTIME_'||v_stage;
  insert into public.raxi_agent_runs(workspace_id,task_id,agent_id,stage,status,simulated,provider,model,lease_until,worker_id,reserved_micros)
  values(task.workspace_id,p_task,aid,v_stage,'CLAIMED',(task.input_snapshot#>>'{policy,simulated}')::boolean,policy.provider,policy.model,clock_timestamp()+interval '90 seconds',p_worker,(task.input_snapshot#>>'{policy,per_call_micros}')::bigint) returning * into run;
- return jsonb_build_object('task',to_jsonb(task),'run',to_jsonb(run),'previous',(select result from public.raxi_agent_runs where task_id=p_task and stage='DIRECTOR' and status='SUCCEEDED'));
+ return jsonb_build_object('task',to_jsonb(task),'run',to_jsonb(run),'previous',(select result from public.raxi_agent_runs where (task_id=p_task and stage='DIRECTOR' or id=nullif(task.input_snapshot#>>'{supervised,parentRunId}','')::uuid) and status='SUCCEEDED'));
 end; $$;
 
 create function public.raxi_runtime_step(p_run uuid,p_token uuid,p_kind text,p_result jsonb default null,p_receipt text default null,p_cost bigint default null) returns jsonb
@@ -173,7 +177,7 @@ begin
   if run.status<>'RUNNING' or jsonb_typeof(p_result) is distinct from 'object' or octet_length(convert_to(p_result::text,'UTF8'))>196608 or coalesce(p_cost,0)<0 or coalesce(p_cost,0)>run.reserved_micros then raise exception 'invalid completion'; end if;
   update public.raxi_agent_runs set status='SUCCEEDED',result=p_result,cost_micros=p_cost,finished_at=clock_timestamp() where id=p_run;
   update public.raxi_agent_profiles set runtime_status='NOT_CONNECTED' where id=run.agent_id;
-  update public.raxi_agent_tasks set status=case when run.stage='DIRECTOR' then 'QUEUED' else 'COMPLETED' end,output_snapshot=case when run.stage='RESEARCHER' then p_result else output_snapshot end,completed_at=case when run.stage='RESEARCHER' then clock_timestamp() else null end where id=run.task_id;
+  update public.raxi_agent_tasks set status=case when run.stage='DIRECTOR' and not (input_snapshot ? 'supervised') then 'QUEUED' else 'COMPLETED' end,output_snapshot=case when run.stage='RESEARCHER' or input_snapshot ? 'supervised' then p_result else output_snapshot end,completed_at=case when run.stage='RESEARCHER' or input_snapshot ? 'supervised' then clock_timestamp() else null end where id=run.task_id;
   event:='RUNTIME_RESULT_COMMITTED';
  elsif p_kind='unknown' then
   if coalesce(p_cost,0)<0 then raise exception 'invalid cost'; end if;
