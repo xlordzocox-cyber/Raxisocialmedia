@@ -1,0 +1,51 @@
+{
+  "base": "1ec48d7509bb44de84265d2ee77fa9ed8f8d339c",
+  "appTests": {
+    "tests": 524,
+    "pass": 524,
+    "fail": 0,
+    "skipped": 0
+  },
+  "stagingGuard": {
+    "tests": 1,
+    "pass": 1,
+    "fail": 0
+  },
+  "totalPass": 525,
+  "build": "PASS",
+  "typecheck": "PASS",
+  "npmAudit": {
+    "info": 0,
+    "low": 0,
+    "moderate": 0,
+    "high": 0,
+    "critical": 0,
+    "total": 0
+  },
+  "browser": {
+    "errors": [],
+    "external": [],
+    "sizes": [
+      {
+        "width": 390,
+        "scrollWidth": 390
+      },
+      {
+        "width": 320,
+        "scrollWidth": 320
+      }
+    ],
+    "disconnectedAgents": 0,
+    "canvasCount": 1
+  },
+  "captureSha256": "f433a8e8874b0fe89e188853333e766829d4278b72c0e7f1f92c716e37fe7498",
+  "mode": "HISTORICAL_REPLAY",
+  "liveAcceptance": "BLOCKED_NO_VERIFIED_BRIDGE",
+  "hostedAuthValidated": false,
+  "productionAccessed": false,
+  "imageSha256": {
+    "observer-station.png": "3fd331a983d9bf623d70bf203b3406d475722ed6a980fe83dc4fc309ec69462e",
+    "observer-rest.png": "572f6bc5f944b09145e5dd1da46a99dec2f28e72c10149bf9310d29cc63e765d",
+    "observer-mobile-390.png": "842e73e594f83b70b327c4b5d4b17401cd7f944d5276c736487df6a47a62da68"
+  }
+}

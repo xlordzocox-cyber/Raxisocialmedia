@@ -1,4 +1,5 @@
 export type AgentStatus =
+  | 'HISTORICAL'
   | 'IDLE'
   | 'RUNNING'
   | 'WAITING'

@@ -1,8 +1,8 @@
-export type OfficeMode = 'MOCK' | 'LIVE_READ_ONLY';
+export type OfficeMode = 'MOCK' | 'HISTORICAL_REPLAY' | 'LIVE_READ_ONLY';
 export type SourceConnection = 'CONNECTED' | 'DISCONNECTED' | 'DEGRADED';
 
 export interface SourceHealth {
-  source: 'mock' | 'munder' | 'runtime';
+  source: 'mock' | 'munder' | 'runtime' | 'codex';
   mode: OfficeMode;
   connection: SourceConnection;
   lastSuccessfulRead?: string;

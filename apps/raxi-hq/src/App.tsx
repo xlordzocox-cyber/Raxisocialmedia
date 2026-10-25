@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { hqStore, useHQState } from './store/hqStore';
 import { OfficeScene } from './office/OfficeScene';
 import { getStatusVisual } from './office/agents/agentVisualState';
@@ -11,13 +11,19 @@ import { RealIdeaStore, type RealIdeaRepository } from './persistence/realIdeaSt
 import { createSupabaseIdeaRepository } from './persistence/supabaseIdeaRepository';
 import { RealIdeaCenter } from './persistence/RealIdeaCenter';
 import { RealCampaignStore, createCampaignRepository, type CampaignRepository } from './persistence/realCampaignStore';
+import { ExecutionObserverPanel } from './observation/ExecutionObserverPanel';
+import { OBSERVED_PROJECT } from './observation/executionObservation';
 
 const defaultIdeaRepository = (ownerId: string) => createSupabaseIdeaRepository(supabase!, ownerId);
 const defaultCampaignRepository = supabase ? () => createCampaignRepository(supabase!) : undefined;
 
 export default function App({ ideaRepository = defaultIdeaRepository, campaignRepository = defaultCampaignRepository }: { ideaRepository?: (ownerId: string) => RealIdeaRepository; campaignRepository?: (ownerId: string) => CampaignRepository } = {}) {
   const state = useHQState();
-  const { signOut, getRealIdeaStore, getRealCampaignStore } = useAuth();
+  const { user, signOut, getRealIdeaStore, getRealCampaignStore } = useAuth();
+  useLayoutEffect(() => {
+    hqStore.setObservationScope(user ? { viewerId: user.id, project: OBSERVED_PROJECT } : undefined);
+    return () => hqStore.setObservationScope(undefined);
+  }, [user?.id]);
   const [campusMode, setCampusMode] = useState<'REAL' | 'DEMO'>('REAL');
   const ideaCenter = useMemo(() => campusMode === 'DEMO' ? loadMockIdeaCenter() : null, [campusMode]);
   // AuthStore owns this resource until verified session loss/account change.
@@ -39,7 +45,7 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
   }, []);
   useEffect(() => {
     void hqStore.switchMode(campusMode === 'DEMO' ? 'MOCK' : 'LIVE_READ_ONLY').catch((cause) => setError(String(cause)));
-  }, [campusMode]);
+  }, [campusMode, user?.id]);
   const selected = getOwnAgent(state.agents,state.selectedAgentId);
   const hovered = getOwnAgent(state.agents,hoveredId);
   const campaign = Object.values(state.campaigns)[0];
@@ -59,12 +65,13 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
     {campusMode === 'DEMO'
       ? <CampusOverview ideas={ideaCenter!.ideas} />
       : <RealIdeaCenter store={realIdeas} campaigns={campaignRepository ? workspace => getRealCampaignStore(workspace, owner => new RealCampaignStore(campaignRepository(owner), owner, workspace)) : undefined} />}
-    <section className="campaign"><b>{state.mode === 'MOCK' ? campaign ? 'Centro de Operaciones · Office v0.5 · Demo MOCK' : 'Cargando…' : 'Centro de Operaciones · Office v0.5 · Munder en vivo · solo lectura'}</b><span>{state.mode === 'MOCK' ? `${campaign?.progress ?? 0}% · ${campaign?.status}` : `${state.sourceHealth.connection} · ${connectionLabel}`}</span></section>
+    {campusMode === 'REAL' && <ExecutionObserverPanel state={state} />}
+    <section className="campaign"><b>{state.mode === 'MOCK' ? campaign ? 'Centro de Operaciones · Office v0.5 · Demo MOCK' : 'Cargando…' : state.mode === 'HISTORICAL_REPLAY' ? 'REPRODUCCIÓN HISTÓRICA · no es actividad en vivo' : 'Centro de Operaciones · Office v0.5 · Munder en vivo · solo lectura'}</b><span>{state.mode === 'MOCK' ? `${campaign?.progress ?? 0}% · ${campaign?.status}` : `${state.sourceHealth.connection} · ${connectionLabel}`}</span></section>
     <div className="workspace"><section className="office"><div className="office-toolbar"><span>Arrastra el suelo · rueda para zoom · click para inspeccionar</span><div><button aria-label="Alejar cámara" onClick={()=>sceneRef.current?.zoom(0.85)}>−</button><output aria-label="Zoom de cámara">{zoomPercent}%</output><button aria-label="Acercar cámara" onClick={()=>sceneRef.current?.zoom(1.18)}>+</button><button aria-pressed={focusCritical} onClick={()=>{const enabled=!focusCritical;setFocusCritical(enabled);sceneRef.current?.setCriticalEventFocus(enabled);}}>Seguir críticos</button><button onClick={()=>sceneRef.current?.resetCamera()}>Centrar</button></div></div><div ref={host} className="canvas-host" />{hovered && <div className="hover-card"><b>{hovered.displayName}</b><span>{hovered.role}</span><span>{hovered.status} · {hovered.zone}</span><span>{hovered.securityState}</span></div>}{error && <p role="alert">{error}</p>}</section>
       <aside><h2>Agentes</h2><div className="agent-list">{Object.values(state.agents).map((agent) => <button key={agent.id} aria-pressed={agent.id === state.selectedAgentId} onClick={() => hqStore.selectAgent(agent.id)}>{agent.displayName}<span>{getStatusVisual(agent.status).label}</span></button>)}</div>{state.mode === 'LIVE_READ_ONLY' && Object.keys(state.agents).length === 0 && <div className="empty-agents" role="status"><strong>Sin agentes cargados</strong><p>{liveEmptyMessage}</p></div>}
         {selected && <section aria-label="Agente seleccionado"><h2>{selected.displayName}</h2><p>{selected.role}</p><dl><dt>Estado</dt><dd>{selected.status}</dd><dt>Zona</dt><dd>{selected.zone}</dd><dt>Destino</dt><dd>{selected.destinationZone ?? '—'}</dd><dt>Seguridad</dt><dd>{selected.securityState}</dd><dt>Esperando</dt><dd>{selected.waitingFor ?? '—'}</dd><dt>Tarea</dt><dd>{selected.currentTaskId ?? '—'}</dd><dt>Proveedor / modelo</dt><dd>{selected.provider ?? '—'} · {selected.model === 'read-only adapter' ? 'adaptador de solo lectura' : selected.model ?? '—'}</dd><dt>Capacidades</dt><dd>{selected.capabilities.join(', ')}</dd></dl></section>}
       </aside></div>
-    <section className="source-health" aria-label="Estado de la fuente"><h2>Estado de la fuente</h2><dl><dt>Fuente</dt><dd>{state.sourceHealth.source === 'mock' ? 'MOCK' : 'Munder Difflin'}</dd><dt>Modo</dt><dd>{state.mode}</dd><dt>Conexión</dt><dd>{state.sourceHealth.connection} · {connectionLabel}</dd><dt>Última lectura correcta</dt><dd>{state.mode === 'MOCK' ? 'No aplica · MOCK' : state.sourceHealth.lastSuccessfulRead ?? 'Sin lectura correcta'}</dd><dt>Último evento de fuente</dt><dd>{state.sourceHealth.lastSourceEvent ?? '—'}</dd><dt>Eventos cargados</dt><dd>{state.sourceHealth.eventsLoaded}</dd><dt>Agentes cargados</dt><dd>{state.sourceHealth.agentsLoaded}</dd><dt>Tareas cargadas</dt><dd>{state.sourceHealth.tasksLoaded}</dd></dl>{state.sourceHealth.message && <p role="status">{state.sourceHealth.message} {campusMode === 'DEMO' ? 'Puedes cambiar manualmente a MOCK.' : 'La demostración está separada en Campus DEMO.'}</p>}</section>
-    <section className="events"><h2>{state.mode === 'MOCK' ? 'Motor MOCK' : 'Actividad LIVE'} · {state.events.length} eventos</h2>{state.mode === 'MOCK' ? <p>Aria, GitHub, Munder Difflin y Supermemory: stubs sin conexión ni escrituras.</p> : <p>Solo eventos recibidos de una fuente verificada. Sin conexión no se muestra actividad inventada.</p>}<div>{state.events.map((event) => <button key={event.id} aria-pressed={event.id === state.selectedEventId} onClick={() => hqStore.selectEvent(event.id)}>{state.mode === 'MOCK' ? <><b>{event.type}</b> {event.label.replaceAll('read-only','solo lectura')}</> : <><time dateTime={event.timestamp}>{event.timestamp}</time> · {getOwnAgent(state.agents,event.actorId)?.displayName ?? event.actorId ?? '—'} · <b>{event.type}</b> · {event.taskId ?? '—'} · {event.source}</>}</button>)}</div></section>
+    <section className="source-health" aria-label="Estado de la fuente"><h2>Estado de la fuente</h2><dl><dt>Fuente</dt><dd>{state.sourceHealth.source === 'mock' ? 'DEMO · MOCK' : state.sourceHealth.source === 'codex' ? 'Codex · archivo histórico' : 'Munder Difflin'}</dd><dt>Modo</dt><dd>{state.mode}</dd><dt>Conexión</dt><dd>{state.sourceHealth.connection} · {connectionLabel}</dd><dt>Última lectura correcta</dt><dd>{state.mode === 'MOCK' ? 'No aplica · MOCK' : state.sourceHealth.lastSuccessfulRead ?? 'Sin lectura correcta'}</dd><dt>Último evento de fuente</dt><dd>{state.sourceHealth.lastSourceEvent ?? '—'}</dd><dt>Eventos cargados</dt><dd>{state.sourceHealth.eventsLoaded}</dd><dt>Agentes cargados</dt><dd>{state.sourceHealth.agentsLoaded}</dd><dt>Tareas cargadas</dt><dd>{state.sourceHealth.tasksLoaded}</dd></dl>{state.sourceHealth.message && <p role="status">{state.sourceHealth.message} {campusMode === 'DEMO' ? 'Puedes cambiar manualmente a MOCK.' : 'La demostración está separada en Campus DEMO.'}</p>}</section>
+    <section className="events"><h2>{state.mode === 'MOCK' ? 'DEMO · simulación' : state.mode === 'HISTORICAL_REPLAY' ? 'HISTORICAL_REPLAY · eventos pasados' : 'Actividad LIVE'} · {state.events.length} eventos</h2>{state.mode === 'MOCK' ? <p>Aria, GitHub, Munder Difflin y Supermemory: stubs sin conexión ni escrituras.</p> : <p>Solo eventos recibidos de una fuente verificada. Sin conexión no se muestra actividad inventada.</p>}<div>{state.events.map((event) => <button key={event.id} aria-pressed={event.id === state.selectedEventId} onClick={() => hqStore.selectEvent(event.id)}>{state.mode === 'MOCK' ? <><b>{event.type}</b> {event.label.replaceAll('read-only','solo lectura')}</> : <><time dateTime={event.timestamp}>{event.timestamp}</time> · {getOwnAgent(state.agents,event.actorId)?.displayName ?? event.actorId ?? '—'} · <b>{event.type}</b> · {event.label} · {event.taskId ?? 'Tarea no observada'} · {event.source}</>}</button>)}</div></section>
   </main>;
 }
