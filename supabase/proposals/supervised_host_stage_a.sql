@@ -4,17 +4,28 @@ alter table public.raxi_agent_runs add column journal_version integer not null d
 create unique index raxi_supervised_journal_operation on public.raxi_agent_events(workspace_id,source_ref)
  where source_ref like 'SUPERVISED_JOURNAL:%';
 
+-- Extension seams: A still accepts LOCAL_FIXTURE only. B replaces these helpers,
+-- not the coordinator, ledger, budget transitions or journal/digest implementation.
+create function public.raxi_supervised_identity() returns jsonb language sql security invoker set search_path='' as $$
+ select jsonb_build_object('provenance','LOCAL_FIXTURE') $$;
+create function public.raxi_supervised_binding_origin(b jsonb) returns text language plpgsql security invoker set search_path='' as $$
+begin
+ if b->>'provenance' is distinct from 'LOCAL_FIXTURE' then raise exception 'binding denied' using errcode='P1901'; end if;
+ return 'LOCAL_FIXTURE';
+end; $$;
+create function public.raxi_supervised_authorize_binding(t public.raxi_agent_tasks) returns void language plpgsql security invoker set search_path='' as $$
+begin perform public.raxi_supervised_binding_origin(t.input_snapshot->'supervised'); end; $$;
+
 -- One validation path for SQL replay and repository reads. Digest uses PostgreSQL's
 -- canonical jsonb text, exactly as persistence does; no competing JS serializer.
 create function public.raxi_supervised_validate_journal(p_event public.raxi_agent_events) returns void
 language plpgsql security invoker set search_path='' as $$
-declare c jsonb; f jsonb; r public.raxi_agent_runs; v integer; expected_status text;
+declare c jsonb; f jsonb; r public.raxi_agent_runs; t public.raxi_agent_tasks; v integer; expected_status text;
 begin
  if current_user<>'service_role' then raise exception 'server required' using errcode='42501'; end if;
  c:=p_event.payload->'command'; f:=p_event.payload->'confirmation';
  if p_event.event_type is distinct from 'SUPERVISED_LOCAL_JOURNAL'
   or p_event.source_kind is distinct from 'MOCK' or p_event.evidence_status is distinct from 'UNVERIFIED'
-  or p_event.payload->>'provenance' is distinct from 'LOCAL_FIXTURE'
   or p_event.payload->'simulated' is distinct from 'true'::jsonb
   or jsonb_typeof(c) is distinct from 'object' or jsonb_typeof(f) is distinct from 'object'
   or coalesce(c->>'kind','') not in ('dispatch','ack','finish','unknown')
@@ -28,6 +39,10 @@ begin
  if (c->>'expectedVersion')::bigint>=2147483647 then raise exception 'journal integrity conflict' using errcode='P1901'; end if;
  v:=(c->>'expectedVersion')::integer+1;
  select * into r from public.raxi_agent_runs where id::text=f->>'id';
+ if not found then raise exception 'journal integrity conflict' using errcode='P1901'; end if;
+ select * into t from public.raxi_agent_tasks where id=r.task_id;
+ if p_event.payload->>'provenance' is distinct from public.raxi_supervised_binding_origin(t.input_snapshot->'supervised')
+ then raise exception 'journal integrity conflict' using errcode='P1901'; end if;
  expected_status:=case c->>'kind' when 'dispatch' then 'CLAIMED' when 'ack' then 'RUNNING' when 'finish' then 'SUCCEEDED' else 'UNKNOWN' end;
  if not found or not r.simulated or p_event.workspace_id is distinct from r.workspace_id
   or p_event.task_id is distinct from r.task_id or p_event.agent_id is distinct from r.agent_id
@@ -67,7 +82,8 @@ declare p public.raxi_runtime_policies; a public.raxi_approvals; b jsonb; parent
 begin
  if current_user<>'service_role' then raise exception 'server required'; end if;
  b:=p_task.input_snapshot->'supervised';
- if b->>'provenance' is distinct from 'LOCAL_FIXTURE' or b->>'stage' is null or b->>'stage' not in ('DIRECTOR','RESEARCHER') then raise exception 'local binding required'; end if;
+ perform public.raxi_supervised_authorize_binding(p_task);
+ if b->>'stage' is null or b->>'stage' not in ('DIRECTOR','RESEARCHER') then raise exception 'local binding required'; end if;
  select * into p from public.raxi_runtime_policies where workspace_id=p_task.workspace_id for share;
  if not found or not p.enabled or not p.simulated or p.provider<>'simulated' or p.max_output_tokens>256 or p.expires_at<=clock_timestamp()
   or (to_jsonb(p)-array['reserved_micros','task_count']) is distinct from ((p_task.input_snapshot->'policy')-array['reserved_micros','task_count'])
@@ -82,7 +98,7 @@ begin
  select * into a from public.raxi_approvals where id=nullif(b->>'approvalId','')::uuid and workspace_id=p_task.workspace_id
   and subject_kind='TASK' and subject_id=p_task.id and action='APPROVED';
  if not found or a.context->>'scopeDigest' is distinct from b->>'scopeDigest'
-  or a.context->>'provenance' is distinct from 'LOCAL_FIXTURE'
+  or a.context->>'provenance' is distinct from b->>'provenance'
   or exists(select 1 from public.raxi_approvals r where r.workspace_id=p_task.workspace_id and r.subject_id=p_task.id
     and r.subject_kind='TASK' and r.action='REJECTED' and r.context->>'revokes'=a.id::text)
   or not exists(select 1 from public.raxi_workspaces w where w.id=p_task.workspace_id and w.owner_user_id=a.actor_user_id)
@@ -132,7 +148,7 @@ begin
   select * into parent from public.raxi_agent_runs where id=p_parent and workspace_id=p_workspace and stage='DIRECTOR' and status='SUCCEEDED' and simulated;
   if not found then raise exception 'confirmed Director required'; end if;
  end if;
- b:=jsonb_build_object('provenance','LOCAL_FIXTURE','stage',p_stage,'parentRunId',p_parent,
+ b:=public.raxi_supervised_identity()||jsonb_build_object('stage',p_stage,'parentRunId',p_parent,
    'parentDigest',case when p_parent is not null then encode(sha256(convert_to(parent.result::text,'UTF8')),'hex') else null end,
    'requestSha256',encode(sha256(convert_to(p_request,'UTF8')),'hex'));
  d:=encode(sha256(convert_to(jsonb_build_object('workspace',p_workspace,'key',p_key,'binding',b,'spec',p_spec,'policyVersion',p.authorization_version)::text,'UTF8')),'hex');
@@ -141,7 +157,7 @@ begin
  values(p_workspace,'SUPERVISED-'||p_key::text,'LOCAL SIMULATION '||p_stage,'WAITING_APPROVAL',
   jsonb_build_object('runtime',true,'spec',p_spec,'policy',to_jsonb(p),'supervised',b)) returning * into t;
  insert into public.raxi_audit_events(workspace_id,action,actor_kind,actor_user_id,resource_kind,resource_id,details)
- values(p_workspace,'SUPERVISED_LOCAL_PREPARED','HUMAN',p_actor,'TASK',t.id::text,jsonb_build_object('provenance','LOCAL_FIXTURE','scopeDigest',d));
+ values(p_workspace,case when b->>'provenance'='LOCAL_FIXTURE' then 'SUPERVISED_LOCAL_PREPARED' else 'SUPERVISED_STAGING_PREPARED' end,'HUMAN',p_actor,'TASK',t.id::text,jsonb_build_object('provenance',b->>'provenance','scopeDigest',d));
  return to_jsonb(t);
 end; $$;
 
@@ -172,14 +188,14 @@ begin
  end if;
  insert into public.raxi_approvals(workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
  values(t.workspace_id,'TASK',p_task,action_name,p_actor,'SUPERVISED-'||p_key::text,
-  jsonb_build_object('scopeDigest',p_digest,'provenance','LOCAL_FIXTURE','revokes',b->>'approvalId')) returning id into aid;
+  jsonb_build_object('scopeDigest',p_digest,'provenance',b->>'provenance','revokes',b->>'approvalId')) returning id into aid;
  if not p_revoke then
   update public.raxi_agent_tasks set status='QUEUED',input_snapshot=jsonb_set(input_snapshot,'{supervised,approvalId}',to_jsonb(aid::text)) where id=p_task returning * into t;
   perform public.raxi_supervised_assert(t);
   update public.raxi_runtime_policies set reserved_micros=reserved_micros+per_call_micros,task_count=task_count+1 where workspace_id=t.workspace_id;
  end if;
  insert into public.raxi_audit_events(workspace_id,action,actor_kind,actor_user_id,resource_kind,resource_id,details)
- values(t.workspace_id,'SUPERVISED_LOCAL_'||action_name,'HUMAN',p_actor,'TASK',p_task::text,jsonb_build_object('approvalId',aid,'provenance','LOCAL_FIXTURE'));
+ values(t.workspace_id,(case when b->>'provenance'='LOCAL_FIXTURE' then 'SUPERVISED_LOCAL_' else 'SUPERVISED_STAGING_' end)||action_name,'HUMAN',p_actor,'TASK',p_task::text,jsonb_build_object('approvalId',aid,'provenance',b->>'provenance'));
  return to_jsonb(t);
 end; $$;
 
@@ -191,7 +207,8 @@ begin
  select * into r from public.raxi_agent_runs where id=p_run;
  select * into t from public.raxi_agent_tasks where id=r.task_id for update;
  select * into r from public.raxi_agent_runs where id=p_run for update;
- if r.id is null or not r.simulated or t.input_snapshot#>>'{supervised,provenance}' is distinct from 'LOCAL_FIXTURE'
+ perform public.raxi_supervised_binding_origin(t.input_snapshot->'supervised');
+ if r.id is null or not r.simulated
   or r.lease_token is distinct from p_token or not exists(select 1 from public.raxi_workspaces where id=r.workspace_id and owner_user_id=p_actor)
   or p_kind is null or p_kind not in ('dispatch','ack','finish','unknown') or p_operation is distinct from p_run::text||':'||p_kind
   or (p_cost is not null and p_cost<>0) or (p_receipt is not null and p_receipt is distinct from 'SIMULATED:'||p_run::text)
@@ -212,7 +229,7 @@ begin
  values(r.workspace_id,r.agent_id,r.task_id,'SUPERVISED_LOCAL_JOURNAL','MOCK','UNVERIFIED','SUPERVISED_JOURNAL:'||p_operation,clock_timestamp(),
   jsonb_build_object('command',command,'confirmation',result-'lease_token',
    'confirmationDigest',encode(sha256(convert_to((result-'lease_token')::text,'UTF8')),'hex'),
-   'runId',p_run,'stage',r.stage,'simulated',true,'provenance','LOCAL_FIXTURE')) returning * into e;
+   'runId',p_run,'stage',r.stage,'simulated',true,'provenance',t.input_snapshot#>>'{supervised,provenance}')) returning * into e;
  perform public.raxi_supervised_validate_journal(e);
  return e.payload->'confirmation';
 end; $$;
@@ -226,7 +243,8 @@ begin
  if current_user<>'service_role' or p_key is null then raise exception 'server and key required'; end if;
  select * into t from public.raxi_agent_tasks where id=p_task for update;
  if not found or not exists(select 1 from public.raxi_workspaces where id=t.workspace_id and owner_user_id=p_actor)
-  or t.input_snapshot#>>'{supervised,provenance}' is distinct from 'LOCAL_FIXTURE' then raise exception 'owner required'; end if;
+  then raise exception 'owner required'; end if;
+ perform public.raxi_supervised_binding_origin(t.input_snapshot->'supervised');
  if t.input_snapshot#>>'{supervised,executeKey}' is not null then
   if t.input_snapshot#>>'{supervised,executeKey}' is distinct from p_key::text then raise exception 'execution key conflict'; end if;
   return;
@@ -238,6 +256,7 @@ end; $$;
 
 -- No browser/anonymous capability; local query ports are trusted test infrastructure only.
 revoke all on function public.raxi_supervised_assert(public.raxi_agent_tasks),
+ public.raxi_supervised_identity(),public.raxi_supervised_binding_origin(jsonb),public.raxi_supervised_authorize_binding(public.raxi_agent_tasks),
  public.raxi_supervised_validate_journal(public.raxi_agent_events),
  public.raxi_supervised_protect_journal(),
  public.raxi_supervised_prepare(uuid,uuid,uuid,text,jsonb,text,uuid),
@@ -245,6 +264,7 @@ revoke all on function public.raxi_supervised_assert(public.raxi_agent_tasks),
  public.raxi_supervised_step(uuid,uuid,uuid,text,integer,text,jsonb,text,bigint),
  public.raxi_supervised_execute_key(uuid,uuid,uuid) from public,anon,authenticated;
 grant execute on function public.raxi_supervised_assert(public.raxi_agent_tasks),
+ public.raxi_supervised_identity(),public.raxi_supervised_binding_origin(jsonb),public.raxi_supervised_authorize_binding(public.raxi_agent_tasks),
  public.raxi_supervised_validate_journal(public.raxi_agent_events),
  public.raxi_supervised_prepare(uuid,uuid,uuid,text,jsonb,text,uuid),
  public.raxi_supervised_approve(uuid,uuid,uuid,text,boolean),
