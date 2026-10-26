@@ -4,6 +4,63 @@ alter table public.raxi_agent_runs add column journal_version integer not null d
 create unique index raxi_supervised_journal_operation on public.raxi_agent_events(workspace_id,source_ref)
  where source_ref like 'SUPERVISED_JOURNAL:%';
 
+-- One validation path for SQL replay and repository reads. Digest uses PostgreSQL's
+-- canonical jsonb text, exactly as persistence does; no competing JS serializer.
+create function public.raxi_supervised_validate_journal(p_event public.raxi_agent_events) returns void
+language plpgsql security invoker set search_path='' as $$
+declare c jsonb; f jsonb; r public.raxi_agent_runs; v integer; expected_status text;
+begin
+ if current_user<>'service_role' then raise exception 'server required' using errcode='42501'; end if;
+ c:=p_event.payload->'command'; f:=p_event.payload->'confirmation';
+ if p_event.event_type is distinct from 'SUPERVISED_LOCAL_JOURNAL'
+  or p_event.source_kind is distinct from 'MOCK' or p_event.evidence_status is distinct from 'UNVERIFIED'
+  or p_event.payload->>'provenance' is distinct from 'LOCAL_FIXTURE'
+  or p_event.payload->'simulated' is distinct from 'true'::jsonb
+  or jsonb_typeof(c) is distinct from 'object' or jsonb_typeof(f) is distinct from 'object'
+  or coalesce(c->>'kind','') not in ('dispatch','ack','finish','unknown')
+  or jsonb_typeof(c->'expectedVersion') is distinct from 'number'
+  or coalesce(c->>'expectedVersion','') !~ '^[0-9]{1,10}$'
+  or coalesce(f->>'journal_digest','') !~ '^[a-f0-9]{64}$'
+  or f->>'journal_digest' is distinct from encode(sha256(convert_to(c::text,'UTF8')),'hex')
+  or coalesce(p_event.payload->>'confirmationDigest','') !~ '^[a-f0-9]{64}$'
+  or p_event.payload->>'confirmationDigest' is distinct from encode(sha256(convert_to(f::text,'UTF8')),'hex')
+ then raise exception 'journal integrity conflict' using errcode='P1901'; end if;
+ if (c->>'expectedVersion')::bigint>=2147483647 then raise exception 'journal integrity conflict' using errcode='P1901'; end if;
+ v:=(c->>'expectedVersion')::integer+1;
+ select * into r from public.raxi_agent_runs where id::text=f->>'id';
+ expected_status:=case c->>'kind' when 'dispatch' then 'CLAIMED' when 'ack' then 'RUNNING' when 'finish' then 'SUCCEEDED' else 'UNKNOWN' end;
+ if not found or not r.simulated or p_event.workspace_id is distinct from r.workspace_id
+  or p_event.task_id is distinct from r.task_id or p_event.agent_id is distinct from r.agent_id
+  or p_event.source_ref is distinct from 'SUPERVISED_JOURNAL:'||r.id::text||':'||(c->>'kind')
+  or p_event.payload->>'runId' is distinct from r.id::text or p_event.payload->>'stage' is distinct from r.stage
+  or f->>'workspace_id' is distinct from r.workspace_id::text or f->>'task_id' is distinct from r.task_id::text
+  or f->>'agent_id' is distinct from r.agent_id::text or f->>'stage' is distinct from r.stage
+  or f->'simulated' is distinct from 'true'::jsonb or f ? 'lease_token'
+  or f->>'status' is distinct from expected_status or f->'journal_version' is distinct from to_jsonb(v)
+  or v>r.journal_version
+ then raise exception 'journal integrity conflict' using errcode='P1901'; end if;
+ if c->>'kind'='finish' and (
+  r.status<>'SUCCEEDED' or c->'result' is distinct from f->'result' or f->'result' is distinct from r.result
+  or c->'cost' is distinct from f->'cost_micros' or f->'cost_micros' is distinct from coalesce(to_jsonb(r.cost_micros),'null'::jsonb)
+  or f->>'provider_receipt' is distinct from r.provider_receipt)
+ then raise exception 'journal integrity conflict' using errcode='P1901'; end if;
+end; $$;
+
+create function public.raxi_supervised_protect_journal() returns trigger
+language plpgsql security invoker set search_path='' as $$
+begin
+ if old.event_type='SUPERVISED_LOCAL_JOURNAL' or old.source_ref like 'SUPERVISED_JOURNAL:%'
+  then raise exception 'supervised journal is append-only' using errcode='42501'; end if;
+ if tg_op='UPDATE' and (new.event_type='SUPERVISED_LOCAL_JOURNAL' or new.source_ref like 'SUPERVISED_JOURNAL:%')
+  then raise exception 'cannot relabel an event as supervised journal' using errcode='42501'; end if;
+ if tg_op='DELETE' then return old; end if;
+ return new;
+end; $$;
+create trigger raxi_supervised_journal_immutable before update or delete on public.raxi_agent_events
+ for each row execute function public.raxi_supervised_protect_journal();
+-- TRUNCATE bypasses DELETE row triggers; it is not a runtime capability.
+revoke truncate on public.raxi_agent_events from public,anon,authenticated,service_role;
+
 create function public.raxi_supervised_assert(p_task public.raxi_agent_tasks) returns void
 language plpgsql security invoker set search_path='' as $$
 declare p public.raxi_runtime_policies; a public.raxi_approvals; b jsonb; parent public.raxi_agent_runs;
@@ -143,6 +200,7 @@ begin
  command:=jsonb_build_object('kind',p_kind,'result',p_result,'receipt',p_receipt,'cost',p_cost,'expectedVersion',p_version);
  select * into e from public.raxi_agent_events where workspace_id=r.workspace_id and source_ref='SUPERVISED_JOURNAL:'||p_operation;
  if found then
+  perform public.raxi_supervised_validate_journal(e);
   if e.payload->'command' is distinct from command then raise exception 'journal idempotency conflict'; end if;
   return e.payload->'confirmation';
  end if;
@@ -152,8 +210,11 @@ begin
  result:=result||jsonb_build_object('journal_version',p_version+1,'journal_digest',encode(sha256(convert_to(command::text,'UTF8')),'hex'));
  insert into public.raxi_agent_events(workspace_id,agent_id,task_id,event_type,source_kind,evidence_status,source_ref,occurred_at,payload)
  values(r.workspace_id,r.agent_id,r.task_id,'SUPERVISED_LOCAL_JOURNAL','MOCK','UNVERIFIED','SUPERVISED_JOURNAL:'||p_operation,clock_timestamp(),
-  jsonb_build_object('command',command,'confirmation',result-'lease_token','runId',p_run,'stage',r.stage,'simulated',true,'provenance','LOCAL_FIXTURE'));
- return result-'lease_token';
+  jsonb_build_object('command',command,'confirmation',result-'lease_token',
+   'confirmationDigest',encode(sha256(convert_to((result-'lease_token')::text,'UTF8')),'hex'),
+   'runId',p_run,'stage',r.stage,'simulated',true,'provenance','LOCAL_FIXTURE')) returning * into e;
+ perform public.raxi_supervised_validate_journal(e);
+ return e.payload->'confirmation';
 end; $$;
 
 create unique index raxi_supervised_execution_key on public.raxi_agent_tasks(workspace_id,(input_snapshot#>>'{supervised,executeKey}'))
@@ -177,11 +238,14 @@ end; $$;
 
 -- No browser/anonymous capability; local query ports are trusted test infrastructure only.
 revoke all on function public.raxi_supervised_assert(public.raxi_agent_tasks),
+ public.raxi_supervised_validate_journal(public.raxi_agent_events),
+ public.raxi_supervised_protect_journal(),
  public.raxi_supervised_prepare(uuid,uuid,uuid,text,jsonb,text,uuid),
  public.raxi_supervised_approve(uuid,uuid,uuid,text,boolean),
  public.raxi_supervised_step(uuid,uuid,uuid,text,integer,text,jsonb,text,bigint),
  public.raxi_supervised_execute_key(uuid,uuid,uuid) from public,anon,authenticated;
 grant execute on function public.raxi_supervised_assert(public.raxi_agent_tasks),
+ public.raxi_supervised_validate_journal(public.raxi_agent_events),
  public.raxi_supervised_prepare(uuid,uuid,uuid,text,jsonb,text,uuid),
  public.raxi_supervised_approve(uuid,uuid,uuid,text,boolean),
  public.raxi_supervised_step(uuid,uuid,uuid,text,integer,text,jsonb,text,bigint),

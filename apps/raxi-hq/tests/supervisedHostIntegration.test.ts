@@ -156,6 +156,12 @@ test('journal exact replay is idempotent, changed payload conflicts and version 
  await assert.rejects(repo.journal.commit({...e.write,simulated:false,sourceKind:'AGENT_EXECUTOR',evidenceStatus:'VERIFIED'}));
  assert.equal((await f.db.query<{n:string}>("select count(*) n from public.raxi_agent_events where event_type='SUPERVISED_LOCAL_JOURNAL'")).rows[0].n,1);
  assert.equal((await repo.journal.reconcile(c.run.id+':finish')).status,'MISSING');
+ await repo.repository.step(c.run.id,c.run.lease_token,'ack',undefined,'SIMULATED:'+c.run.id);
+ await repo.repository.step(c.run.id,c.run.lease_token,'finish',{summary:'Local unknown-cost fixture',simulated:true});
+ const intact=await repo.journal.reconcile(c.run.id+':finish');assert.equal(intact.status,'FOUND');assert.ok(intact.write);
+ assert.equal(intact.write.knownCostMicros,undefined);
+ assert.equal((await repo.confirmation(c.run.id+':finish') as {cost_micros:null}).cost_micros,null);
+ await repo.journal.commit(intact.write);
  }finally{await f.close();}
 });
 test('lost commit body survives disk restart and does not repeat provider or create another run',async()=>{
@@ -249,5 +255,114 @@ test('SQL admission itself rejects missing expiry, type coercion and unknown aut
    [owner,workspace,crypto.randomUUID(),'DIRECTOR',JSON.stringify(spec),JSON.stringify(spec),null]));
  }
  assert.equal(await f.count('raxi_agent_tasks'),0);assert.equal(await f.count('raxi_approvals'),0);
+ }finally{await f.close();}
+});
+
+test('journal rows reject UPDATE, DELETE, relabel and TRUNCATE by runtime roles without changing other events',async()=>{
+ const f=await fixture();try{
+ const t=await f.prepare();await f.approve(t.id);await f.execute(t.id);
+ const id=await f.runId(t.id),ref='SUPERVISED_JOURNAL:'+id+':finish';
+ await assert.rejects(f.db.query("update public.raxi_agent_events set payload='{}' where source_ref=$1",[ref]),/append-only/);
+ await assert.rejects(f.db.query('delete from public.raxi_agent_events where source_ref=$1',[ref]),/append-only/);
+ await assert.rejects(f.db.query("update public.raxi_agent_events set event_type='OTHER',source_ref=null where source_ref=$1",[ref]),/append-only/);
+ await assert.rejects(f.db.exec('truncate public.raxi_agent_events'),/permission denied/);
+ await assert.rejects(f.db.exec('alter table public.raxi_agent_events disable trigger raxi_supervised_journal_immutable'),/owner/);
+ await assert.rejects(f.db.query("update public.raxi_agent_events set event_type='SUPERVISED_LOCAL_JOURNAL' where event_type='RUNTIME_ACKNOWLEDGED'"),/relabel/);
+ // Keep existing runtime permissions for unrelated rows.
+ await f.db.query("update public.raxi_agent_events set source_ref='LOCAL-UNRELATED' where event_type='RUNTIME_ACKNOWLEDGED'");
+ assert.equal((await f.db.query("delete from public.raxi_agent_events where source_ref='LOCAL-UNRELATED' returning id")).rows.length,1);
+ assert.equal((await f.repo().journal.reconcile(id+':finish')).status,'FOUND');
+ for(const role of ['anon','authenticated']) {
+  await f.db.exec('reset role;set role '+role);
+  await assert.rejects(f.db.query('delete from public.raxi_agent_events where source_ref=$1',[ref]),/permission denied/);
+  await assert.rejects(f.db.query("update public.raxi_agent_events set payload='{}' where source_ref=$1",[ref]),/permission denied/);
+ }
+ }finally{await f.close();}
+});
+
+test('tampered committed finish is rejected by raw SQL replay, repository replay, confirmation and reconciliation after restart',async()=>{
+ const f=await fixture(true);try{
+ const t=await f.prepare();await f.approve(t.id);await f.execute(t.id);assert.equal(f.calls,1);
+ const id=await f.runId(t.id),op=id+':finish',ref='SUPERVISED_JOURNAL:'+op;
+ const original=await f.repo().journal.reconcile(op);assert.ok(original.write);
+ const state=(await f.db.query<{v:{lease_token:string;result:unknown;journal_version:number}}>('select to_jsonb(r) v from public.raxi_agent_runs r where id=$1',[id])).rows[0].v;
+ // Fault injection is administrator-only and deliberately bypasses the row trigger.
+ // An application role cannot disable triggers; no such operation exists in the host.
+ await f.db.exec('reset role;alter table public.raxi_agent_events disable trigger raxi_supervised_journal_immutable');
+ await f.db.query("update public.raxi_agent_events set payload=jsonb_set(payload,'{command,result,summary}','\"tampered fixture\"') where source_ref=$1",[ref]);
+ await f.db.exec('alter table public.raxi_agent_events enable trigger raxi_supervised_journal_immutable;set role service_role');
+ await f.restart();
+ const repo=f.repo(),mutated={...original.write,result:{...(original.write.result as object),summary:'tampered fixture'}};
+ await assert.rejects(repo.journal.commit(mutated),/integrity/);
+ await assert.rejects(repo.repository.step(id,state.lease_token,'finish',mutated.result,undefined,0),/integrity/);
+ await assert.rejects(repo.confirmation(op),/integrity/);
+ const reconcile=await repo.journal.reconcile(op);assert.equal(reconcile.status,'CONFLICT');assert.equal(reconcile.write,null);
+ await assert.rejects(f.db.query('select public.raxi_supervised_step($1,$2,$3,$4,$5,$6,$7,$8,$9)',
+  [owner,id,state.lease_token,op,original.write.expectedVersion,'finish',JSON.stringify(mutated.result),null,0]),/integrity/);
+ assert.equal((await f.repo().readTask(t.id)).status,'COMPLETED');
+ assert.deepEqual((await f.db.query<{result:unknown}>('select result from public.raxi_agent_runs where id=$1',[id])).rows[0].result,state.result);
+ assert.equal((await f.execute(t.id)).claimed,false);assert.equal(f.calls,1);
+ }finally{await f.close();}
+});
+
+test('missing/invalid digest and altered confirmations fail closed; intact journal replay still works',async()=>{
+ const f=await fixture();try{
+ const t=await f.prepare();await f.approve(t.id);await f.execute(t.id);
+ const id=await f.runId(t.id),op=id+':finish',ref='SUPERVISED_JOURNAL:'+op;
+ const payload=(await f.db.query<{payload:Record<string,unknown>}>('select payload from public.raxi_agent_events where source_ref=$1',[ref])).rows[0].payload;
+ const original=await f.repo().journal.reconcile(op);assert.ok(original.write);
+ const withoutDigest=structuredClone(payload);delete (withoutDigest.confirmation as Record<string,unknown>).journal_digest;
+ const withoutConfirmationDigest=structuredClone(payload);delete withoutConfirmationDigest.confirmationDigest;
+ const variants=[
+  withoutDigest,
+  withoutConfirmationDigest,
+  {...payload,confirmationDigest:null},
+  {...payload,confirmationDigest:'0'.repeat(64)},
+  {...payload,confirmation:{...(payload.confirmation as object),journal_digest:null}},
+  {...payload,confirmation:{...(payload.confirmation as object),journal_digest:'f'.repeat(64)}},
+  {...payload,confirmation:{...(payload.confirmation as object),result:{simulated:true,summary:'changed'}}},
+  {...payload,command:null},
+ ];
+ for(const changed of variants){
+  await f.db.exec('reset role;alter table public.raxi_agent_events disable trigger raxi_supervised_journal_immutable');
+  await f.db.query('update public.raxi_agent_events set payload=$1 where source_ref=$2',[JSON.stringify(changed),ref]);
+  await f.db.exec('alter table public.raxi_agent_events enable trigger raxi_supervised_journal_immutable;set role service_role');
+  assert.equal((await f.repo().journal.reconcile(op)).status,'CONFLICT');
+  await assert.rejects(f.repo().confirmation(op),/integrity/);
+  await assert.rejects(f.repo().journal.commit(original.write),/integrity/);
+ }
+ await f.db.exec('reset role;alter table public.raxi_agent_events disable trigger raxi_supervised_journal_immutable');
+ await f.db.query('update public.raxi_agent_events set payload=$1 where source_ref=$2',[JSON.stringify(payload),ref]);
+ await f.db.exec('alter table public.raxi_agent_events enable trigger raxi_supervised_journal_immutable;set role service_role');
+ assert.equal((await f.repo().journal.reconcile(op)).status,'FOUND');
+ assert.equal((await f.repo().journal.commit(original.write)).version,3);
+ }finally{await f.close();}
+});
+
+test('confirmation content integrity covers dispatch, ack and unknown without rejecting intact historical steps',async()=>{
+ const f=await fixture();try{
+ const t=await f.prepare();await f.approve(t.id);const repo=f.repo(),c=await repo.repository.claim(t.id,'fixture');assert.ok(c);
+ await repo.repository.step(c.run.id,c.run.lease_token,'dispatch');
+ await repo.repository.step(c.run.id,c.run.lease_token,'ack',undefined,'SIMULATED:'+c.run.id);
+ await repo.repository.step(c.run.id,c.run.lease_token,'unknown',undefined,undefined,0);
+ for(const kind of ['dispatch','ack','unknown']){
+  const op=c.run.id+':'+kind,ref='SUPERVISED_JOURNAL:'+op;
+  const payload=(await f.db.query<{payload:{confirmation:Record<string,unknown>}}>('select payload from public.raxi_agent_events where source_ref=$1',[ref])).rows[0].payload;
+  const proof=await repo.journal.reconcile(op);assert.equal(proof.status,'FOUND');assert.ok(proof.write);
+  for(const field of ['provider_receipt','result','cost_micros']){
+   const changed={...payload,confirmation:{...payload.confirmation,[field]:field==='cost_micros'?17:'ALTERED_LOCAL_FIXTURE'}};
+   await f.db.exec('reset role;alter table public.raxi_agent_events disable trigger raxi_supervised_journal_immutable');
+   await f.db.query('update public.raxi_agent_events set payload=$1 where source_ref=$2',[JSON.stringify(changed),ref]);
+   await f.db.exec('alter table public.raxi_agent_events enable trigger raxi_supervised_journal_immutable;set role service_role');
+   await assert.rejects(repo.confirmation(op),/integrity/);
+   assert.equal((await repo.journal.reconcile(op)).status,'CONFLICT');
+   await assert.rejects(repo.journal.commit(proof.write),/integrity/);
+  }
+  await f.db.exec('reset role;alter table public.raxi_agent_events disable trigger raxi_supervised_journal_immutable');
+  await f.db.query('update public.raxi_agent_events set payload=$1 where source_ref=$2',[JSON.stringify(payload),ref]);
+  await f.db.exec('alter table public.raxi_agent_events enable trigger raxi_supervised_journal_immutable;set role service_role');
+  assert.equal((await repo.journal.reconcile(op)).status,'FOUND');
+  await repo.journal.commit(proof.write);
+ }
  }finally{await f.close();}
 });

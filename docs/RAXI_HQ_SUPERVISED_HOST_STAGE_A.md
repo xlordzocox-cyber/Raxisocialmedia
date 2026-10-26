@@ -56,6 +56,16 @@ reconcile distingue FOUND, MISSING y UNAVAILABLE; nunca elimina comandos ni auto
 
 Las pruebas en disco cierran y reabren PGlite y crean un repositorio nuevo: comprueban operación, recibo ya confirmado y bloqueo tras reinicio. No prueban corte eléctrico, tolerancia a corrupción, concurrencia entre procesos o recuperación de un proveedor real.
 
+### Correctivo P2 — integridad de journal
+
+SQL replay y las lecturas del repositorio usan el mismo validador invoker antes de devolver una confirmación o FOUND. Se recalcula confirmation.journal_digest desde command con texto jsonb canónico de PostgreSQL. Se verifica además confirmationDigest sobre la confirmación completa, excluyendo siempre lease_token al persistir. Esto cubre también ack/unknown/dispatch: el hash del comando por sí solo no protege los campos de su confirmación.
+
+Se validan procedencia, IDs de run/tarea/agente/workspace, etapa, operación y versión. Un finish se contrasta además con resultado/coste/recibo canónicos del run. Un fallo de integridad produce P1901: conciliación devuelve CONFLICT sin write; replay y lectura de confirmación rechazan. Una caída de la BD sigue siendo UNAVAILABLE, sin confundirse con corrupción o ausencia.
+
+Un trigger impide UPDATE/DELETE de filas del journal incluso con service_role, y evita reclasificar otros eventos como journal. No bloquea UPDATE/DELETE de eventos ajenos al journal. Se retira TRUNCATE del rol de aplicación porque omite triggers de fila. No se añaden permisos de escritura ni funciones SECURITY DEFINER.
+
+Las pruebas de corrupción usan exclusivamente el administrador de la base local para desactivar temporalmente el trigger e inyectar el fallo; el rol de aplicación no puede hacerlo. No se presenta el SHA-256 como firma ni defensa contra un propietario de BD capaz de reescribir datos, hashes y controles. Los registros locales anteriores sin la nueva huella de confirmación se rechazan; no hay backfill silencioso ni autorización para alterar un servidor alojado.
+
 ### Decisión sobre la bandeja de archivos
 
 **No implementada en A.** El journal local en PostgreSQL ya prueba confirmación, idempotencia y reinicio sin mantener otra copia del estado operativo. Una bandeja adicional requeriría ACL Windows verificadas, cifrado/retención según datos, límites de espacio, escritura atómica y recuperación sin doble entrega. chmod por sí solo no acredita aislamiento en Windows. Añadirla ahora sin esas condiciones ampliaría superficie y duplicaría datos sensibles.

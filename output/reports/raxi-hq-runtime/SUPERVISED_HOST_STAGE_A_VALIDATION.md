@@ -2,6 +2,8 @@
 
 Base: `8c05866733dffde2f1f90f99f89b904e80305d01`, merge de #18. Rama aislada `feature/raxi-hq-supervised-host-stage-a`. **No hay ejecución REAL habilitada.**
 
+Correctivo posterior de integridad del journal: [evidencia P2](SUPERVISED_HOST_STAGE_A_P2_JOURNAL.md). Los resultados siguientes corresponden a la entrega original de etapa A.
+
 ## Resultados finales
 
 Desde apps/raxi-hq:

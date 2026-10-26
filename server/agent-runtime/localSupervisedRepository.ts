@@ -42,8 +42,8 @@ export function localSupervisedRepository(db:LocalPostgresPort,owner:string,befo
  };
  const operation=async(operationId:string)=>{
   const r=await db.query<{payload:{command:{expectedVersion:number;kind:SupervisedJournalWrite['event'];result:unknown;receipt:string|null;cost:number|null};confirmation:unknown}}>(
-   `select e.payload from public.raxi_agent_events e join public.raxi_workspaces w on w.id=e.workspace_id
-    where e.source_ref=$1 and w.owner_user_id=$2 and e.source_kind='MOCK' and e.evidence_status='UNVERIFIED'`,
+   `select e.payload, public.raxi_supervised_validate_journal(e) as integrity from public.raxi_agent_events e join public.raxi_workspaces w on w.id=e.workspace_id
+    where e.source_ref=$1 and w.owner_user_id=$2`,
    ['SUPERVISED_JOURNAL:'+operationId,owner]);return r.rows[0]?.payload;
  };
  const journal:SupervisedJournalPort={
@@ -70,7 +70,9 @@ export function localSupervisedRepository(db:LocalPostgresPort,owner:string,befo
     operatorId:owner,approvalId:b.approvalId!,scopeDigest:b.scopeDigest,requestSha256:b.requestSha256,event:c.kind,response:null,
     simulated:true,sourceKind:'MOCK',evidenceStatus:'UNVERIFIED',...(c.result===null?{}:{result:c.result}),
     ...(c.receipt===null?{}:{receipt:c.receipt}),...(c.cost===null?{}:{knownCostMicros:c.cost})}};
-   } catch {return {status:'UNAVAILABLE',write:null};}
+   } catch(error) {
+    return {status:error&&typeof error==='object'&&'code' in error&&error.code==='P1901'?'CONFLICT':'UNAVAILABLE',write:null};
+   }
   },
  };
  const repository:RuntimeRepository={
