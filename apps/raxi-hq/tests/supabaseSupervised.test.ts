@@ -146,12 +146,13 @@ test('B2 runner requires explicit authorization, matching project metadata and u
  const old=globalThis.fetch;let calls=0;globalThis.fetch=async()=>{calls++;throw Error('Forbidden');};
  try {
   await assert.rejects(runStagingRuntime({},[]));
+  const ref='zvhxjindgyvtasstfjut';
   const env={RAXI_STAGING_REF:ref,RAXI_STAGING_URL:`https://${ref}.supabase.co`,RAXI_STAGING_DATABASE_URL:`postgresql://postgres:fixture-only@db.${ref}.supabase.co:5432/postgres`,RAXI_STAGING_ACK:'RUN_ISOLATED_STAGING_ACCEPTANCE',RAXI_STAGING_RUNTIME_ACK:'RUN_SUPERVISED_SIMULATION_B2',RAXI_STAGING_APPROVAL_FILE:'not-read',RAXI_STAGING_APPROVAL_SHA256:'a'.repeat(64)};
   assert.throws(()=>runtimeStagingGate({...env,RAXI_STAGING_REF:'jrkefsylpfriiqefcmzq'},['--run']));
   assert.throws(()=>runtimeStagingGate({...env,RAXI_STAGING_APPROVAL_SHA256:''},['--run']));
   const target=runtimeStagingGate(env,['--run']);
-  const manifest={kind:'SUPERVISED_B2_SIMULATION',projectRef:ref,organizationId:'approved-test-org',createdAt:'2026-10-26T00:00:00Z',expiresAt:new Date(Date.now()+60000).toISOString(),providers:'SIMULATED_ONLY',productionClone:false,baseCommit:'55eecc4ef7a6e6eb748c61ea1c1e2b30c4657247'};
-  const project={id:ref,organization_id:manifest.organizationId,created_at:manifest.createdAt,status:'ACTIVE_HEALTHY'};
+  const manifest={kind:'SUPERVISED_B2_SIMULATION',projectRef:ref,organizationId:'qpjzdqkvjzgqwvismeku',createdAt:'2026-10-26T00:00:00Z',expiresAt:new Date(Date.now()+60000).toISOString(),providers:'SIMULATED_ONLY',productionClone:false,baseCommit:'b56b26567bc97078fa58ef16385b851d890d6408'};
+  const project={id:ref,name:'raxi-hq-staging',region:'us-east-2',organization_id:manifest.organizationId,created_at:manifest.createdAt,status:'ACTIVE_HEALTHY'};
   verifyStagingEvidence(target,manifest,project);
   for(const p of [{id:'jrkefsylpfriiqefcmzq'},{organization_id:'other'},{created_at:'other'},{status:'UNKNOWN'}])assert.throws(()=>verifyStagingEvidence(target,manifest,{...project,...p}));
   assert.throws(()=>verifyStagingEvidence(target,{...manifest,expiresAt:'2000-01-01T00:00:00Z'},project));
