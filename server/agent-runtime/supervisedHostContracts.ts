@@ -138,6 +138,8 @@ interface JournalWriteFields {
  operationId:string;expectedVersion:number;taskId:string;workspaceId:string;runId:string;attempt:number;
  operatorId:string;approvalId:string;scopeDigest:string;requestSha256:string;
  event:Parameters<RuntimeRepository['step']>[2];response:InspectedResponse|null;
+ /** Optional canonical step data, retained for exact journal replay; never an execution permit. */
+ result?:unknown;receipt?:string;knownCostMicros?:number;
 }
 export type SupervisedJournalWrite = JournalWriteFields & (
  {simulated:true;sourceKind:'MOCK';evidenceStatus:'UNVERIFIED'} |

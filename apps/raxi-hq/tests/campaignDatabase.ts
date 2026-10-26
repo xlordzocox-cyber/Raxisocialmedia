@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { readFileSync, readdirSync } from 'node:fs';
-export async function campaignDatabase(includeCampaignProposal = true) {
-  const db = new PGlite();
+export async function campaignDatabase(includeCampaignProposal = true, dataDir?: string) {
+  const db = new PGlite(dataDir);
   await db.exec(`
     create role anon; create role authenticated; create role service_role bypassrls;
     create schema auth; create schema storage;
