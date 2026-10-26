@@ -12,7 +12,7 @@ import {createSupabaseSupervisedHost} from '../../../server/agent-runtime/superv
 import {runOne,type TaskSpec} from '../../../server/agent-runtime/runtime';
 import {simulatedProvider} from '../../../server/agent-runtime/providers';
 // @ts-ignore Existing .mjs script has no declaration; this test exercises its real exports.
-import {runtimeStagingGate,verifyStagingEvidence,runStagingRuntime} from '../scripts/staging-runtime-acceptance.mjs';
+import {runtimeStagingGate,verifyStagingEvidence,runStagingRuntime,verifyHostedSessionRevocation} from '../scripts/staging-runtime-acceptance.mjs';
 const owner='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',workspace='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const session='cccccccc-cccc-4ccc-8ccc-cccccccccccc',foreign='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const ref='abcdefghijklmnopqrst';
@@ -173,4 +173,78 @@ test('B1 handler is closed, disabled for REAL, no client secrets/lease exposed a
   await f.db.exec('reset role;set role authenticated');
   await assert.rejects(f.db.query('select public.raxi_supervised_host_identity($1)',[JSON.stringify(f.identity)]),/permission denied/);
  }finally{globalThis.fetch=old;await f.close();}
+});
+
+test('P2 revocation acceptance uses SQL session removal, live claim doubles and the real adapter rejection path (local only)',async()=>{
+ const f=await fixture();try{
+  let logouts=0;
+  const auth={...f.auth,async signOut(options:{scope:string}){assert.equal(options.scope,'local');logouts++;await f.admin('delete from auth.sessions where id=$1',[session]);return {error:null};}};
+  const result=await verifyHostedSessionRevocation({auth,server:f.server,sql:f.db,token:'test-session-handle',workspaceId:workspace,
+   createIdentify:(server:ServerRpcPort)=>supabaseSupervisedAuth({projectRef:ref,auth,server})});
+  assert.deepEqual(result,{logoutConfirmed:true,sessionAbsent:true,jwtUnexpired:true,rejectionSource:'SESSION_RPC'});assert.equal(logouts,1);assert.equal(f.calls,0);
+ }finally{await f.close();}
+});
+
+/** All ports below are LOCAL DOUBLES. They cannot contact Auth or remove a real session. */
+function revocationDouble(fault='',afterLogout=()=>{}) {
+ let present=true,signedOut=false,claimsAfter=0,usersAfter=0,sqlReads=0;
+ const claims={sub:owner,session_id:session,iss:`https://${ref}.supabase.co/auth/v1`,aud:'authenticated',role:'authenticated',is_anonymous:false,
+  iat:Math.floor(Date.now()/1000)-1,exp:Math.floor(Date.now()/1000)+600};
+ const auth={
+  async getClaims(){
+   if(signedOut){claimsAfter++;
+    if(fault==='claims_network'||fault==='logout_and_auth_down'||fault==='identify_claims_network'&&claimsAfter===2)throw Error('fixture network');
+    if(fault==='claims_error')return {data:null,error:{code:'fixture_auth_unavailable'}};
+   }
+   return {data:{claims:{...claims,...(signedOut&&fault==='changed_expiry'?{exp:claims.exp+1}:{})}},error:null};
+  },
+  async getUser(){
+   if(signedOut){usersAfter++;
+    if(fault==='user_network'||fault==='identify_user_network'&&usersAfter===2)throw Error('fixture network');
+    if(fault==='user_error')return {data:{user:null},error:{code:'fixture_auth_unavailable'}};
+   }
+   return {data:{user:{id:signedOut&&fault==='changed_user'?foreign:owner,is_anonymous:false}},error:null};
+  },
+  async signOut(){
+   signedOut=true;if(fault!=='session_remains')present=false;afterLogout();
+   if(fault==='logout_throw')throw Error('fixture logout unavailable');
+   return {error:['logout_error','logout_and_auth_down'].includes(fault)?{code:'fixture_logout_failure'}:null};
+  },
+ };
+ const server:ServerRpcPort={async rpc(){
+  if(!signedOut)return {data:true,error:null};
+  if(fault==='rpc_throw')throw Error('fixture transport unavailable');
+  if(fault==='rpc_network')return {data:null,error:{code:'',message:'fixture network'}};
+  if(fault==='rpc_permission')return {data:null,error:{code:'42501',message:'permission denied for function'}};
+  if(fault==='rpc_missing')return {data:null,error:{code:'PGRST202',message:'function unavailable'}};
+  if(fault==='rpc_accepts')return {data:true,error:null};
+  return {data:null,error:{code:'42501',message:'session or workspace denied'}};
+ }};
+ const sql={async query(statement:string,params:unknown[]){
+  sqlReads++;assert.match(statement,/auth\.sessions/);assert.deepEqual(params,[session,owner,workspace]);
+  if(fault==='sql_before'&&!signedOut||fault==='sql_after'&&signedOut)throw Error('fixture SQL unavailable');
+  return {rows:[{present:fault==='no_initial_session'?false:present,user_matches:present,owner_matches:!(signedOut&&fault==='owner_changed')}]};
+ }};
+ const createIdentify=(server:ServerRpcPort)=>supabaseSupervisedAuth({projectRef:ref,auth,server});
+ return {auth,server,sql,token:'test-session-handle',workspaceId:workspace,createIdentify,get sqlReads(){return sqlReads;},claims};
+}
+test('P2 old generic rejection accepts logout plus Auth outage, corrected acceptance rejects that false positive',async()=>{
+ const original=revocationDouble('logout_and_auth_down');
+ await original.auth.signOut();await assert.rejects(original.createIdentify(original.server)(original.token,workspace));
+ const corrected=revocationDouble('logout_and_auth_down');await assert.rejects(verifyHostedSessionRevocation(corrected),/Logout not confirmed/);
+ assert.equal(corrected.sqlReads,1,'No post-logout acceptance evidence after failed logout');
+});
+for(const fault of ['logout_error','logout_throw','session_remains','sql_before','sql_after','claims_network','claims_error',
+ 'user_network','user_error','identify_claims_network','identify_user_network','rpc_throw','rpc_network','rpc_permission','rpc_missing',
+ 'rpc_accepts','changed_expiry','changed_user','no_initial_session','owner_changed']) {
+ test(`P2 revocation evidence fails closed for ${fault} (local doubles)`,async()=>{
+  await assert.rejects(verifyHostedSessionRevocation(revocationDouble(fault)));
+ });
+}
+test('P2 JWT at exact expiry after logout cannot be accepted as session-revocation evidence',async()=>{
+ const actualNow=Date.now;let now=actualNow();Date.now=()=>now;
+ try {
+  const f=revocationDouble('',()=>{now=f.claims.exp*1000;});
+  await assert.rejects(verifyHostedSessionRevocation(f),/JWT must remain unexpired/);
+ }finally{Date.now=actualNow;}
 });

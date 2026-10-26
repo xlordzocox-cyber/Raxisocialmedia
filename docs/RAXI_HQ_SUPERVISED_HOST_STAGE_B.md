@@ -69,6 +69,16 @@ El futuro ensayo requiere: RAXI_STAGING_REF/URL/DATABASE_URL/ACK; RAXI_STAGING_A
 
 El runner prepara una comprobación **parcial**: dos conexiones físicas distintas, inventario, Auth/owner, handler en proceso, aprobación/ejecución simulada, replay y logout. No acredita Edge desplegada ni completa B2. Antes de aceptar B2 faltan contención observada entre conexiones, rollback con fallos reales, matriz completa de RLS/grants, sesiones auténticas revocadas/caducadas, recuperación tras caída, backups/restauración y revisión del esquema exacto. No ejecutar el runner para averiguar si hay credenciales disponibles.
 
+### Correctivo P2 — atribución verificable de revocación
+
+El ensayo ya no acepta cualquier excepción de identify tras ignorar signOut. `verifyHostedSessionRevocation` exige identidad admitida y sesión SQL presente antes del logout, y exige que signOut termine con error:null. Usa la conexión SQL de B2 ya autorizada para comprobar que el session_id desapareció de auth.sessions y que el propietario del workspace sigue siendo el mismo; no abre otra conexión ni aplica SQL de modificación.
+
+Conserva el mismo access token en memoria y verifica que su expiración original siga en el futuro antes y después de la comprobación. getClaims y getUser deben responder correctamente después del logout, con la misma identidad y expiración. Se instrumenta únicamente el puerto RPC del adaptador auténtico existente: el rechazo debe alcanzar exactamente una llamada a raxi_supervised_host_identity con el mismo binding y recibir el SQLSTATE 42501 y mensaje exacto de la función `session or workspace denied`, con data:null. Se vuelve a confirmar por SQL la ausencia de sesión y propiedad. Un fallo de Auth, transporte, permisos, función ausente o vencimiento no acredita revocación y hace fallar el ensayo.
+
+Si una versión de GoTrue rechaza legítimamente el usuario antes de llegar a esa RPC, esta prueba conservadora tampoco acredita la atribución solicitada: deberá investigarse en B2, sin presentarlo como caída ni como éxito. No se promete revocación instantánea o atomicidad entre las sondas. La salida contiene únicamente indicadores de evidencia, sin JWT, IDs personales, claves, leases o errores crudos. Ninguna de estas comprobaciones alojadas se ejecutó en B1; las regresiones usan dobles locales y PGlite.
+
+Evidencia del correctivo: [P2 revocación](../output/reports/raxi-hq-runtime/SUPERVISED_HOST_STAGE_B1_P2_REVOCATION.md).
+
 ## Riesgos y bloqueos
 
 | Prioridad | Riesgo / cierre pendiente |

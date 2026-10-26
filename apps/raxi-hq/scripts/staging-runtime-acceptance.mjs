@@ -66,9 +66,67 @@ export async function runStagingRuntime(env,args) {
   await call({action:'approve',workspaceId:workspace,taskId:task.id,key:crypto.randomUUID(),scopeDigest,confirmed:true});
   const command={action:'execute',workspaceId:workspace,taskId:task.id,key:crypto.randomUUID(),confirmed:true};
   const done=await call(command);assert.equal(done.task.status,'COMPLETED');assert.equal(done.execution,'SIMULATED');await call(command);
-  await user.auth.signOut({scope:'local'});await assert.rejects(identify(a.data.session.access_token,workspace));
-  console.log(JSON.stringify({kind:'B2_PARTIAL_ACCEPTANCE',host:'IN_PROCESS',providers:'SIMULATED_ONLY',physicalConnections:2,ddl:false,deployment:false,fullB2MatrixComplete:false}));
+  const revocation=await verifyHostedSessionRevocation({auth:user.auth,server:writer,sql:db[0],token:a.data.session.access_token,workspaceId:workspace,
+   createIdentify:server=>supabaseSupervisedAuth({projectRef:target.ref,auth:user.auth,server})});
+  console.log(JSON.stringify({kind:'B2_PARTIAL_ACCEPTANCE',host:'IN_PROCESS',providers:'SIMULATED_ONLY',physicalConnections:2,revocation,ddl:false,deployment:false,fullB2MatrixComplete:false}));
  }finally {await Promise.allSettled(db.map(c=>c.end()));}
+}
+/** Acceptance evidence only, NOT an authorization mechanism. All ports are trusted
+ * server infrastructure. No JWT, session UUID, user data or raw error is returned/logged.
+ * SQL is the already-authorized B2 connection, never a new connection or DDL.
+ */
+export async function verifyHostedSessionRevocation({auth,server,sql,token,workspaceId,createIdentify}) {
+ const assert=(await import('node:assert/strict')).default;
+ const before=await createIdentify(server)(token,workspaceId);
+ const expires=Date.parse(before.expiresAt);
+ const live=()=>assert.ok(Number.isFinite(expires)&&expires>Date.now(),'JWT must remain unexpired throughout revocation evidence');
+ live();
+ const sessionState=async()=>{
+  const r=await sql.query(`select exists(select 1 from auth.sessions where id=$1::uuid) as present,
+   exists(select 1 from auth.sessions where id=$1::uuid and user_id=$2::uuid) as user_matches,
+   exists(select 1 from public.raxi_workspaces where id=$3::uuid and owner_user_id=$2::uuid) as owner_matches`,
+   [before.sessionId,before.actorId,workspaceId]);
+  assert.equal(r.rows.length,1,'Session evidence missing');
+  assert.equal(r.rows[0].owner_matches,true,'Workspace ownership changed');return r.rows[0];
+ };
+ const initial=await sessionState();assert.equal(initial.present,true,'Session must exist before logout');assert.equal(initial.user_matches,true,'Session owner mismatch');
+ const logout=await auth.signOut({scope:'local'});
+ assert.ok(logout&&logout.error===null,'Logout not confirmed');
+ const removed=await sessionState();assert.equal(removed.present,false,'Remote session was not removed');
+ live();
+ // Availability and signature probes use the SAME retained access token, explicitly.
+ // A signOut response or a generic identify rejection alone cannot prove revocation.
+ const claims=await auth.getClaims(token);
+ assert.ok(!claims.error&&claims.data?.claims,'Claims verification unavailable');
+ const c=claims.data.claims;
+ assert.equal(c.sub,before.actorId);assert.equal(c.session_id,before.sessionId);
+ assert.equal(c.iss,`https://${before.projectRef}.supabase.co/auth/v1`);
+ assert.equal(c.aud,'authenticated');assert.equal(c.role,'authenticated');assert.equal(c.is_anonymous,false);
+ assert.ok(Number.isSafeInteger(c.exp)&&c.exp*1000===expires,'JWT expiry or identity changed');live();
+ const user=await auth.getUser(token);
+ assert.ok(!user.error&&user.data?.user,'Auth did not confirm user: session-RPC attribution unavailable');
+ assert.equal(user.data.user.id,before.actorId);assert.equal(user.data.user.is_anonymous,false);
+ let calls=0,sessionDenied=false;
+ const observed={async rpc(name,args){
+  assert.equal(name,'raxi_supervised_host_identity');
+  assert.equal(args.p_identity.actorId,before.actorId);assert.equal(args.p_identity.sessionId,before.sessionId);
+  assert.equal(args.p_identity.workspaceId,workspaceId);assert.equal(args.p_identity.projectRef,before.projectRef);
+  live();calls++;
+  const r=await server.rpc(name,args);
+  // Match the function's deliberate rejection, not PostgREST transport failures,
+  // timeouts, missing grants/functions or a generic Error from Auth.
+  sessionDenied=r.error?.code==='42501'&&r.error?.message==='session or workspace denied'&&r.data===null;
+  return r;
+ }};
+ let rejection;
+ try {await createIdentify(observed)(token,workspaceId);}catch(error){rejection=error;}
+ live();
+ assert.ok(rejection instanceof Error&&rejection.message==='Session or owner not confirmed','Expected session-check rejection');
+ assert.equal(calls,1,'Rejection must reach exactly one session RPC');assert.equal(sessionDenied,true,'Session-specific database rejection required');
+ // An independent read confirms that no concurrent login restored this session and
+ // that ownership still matches when the rejection is attributed to revocation.
+ assert.equal((await sessionState()).present,false);live();
+ return Object.freeze({logoutConfirmed:true,sessionAbsent:true,jwtUnexpired:true,rejectionSource:'SESSION_RPC'});
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)) {
  runStagingRuntime(process.env,process.argv.slice(2)).catch(()=>{console.error('B2 not authorized or acceptance not confirmed; sensitive details suppressed');process.exitCode=1;});
