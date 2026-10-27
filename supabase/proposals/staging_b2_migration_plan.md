@@ -1,12 +1,14 @@
 # Propuesta consolidada para staging B2 — NO APLICAR
 
+Continuación Issue #22: [candidato SQL offline y plan PG17](../../docs/RAXI_HQ_PG17_LOCAL_VALIDATION_PLAN.md). El artefacto candidato está fuera de migrations/, no fue generado por CLI y no tiene versión asignada; la validación nativa PG17 y la generación CLI permanecen bloqueadas.
+
 Base revisada: `b56b26567bc97078fa58ef16385b851d890d6408`, merge de PR #20 con el correctivo de revocación. No hay SQL nuevo aplicable ni entradas añadidas a migrations/. Esta propuesta consolida el orden y las fuentes; no duplica su DDL ni contiene un ejecutor.
 
 Destino único: raxi-hq-staging, `zvhxjindgyvtasstfjut`, organización `qpjzdqkvjzgqwvismeku`, us-east-2, PostgreSQL 17. Producción `jrkefsylpfriiqefcmzq` queda prohibida. El estado cero migraciones/cero tablas Raxi procede de confirmación del usuario; este PR no lo consultó remotamente ni lo cambió.
 
 ## Paquete propuesto
 
-El manifiesto [raxi-hq-staging.manifest.json](../staging/raxi-hq-staging.manifest.json) contiene siete SHA-256 de fuentes, orden, versiones base y exclusiones. Se normalizan solo CRLF a LF antes del hash SQL; no se normaliza otro contenido. Su objeto JSON canónico está fijado en el verificador con SHA-256 `872378b984779365f3bd0106a13191edfddf99978e3faa8b0c6eb76f6d919ce4`. Reordenar claves/formatear JSON no cambia significado; cambiar campos, orden de pasos, fuente o versión requiere nueva revisión de código y huella.
+El manifiesto [raxi-hq-staging.manifest.json](../staging/raxi-hq-staging.manifest.json) contiene siete SHA-256 de fuentes, orden, versiones base y exclusiones. Se normalizan solo CRLF a LF antes del hash SQL; no se normaliza otro contenido. Su objeto JSON canónico está fijado en el verificador con SHA-256 `a37c4285af09c428cfefc8a60e92defdc616d4029a25812e79f3403c7da5a44a`. Reordenar claves/formatear JSON no cambia significado; cambiar campos, orden de pasos, fuente o versión requiere nueva revisión de código y huella.
 
 | Paso | Versión / fuente | Dependencias y revisión |
 | --- | --- | --- |
