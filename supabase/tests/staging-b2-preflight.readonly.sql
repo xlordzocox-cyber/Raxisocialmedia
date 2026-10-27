@@ -36,12 +36,17 @@ WITH checks AS (
    EXISTS (SELECT 1 FROM pg_roles WHERE rolname='authenticated' AND NOT rolbypassrls)
  UNION ALL SELECT 'service_role_bypassrls',
    EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role' AND rolbypassrls)
- UNION ALL SELECT 'service_role_select_auth_sessions',
+ UNION ALL SELECT 'service_role_select_auth_sessions_required_columns',
    EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role')
-   AND has_table_privilege('service_role','auth.sessions','SELECT')
- UNION ALL SELECT 'service_role_select_auth_users',
+   AND has_schema_privilege('service_role','auth','USAGE')
+   AND has_column_privilege('service_role','auth.sessions','id','SELECT')
+   AND has_column_privilege('service_role','auth.sessions','user_id','SELECT')
+   AND has_column_privilege('service_role','auth.sessions','not_after','SELECT')
+ UNION ALL SELECT 'service_role_select_auth_users_required_columns',
    EXISTS (SELECT 1 FROM pg_roles WHERE rolname='service_role')
-   AND has_table_privilege('service_role','auth.users','SELECT')
+   AND has_schema_privilege('service_role','auth','USAGE')
+   AND has_column_privilege('service_role','auth.users','id','SELECT')
+   AND has_column_privilege('service_role','auth.users','is_anonymous','SELECT')
 )
 SELECT name,CASE WHEN ok THEN 'PASS' ELSE 'BLOCK' END status
 FROM checks ORDER BY name;
