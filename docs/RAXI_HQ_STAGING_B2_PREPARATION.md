@@ -1,5 +1,7 @@
 # PR #21 — preparación segura de staging, sin ejecutar B2
 
+Continuación: [Issue #22 — candidato offline y bloqueo PG17](RAXI_HQ_PG17_LOCAL_VALIDATION_PLAN.md). El manifiesto actual incorpora ese artefacto con un nuevo pin, conservando íntegros los siete hashes de fuentes y todas las autorizaciones false.
+
 Main verificado: `b56b26567bc97078fa58ef16385b851d890d6408`. PR #19 y #20 integrados. Se continúa desde los cambios locales recuperados en `feature/raxi-hq-staging-b2-preparation`; no se descartó material ni se tocaron las diez eliminaciones de imágenes del checkout original.
 
 ## Identidad y autoridad

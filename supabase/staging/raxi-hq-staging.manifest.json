@@ -104,5 +104,15 @@
     null
   ],
   "expectedSchemaPath": "supabase/staging/raxi-hq-staging.expected-schema.json",
-  "expectedSchemaSha256": "c16ad9f612decf6af2aaf3a75219b3b09732070a0e09c9b32531ec3a3b94df90"
+  "expectedSchemaSha256": "c16ad9f612decf6af2aaf3a75219b3b09732070a0e09c9b32531ec3a3b94df90",
+  "candidate": {
+    "path": "supabase/candidates/supervised_runtime_b2.candidate.sql",
+    "baseCommit": "271f33d294b5dcdf7b36f6abae31baeb962d3820",
+    "generatedBy": "OFFLINE_ASSEMBLER_NOT_CLI",
+    "sha256Lf": "bc4ce83cfe5e64fc116dd5eb408254f1b0363b868d1a71b5378053435c3b0c15",
+    "cliMigrationVersion": null,
+    "pg17Status": "BLOCKED_NOT_AVAILABLE",
+    "cliStatus": "BLOCKED_NOT_AVAILABLE",
+    "executionAuthorized": false
+  }
 }
