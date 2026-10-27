@@ -1,0 +1,49 @@
+{
+  "kind": "NATIVE_PG17_LOCAL_ONLY",
+  "checkedAt": "2026-10-27T15:31:17.824Z",
+  "isolation": {
+    "containerId": "18e930e0f9b68de168b8b97415d73bece0f1c7a6f38def2d4749251097185235",
+    "imageId": "sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe",
+    "networkId": "aab0bf6af9a2f4558b7d833cc430a3338f72cff491e926cfaacaf88678a9b22d",
+    "internal": true,
+    "publishedPorts": 0,
+    "dataStorage": "tmpfs"
+  },
+  "serverVersion": 170011,
+  "sources": [
+    {
+      "id": "20261019030541",
+      "sha256Lf": "e0f0a828b5d4f31960f2153ad910bb84a399a449754db8761057e91047cd7ba0"
+    },
+    {
+      "id": "20261019030659",
+      "sha256Lf": "2967d26201b0e335edec509e5cb40cc0808e3c422ff5eceeff1251b3ae43cf49"
+    },
+    {
+      "id": "20261019030808",
+      "sha256Lf": "67472da139bbe3146f6e21ff8f1a5992a41a73fe80fd52800a9448ef15d3e375"
+    },
+    {
+      "id": "20261019231655",
+      "sha256Lf": "89d9db4a1fa22eef45d34f279dbb10fd5feada5b495dab12eedfbbc4b66188ec"
+    },
+    {
+      "id": "agent_runtime",
+      "sha256Lf": "36114c12797976ebfc0afdf94ca59c6a0c3dd11b184efdc5c83803b4eeefcb8c"
+    },
+    {
+      "id": "supervised_host_stage_a",
+      "sha256Lf": "7f6de9365a6e85492b3e8e18b929f5caecfb3a01791d1326b34686e436c6ef3d"
+    },
+    {
+      "id": "supervised_host_stage_b",
+      "sha256Lf": "59595546fdf1302342df0691fd5c3c7645d2a521861221ca11ae05b184bcb689"
+    }
+  ],
+  "schemaSha256": "d7983def867201cb307b92906b97db9876765852a1f0d96cd8fdf2b81efd7c5e",
+  "installedThisInvocation": false,
+  "testsPassed": true,
+  "b2Executed": false,
+  "hostedAuthValidated": false,
+  "providersCalled": 0
+}
