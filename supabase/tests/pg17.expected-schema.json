@@ -1,0 +1,240 @@
+{
+  "postgresMajor": 17,
+  "tables": [
+    {
+      "name": "raxi_agent_events",
+      "rls": true,
+      "sha256": "1e9964e6e9231712b80923b1cacc53d9addcb5930ab381f1905fa889a1cd2f42"
+    },
+    {
+      "name": "raxi_agent_profiles",
+      "rls": true,
+      "sha256": "f39c67651ce504bb72d6d43696231280e023f0cd560cdeef762f38ca4d32552c"
+    },
+    {
+      "name": "raxi_agent_runs",
+      "rls": true,
+      "sha256": "54a7b38f73220609a33959e6a342a1572bfcd852e1f5931838c9c11444e1f796"
+    },
+    {
+      "name": "raxi_agent_tasks",
+      "rls": true,
+      "sha256": "e8e27941ab10aa6008799b5169ddbd889f7c43c2ba4f0018a6e2ab9fe5c4bd86"
+    },
+    {
+      "name": "raxi_approvals",
+      "rls": true,
+      "sha256": "39c18d7bc68a1ac4feaed6b7dd013eec297a3d2f51ea83977883286913057280"
+    },
+    {
+      "name": "raxi_asset_reviews",
+      "rls": true,
+      "sha256": "cccfc381cd890eea3458b307bbf9668a40ccac691a6bacd1fa4de12feee4c7bb"
+    },
+    {
+      "name": "raxi_assets",
+      "rls": true,
+      "sha256": "bdc1aa9afdaa751dc3b337216fcfd9dae3e444c7da561664e056f21798fce6e3"
+    },
+    {
+      "name": "raxi_audit_events",
+      "rls": true,
+      "sha256": "0e45e46dfca2ab0987d20ec16bb076c6a101bd3b92b679d759f1f2f2baaf61b4"
+    },
+    {
+      "name": "raxi_campaigns",
+      "rls": true,
+      "sha256": "ea4e2b0609257e39667d830e6eb8d7e74f5dedaf352dc0e501d4265052817788"
+    },
+    {
+      "name": "raxi_idea_evidence",
+      "rls": true,
+      "sha256": "e89ef5087398f56d6fa5bbdecfb7abf3a30237a8fb118563c64c55c78efbb5db"
+    },
+    {
+      "name": "raxi_idea_handoffs",
+      "rls": true,
+      "sha256": "d463f92cc3f68bb0b3b6cd8116f36bf6a576ef8f4a3a0bfecd76cf9f08c36c02"
+    },
+    {
+      "name": "raxi_ideas",
+      "rls": true,
+      "sha256": "d10305f03b65b2fd431799c77155e04efe5a0671185c3b6e1dedcff88b5754e0"
+    },
+    {
+      "name": "raxi_memory_refs",
+      "rls": true,
+      "sha256": "103396137e29f232424bb39b5bb8fcc2fa9592ab8eca13bf1f5c1f384c4d9d0c"
+    },
+    {
+      "name": "raxi_production_jobs",
+      "rls": true,
+      "sha256": "865c648445bddcd7302af1dd5b33ba7fa8f00747cae2a48442adf4c0a195f4d6"
+    },
+    {
+      "name": "raxi_production_receipts",
+      "rls": true,
+      "sha256": "b5d998c85c5bc96ecedf11c9bdf8976c0b9afc1d4dce26c2b5e7a8afa1a00516"
+    },
+    {
+      "name": "raxi_publication_plans",
+      "rls": true,
+      "sha256": "d186aa46af3e3733fa4f8702bccc2a0a39a58ad37dc8ff9f3cbc9fe8f212cd77"
+    },
+    {
+      "name": "raxi_runtime_policies",
+      "rls": true,
+      "sha256": "08ce014f4b605dfc564005782f90af054069937ac497b9e26ff9123477a61db3"
+    },
+    {
+      "name": "raxi_strategy_deliverables",
+      "rls": true,
+      "sha256": "ff4e5009d7492e61f1e2b719d8de0790e41840d6b70ff08ca023810643af55db"
+    },
+    {
+      "name": "raxi_strategy_revisions",
+      "rls": true,
+      "sha256": "3036dff8e389c536287d35a8a3b962eed21bd6e8317af68c1f5384e447cb9cfd"
+    },
+    {
+      "name": "raxi_workspaces",
+      "rls": true,
+      "sha256": "f6d686831bc948e8204699c94b232db8773d7cc3b1eb1b8b8c0248a908bdfde2"
+    }
+  ],
+  "functions": [
+    {
+      "name": "raxi_create_manual_idea(p_actor uuid, p_command jsonb)",
+      "definer": false,
+      "sha256": "c281683194d4dc310ab2a0a24a7c54fd813aeda776e4a4008e4dd77b5f60a179"
+    },
+    {
+      "name": "raxi_create_workspace()",
+      "definer": false,
+      "sha256": "78698107ad82ed872dbb2a7057026cf25758a75d854ab1496dabee8301eab46c"
+    },
+    {
+      "name": "raxi_get_workspace()",
+      "definer": false,
+      "sha256": "1d0ae7dabeee4c6723de2231a81428d6f58a9aa1ad9fa46d594cb77a1b2c09ac"
+    },
+    {
+      "name": "raxi_list_manual_ideas(p_workspace uuid)",
+      "definer": false,
+      "sha256": "ff36cd0a61527937cf1647a9247b62819011cf5c42a8058ff51d2d54a68ae5a1"
+    },
+    {
+      "name": "raxi_runtime_assert_authorization(p_task raxi_agent_tasks)",
+      "definer": false,
+      "sha256": "45faa0a6295959d3b78694f8994cd81adb8eecde3684e3384e095954e54e6858"
+    },
+    {
+      "name": "raxi_runtime_claim(p_task uuid, p_worker text)",
+      "definer": false,
+      "sha256": "3d99c8db1be25f81388876aec4ffcdf659e903c795da229c25466215a55889ab"
+    },
+    {
+      "name": "raxi_runtime_office(p_workspace uuid)",
+      "definer": false,
+      "sha256": "8f717e8f051378e186bd2e7a75c9574bbc0ce949d7b583f09cdaf796b57edefc"
+    },
+    {
+      "name": "raxi_runtime_policy_version()",
+      "definer": false,
+      "sha256": "2ea3accb52773f62fe7e408d843e20c2cc1d6aa774033625181d24212c8c850f"
+    },
+    {
+      "name": "raxi_runtime_protect_approval()",
+      "definer": false,
+      "sha256": "9debaa23d302c5374ca8a11168f94729db37f29558ae10e9c282a72778f26d17"
+    },
+    {
+      "name": "raxi_runtime_request(p_actor uuid, p_workspace uuid, p_key uuid, p_spec jsonb)",
+      "definer": false,
+      "sha256": "79753f21a65a4dce156506c7e2d122fda9fa642d42249fe103dc91bd1ce906ba"
+    },
+    {
+      "name": "raxi_runtime_step(p_run uuid, p_token uuid, p_kind text, p_result jsonb, p_receipt text, p_cost bigint)",
+      "definer": false,
+      "sha256": "990f8a7b813226d067349d8d5fbd4582e97aa7c3640cbcb3106dc3051161a1c1"
+    },
+    {
+      "name": "raxi_supervised_approve(p_actor uuid, p_task uuid, p_key uuid, p_digest text, p_revoke boolean)",
+      "definer": false,
+      "sha256": "a86788f353b24d74b729e42a364f486801c156635d1d446c34510a9aa4803a2e"
+    },
+    {
+      "name": "raxi_supervised_assert(p_task raxi_agent_tasks)",
+      "definer": false,
+      "sha256": "fe050b37e1fb26beb118eca77ff3a4f63ad03f24c880062b04e78817ac42ff40"
+    },
+    {
+      "name": "raxi_supervised_authorize_binding(t raxi_agent_tasks)",
+      "definer": false,
+      "sha256": "d4d7eeaa270cdf9a30add537177b7b5554d905e47aa4cd3106970b1fb4142b5c"
+    },
+    {
+      "name": "raxi_supervised_binding_origin(b jsonb)",
+      "definer": false,
+      "sha256": "2b0c9b6e7b8f052d99e54841dddd72d5ad76e289606395a7a111894c4ad720a2"
+    },
+    {
+      "name": "raxi_supervised_execute_key(p_actor uuid, p_task uuid, p_key uuid)",
+      "definer": false,
+      "sha256": "2403375a9d9e84b06b429f898713c2b0a8efe7da45439705c60fb10ce80d9ef5"
+    },
+    {
+      "name": "raxi_supervised_host_command(p_identity jsonb, p_action text, p_args jsonb)",
+      "definer": false,
+      "sha256": "b7702979eb9d62b4226632a5c21880c113b9e25551044169ac1d4c848e6100f9"
+    },
+    {
+      "name": "raxi_supervised_host_identity(p_identity jsonb)",
+      "definer": false,
+      "sha256": "7192c2b84915090775b15beecf5c22639577320e562ccc3c068721ce4a1142b4"
+    },
+    {
+      "name": "raxi_supervised_identity()",
+      "definer": false,
+      "sha256": "96a581e3e9feb0897eb94481a3d308b72dbab5e8050aaa9ba50ba97f992e7ec6"
+    },
+    {
+      "name": "raxi_supervised_prepare(p_actor uuid, p_workspace uuid, p_key uuid, p_stage text, p_spec jsonb, p_request text, p_parent uuid)",
+      "definer": false,
+      "sha256": "ad3b5a7d386102f1c1f144c325f206e075f4e12a1fd11bbb67287b4822c9e5b1"
+    },
+    {
+      "name": "raxi_supervised_protect_journal()",
+      "definer": false,
+      "sha256": "72b4ef58b728a227b54d016c90fcee5174743930a00d6f7e846084a68057439a"
+    },
+    {
+      "name": "raxi_supervised_step(p_actor uuid, p_run uuid, p_token uuid, p_operation text, p_version integer, p_kind text, p_result jsonb, p_receipt text, p_cost bigint)",
+      "definer": false,
+      "sha256": "f2a6408cf0ae78f3461551a3d375bd10132c9830d7d77a42489c3c90025b3e83"
+    },
+    {
+      "name": "raxi_supervised_validate_journal(p_event raxi_agent_events)",
+      "definer": false,
+      "sha256": "22d9cd2aba409c6b2d2f8ae89bfcc56b640196317488c5dd9e4103484b4a376b"
+    }
+  ],
+  "roles": [
+    {
+      "name": "anon",
+      "superuser": false,
+      "bypass_rls": false
+    },
+    {
+      "name": "authenticated",
+      "superuser": false,
+      "bypass_rls": false
+    },
+    {
+      "name": "service_role",
+      "superuser": false,
+      "bypass_rls": true
+    }
+  ],
+  "otherPublicRelations": []
+}
