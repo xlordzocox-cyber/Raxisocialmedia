@@ -4,7 +4,7 @@
 
 ## User-observed local evidence — 2026-10-27
 
-The user ran the independently downloaded and SHA-256-verified official Windows AMD64 Supabase CLI **2.122.0**, using the isolated directory `C:\Users\joslu\tools\raxi-b2-offline`. This is a user-provided terminal transcript, **not** a GitHub CI or assistant-executed CLI run.
+The user ran the independently downloaded and SHA-256-verified official Windows AMD64 Supabase CLI **2.122.0**, using the isolated directory `<isolated-local-dir>`. This is a user-provided terminal transcript, **not** a GitHub CI or assistant-executed CLI run.
 
 - CLI command: `supabase --workdir <isolated-local-dir> migration new supervised_runtime_b2`.
 - CLI-created filename: **`20261027213431_supervised_runtime_b2.sql`**.
