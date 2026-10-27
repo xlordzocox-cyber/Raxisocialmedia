@@ -1,0 +1,44 @@
+{
+  "kind": "RAXI_B2_REVIEW_ONLY",
+  "cliGeneratedFilename": "20261027213431_supervised_runtime_b2.sql",
+  "cliVersion": "2.122.0",
+  "cliVersionProvenance": "USER_OBSERVED_WINDOWS_LOCAL",
+  "stagingProjectRef": "zvhxjindgyvtasstfjut",
+  "productionExcluded": "jrkefsylpfriiqefcmzq",
+  "fileOrder": [
+    {
+      "name": "20261019030541_raxi_hq_v09_private_core.sql",
+      "source": "supabase/migrations/20261019030541_raxi_hq_v09_private_core.sql",
+      "sha256Lf": "e0f0a828b5d4f31960f2153ad910bb84a399a449754db8761057e91047cd7ba0"
+    },
+    {
+      "name": "20261019030659_raxi_hq_v09_fk_indexes.sql",
+      "source": "supabase/migrations/20261019030659_raxi_hq_v09_fk_indexes.sql",
+      "sha256Lf": "2967d26201b0e335edec509e5cb40cc0808e3c422ff5eceeff1251b3ae43cf49"
+    },
+    {
+      "name": "20261019030808_raxi_hq_v09_workspace_onboarding.sql",
+      "source": "supabase/migrations/20261019030808_raxi_hq_v09_workspace_onboarding.sql",
+      "sha256Lf": "67472da139bbe3146f6e21ff8f1a5992a41a73fe80fd52800a9448ef15d3e375"
+    },
+    {
+      "name": "20261019231655_raxi_hq_real_idea_write.sql",
+      "source": "supabase/migrations/20261019231655_raxi_hq_real_idea_write.sql",
+      "sha256Lf": "89d9db4a1fa22eef45d34f279dbb10fd5feada5b495dab12eedfbbc4b66188ec"
+    },
+    {
+      "name": "20261027213431_supervised_runtime_b2.sql",
+      "source": "supabase/candidates/supervised_runtime_b2.candidate.sql",
+      "sha256Lf": "bc4ce83cfe5e64fc116dd5eb408254f1b0363b868d1a71b5378053435c3b0c15"
+    }
+  ],
+  "excluded": [
+    "20261020234358_raxi_hq_campaign_strategy_pending_review.sql"
+  ],
+  "executionReady": false,
+  "sqlExecutionAuthorized": false,
+  "b2Authorized": false,
+  "accountsAuthorized": false,
+  "deployAuthorized": false,
+  "providersAuthorized": false
+}
