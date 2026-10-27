@@ -1,5 +1,7 @@
 # Host supervisado — B1 preparatorio
 
+Preparación posterior: [manifiesto y bloqueos de staging B2](RAXI_HQ_STAGING_B2_PREPARATION.md). El guard actual fija el proyecto autorizado y mantiene B2 bloqueada por PG17 pendiente y versión consolidada no asignada; las capacidades preparadas de B1 descritas aquí no conceden autorización de ejecución.
+
 Base: main `55eecc4ef7a6e6eb748c61ea1c1e2b30c4657247` (PR #19 integrado). Este incremento prepara adaptadores de servidor y SQL revisable, **sin desplegar ni contactar Supabase alojado**. Todos los proveedores ejecutados en pruebas son simulados. No acredita sesiones auténticas, JWT firmados alojados, RLS remoto ni actividad REAL de agentes.
 
 ## Arquitectura reutilizada

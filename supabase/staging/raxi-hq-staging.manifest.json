@@ -1,0 +1,108 @@
+{
+  "kind": "RAXI_STAGING_PREPARATION",
+  "formatVersion": 1,
+  "baseCommit": "b56b26567bc97078fa58ef16385b851d890d6408",
+  "project": {
+    "ref": "zvhxjindgyvtasstfjut",
+    "name": "raxi-hq-staging",
+    "organizationId": "qpjzdqkvjzgqwvismeku",
+    "region": "us-east-2",
+    "postgresMajor": 17
+  },
+  "baseline": {
+    "provenance": "USER_CONFIRMED_NOT_REQUERIED",
+    "migrationVersions": [],
+    "publicRaxiTables": [],
+    "observedAt": null
+  },
+  "executionReady": false,
+  "schemaCompatibility": {
+    "targetPostgresMajor": 17,
+    "localFixturePostgresMajor": 18,
+    "status": "PENDING_PG17_REVIEW"
+  },
+  "authorizations": {
+    "applySql": false,
+    "runB2": false,
+    "deploy": false,
+    "createUsers": false,
+    "realProviders": false,
+    "additionalSpend": false
+  },
+  "applicationPlan": {
+    "steps": [
+      {
+        "id": "20261019030541",
+        "kind": "BASE_MIGRATION",
+        "version": "20261019030541",
+        "path": "supabase/migrations/20261019030541_raxi_hq_v09_private_core.sql",
+        "order": 1,
+        "sha256Lf": "e0f0a828b5d4f31960f2153ad910bb84a399a449754db8761057e91047cd7ba0"
+      },
+      {
+        "id": "20261019030659",
+        "kind": "BASE_MIGRATION",
+        "version": "20261019030659",
+        "path": "supabase/migrations/20261019030659_raxi_hq_v09_fk_indexes.sql",
+        "order": 2,
+        "sha256Lf": "2967d26201b0e335edec509e5cb40cc0808e3c422ff5eceeff1251b3ae43cf49"
+      },
+      {
+        "id": "20261019030808",
+        "kind": "BASE_MIGRATION",
+        "version": "20261019030808",
+        "path": "supabase/migrations/20261019030808_raxi_hq_v09_workspace_onboarding.sql",
+        "order": 3,
+        "sha256Lf": "67472da139bbe3146f6e21ff8f1a5992a41a73fe80fd52800a9448ef15d3e375"
+      },
+      {
+        "id": "20261019231655",
+        "kind": "BASE_MIGRATION",
+        "version": "20261019231655",
+        "path": "supabase/migrations/20261019231655_raxi_hq_real_idea_write.sql",
+        "order": 4,
+        "sha256Lf": "89d9db4a1fa22eef45d34f279dbb10fd5feada5b495dab12eedfbbc4b66188ec"
+      },
+      {
+        "id": "agent_runtime",
+        "kind": "RUNTIME_PROPOSAL",
+        "version": null,
+        "path": "supabase/proposals/agent_runtime.sql",
+        "order": 5,
+        "sha256Lf": "36114c12797976ebfc0afdf94ca59c6a0c3dd11b184efdc5c83803b4eeefcb8c"
+      },
+      {
+        "id": "supervised_host_stage_a",
+        "kind": "RUNTIME_PROPOSAL",
+        "version": null,
+        "path": "supabase/proposals/supervised_host_stage_a.sql",
+        "order": 6,
+        "sha256Lf": "7f6de9365a6e85492b3e8e18b929f5caecfb3a01791d1326b34686e436c6ef3d"
+      },
+      {
+        "id": "supervised_host_stage_b",
+        "kind": "RUNTIME_PROPOSAL",
+        "version": null,
+        "path": "supabase/proposals/supervised_host_stage_b.sql",
+        "order": 7,
+        "sha256Lf": "59595546fdf1302342df0691fd5c3c7645d2a521861221ca11ae05b184bcb689"
+      }
+    ],
+    "consolidatedRuntimeVersion": null,
+    "excluded": [
+      {
+        "path": "supabase/migrations/20261020234358_raxi_hq_campaign_strategy_pending_review.sql",
+        "reason": "Independent campaign increment; NOT included or authorized"
+      }
+    ]
+  },
+  "expectedReadyMigrationVersions": [
+    "20261019030541",
+    "20261019030659",
+    "20261019030808",
+    "20261019231655",
+    null
+  ],
+  "expectedSchemaPath": "supabase/staging/raxi-hq-staging.expected-schema.json",
+  "expectedSchemaSha256": "c16ad9f612decf6af2aaf3a75219b3b09732070a0e09c9b32531ec3a3b94df90"
+}

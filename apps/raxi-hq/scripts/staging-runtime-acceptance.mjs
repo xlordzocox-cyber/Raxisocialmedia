@@ -2,20 +2,23 @@
 import { stagingTarget } from './staging-target.mjs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import {assertPinnedTarget,verifyObservedProject,loadPreparationManifest,verifyExecutionApproval,inspectRaxiSchema,verifyObservedSchema} from './staging-manifest.mjs';
 export function runtimeStagingGate(env,args) {
  if(!args.includes('--run')||env.RAXI_STAGING_RUNTIME_ACK!=='RUN_SUPERVISED_SIMULATION_B2')throw Error('B2 human approval required');
  const target=stagingTarget(env);
+ assertPinnedTarget(target);
  if(!/^[a-f0-9]{64}$/.test(env.RAXI_STAGING_APPROVAL_SHA256??'')||!env.RAXI_STAGING_APPROVAL_FILE)throw Error('Bound approval manifest required');
  return target;
 }
 export function verifyStagingEvidence(target,manifest,project) {
  // These fields are compared with an authenticated Management API response, not
  // accepted as a label/env assertion. No production clone is authorized by this runner.
+ assertPinnedTarget(target);verifyObservedProject(project);
  if(manifest.kind!=='SUPERVISED_B2_SIMULATION'||manifest.projectRef!==target.ref||project.id!==target.ref||
   project.status!=='ACTIVE_HEALTHY'||!manifest.organizationId||project.organization_id!==manifest.organizationId||
   !manifest.createdAt||project.created_at!==manifest.createdAt||!Number.isFinite(Date.parse(manifest.expiresAt))||
   Date.parse(manifest.expiresAt)<=Date.now()||manifest.providers!=='SIMULATED_ONLY'||manifest.productionClone!==false||
-  manifest.baseCommit!=='55eecc4ef7a6e6eb748c61ea1c1e2b30c4657247')throw Error('Staging evidence not confirmed');
+  manifest.baseCommit!=='b56b26567bc97078fa58ef16385b851d890d6408')throw Error('Staging evidence not confirmed');
 }
 export async function runStagingRuntime(env,args) {
  const target=runtimeStagingGate(env,args); // BEFORE files, credentials, builds or network.
@@ -23,6 +26,8 @@ export async function runStagingRuntime(env,args) {
  const approval=await readFile(env.RAXI_STAGING_APPROVAL_FILE);
  if(createHash('sha256').update(approval).digest('hex')!==env.RAXI_STAGING_APPROVAL_SHA256)throw Error('Approval digest mismatch');
  const manifest=JSON.parse(approval);
+ const preparation=await loadPreparationManifest();
+ verifyExecutionApproval(preparation,manifest); // Current manifest blocks here, BEFORE any hosted access.
  if(manifest.kind!=='SUPERVISED_B2_SIMULATION'||manifest.providers!=='SIMULATED_ONLY'||manifest.productionClone!==false||
   manifest.projectRef!==target.ref||!Number.isFinite(Date.parse(manifest.expiresAt))||Date.parse(manifest.expiresAt)<=Date.now())throw Error('Approval expired or incompatible');
  if(!env.RAXI_STAGING_MANAGEMENT_TOKEN)throw Error('Read-only project management authorization required');
@@ -38,6 +43,8 @@ export async function runStagingRuntime(env,args) {
   const pids=await Promise.all(db.map(c=>c.query('select pg_backend_pid() id')));assert.notEqual(pids[0].rows[0].id,pids[1].rows[0].id);
   const inventory=await db[0].query("select version from supabase_migrations.schema_migrations order by version");
   assert.deepEqual(inventory.rows.map(r=>r.version),manifest.migrations,'Schema manifest must match actual migration history');
+  const schema=await inspectRaxiSchema(db[0]);
+  verifyObservedSchema(preparation,'READY',{postgresMajor:schema.postgresMajor,migrations:inventory.rows.map(r=>r.version),schema});
   const data=await db[0].query('select (select count(*)::integer from auth.users) users,(select count(*)::integer from public.raxi_ideas) ideas,(select count(*)::integer from public.raxi_campaigns) campaigns');
   assert.deepEqual(data.rows[0],{users:2,ideas:0,campaigns:0},'Dedicated two-account test project required; no production data clone');
   const functions=await db[0].query("select count(*)::integer n from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('raxi_supervised_host_command','raxi_supervised_host_identity') and not p.prosecdef");assert.equal(functions.rows[0].n,2);
