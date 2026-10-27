@@ -17,3 +17,7 @@ Do not interpret a pass as authorization to execute a migration. Never copy this
 - No test users, SQL hosted, B2 run, providers, spend, merge or deployments are authorized by this package.
 
 Provenance: `docs/RAXI_HQ_B2_CLI_MIGRATION_PROVENANCE.md`. Production strictly excluded.
+
+## Mandatory isolated mutation tests before merge
+
+From repo root, run `node supabase/review-packages/b2-20261027213431/test-package-isolation.mjs`. This script copies only pinned inputs and verifiers to an OS temporary directory, runs one valid-case check and three expected rejection checks (runtime proposal edit, `executionReady=true`, `authorizations.applySql=true`), and removes its temporary fixture. It does not modify the checkout or use Supabase CLI/network/database. Record the actual four outcomes in PR review. **The mere presence of this script is not evidence that tests passed.**
