@@ -10,7 +10,7 @@ WITH checks AS (
  UNION ALL SELECT 'public_no_raxi_tables',
    NOT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
    WHERE n.nspname='public' AND c.relkind IN ('r','p','v','m','f')
-   AND c.relname LIKE 'raxi\\_%' ESCAPE '\\')
+   AND starts_with(c.relname,'raxi_'))
  UNION ALL SELECT 'auth_uid_uuid',
    EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
            WHERE n.nspname='auth' AND p.proname='uid' AND p.pronargs=0
