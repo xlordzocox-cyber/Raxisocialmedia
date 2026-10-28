@@ -3,6 +3,7 @@ import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
+import {assertBootstrapIntegrity} from './pr35-bootstrap-guard.mjs';
 if(process.argv.length!==2)throw Error('PR35 STOP: static preflight accepts no flags');
 const root=fileURLToPath(new URL('..',import.meta.url));
 const read=p=>readFileSync(resolve(root,p),'utf8');
@@ -31,9 +32,10 @@ for(let i=0;i<steps.length;i++){
  assert(digest===item.sha256Lf,'source bytes changed at '+i);
 }
 const runtime=read(paths[4]),stage=read(paths[5]),bootstrap=read('supabase/tests/pg17-bootstrap.sql');
+assertBootstrapIntegrity(bootstrap);
 for(const fn of ['raxi_runtime_claim'])assert(runtime.includes('create function public.'+fn+'('),'missing runtime function '+fn);
 for(const fn of ['raxi_supervised_prepare','raxi_supervised_approve','raxi_supervised_step','raxi_supervised_protect_journal'])
  assert(stage.includes('create function public.'+fn+'('),'missing supervision function '+fn);
 assert(runtime.includes("current_user<>'service_role'")&&bootstrap.includes('service_role nologin bypassrls'),'role semantics changed');
-console.log('PASS: PR35_SOURCE_GATES: exact seven SQL files and hashes, six hosted denials, supervised runtime contracts.');
+console.log('PASS: PR35_SOURCE_GATES: exact seven SQL files and hashes, pinned bootstrap SHA256, six hosted denials, supervised runtime contracts.');
 console.log('NOT EXECUTED: Docker, native PG17, authorization/claim races, journal, real providers, hosted Auth, B2.');
