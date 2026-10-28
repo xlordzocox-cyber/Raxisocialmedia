@@ -8,12 +8,24 @@ const file=path=>readFileSync(resolve(root,path),'utf8');
 const m=JSON.parse(file('supabase/staging/raxi-hq-staging.manifest.json'));
 const fail=x=>{throw Error('PR34 STOP: '+x);};
 if(process.argv.length!==2)fail('no execution arguments permitted in static preflight');
-if(m.executionReady!==false||Object.values(m.authorizations||{}).some(x=>x!==false))fail('hosted execution gate changed');
+const requiredFlags=['applySql','runB2','deploy','createUsers','realProviders','additionalSpend'];
+if(m.executionReady!==false||!m.authorizations||typeof m.authorizations!=='object'||Array.isArray(m.authorizations)||
+ requiredFlags.some(key=>!Object.hasOwn(m.authorizations,key)||m.authorizations[key]!==false)||
+ Object.keys(m.authorizations).length!==requiredFlags.length)fail('hosted execution gate missing or changed');
 const steps=m.applicationPlan?.steps;
 if(!Array.isArray(steps)||steps.length!==7)fail('expected seven original sources');
+const expectedPaths=[
+ 'supabase/migrations/20261019030541_raxi_hq_v09_private_core.sql',
+ 'supabase/migrations/20261019030659_raxi_hq_v09_fk_indexes.sql',
+ 'supabase/migrations/20261019030808_raxi_hq_v09_workspace_onboarding.sql',
+ 'supabase/migrations/20261019231655_raxi_hq_real_idea_write.sql',
+ 'supabase/proposals/agent_runtime.sql',
+ 'supabase/proposals/supervised_host_stage_a.sql',
+ 'supabase/proposals/supervised_host_stage_b.sql'
+];
 for(let i=0;i<7;i++){
  const s=steps[i],type=i<4?'BASE_MIGRATION':'RUNTIME_PROPOSAL';
- if(s.order!==i+1||s.kind!==type||!/^supabase\/(migrations|proposals)\/[a-zA-Z0-9_-]+\.sql$/.test(s.path))fail('source order/path '+i);
+ if(s.path!==expectedPaths[i]||s.order!==i+1||s.kind!==type||!/^supabase\/(migrations|proposals)\/[a-zA-Z0-9_-]+\.sql$/.test(s.path))fail('source order/path '+i);
  if((i<4)!==s.path.startsWith('supabase/migrations/'))fail('source type mismatch');
  const hash=createHash('sha256').update(file(s.path).replace(/\r\n/g,'\n')).digest('hex');
  if(hash!==s.sha256Lf)fail('hash mismatch '+s.id);
