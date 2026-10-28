@@ -34,3 +34,7 @@ Use isolated `postgres:17` local cached image only, `--network none`, no publish
 - **Phase 4:** record result and remaining adapter/hosted Auth gaps. PR merge requires independent explicit approval.
 
 Run `node scripts/preflight-native-supervised-pr35.mjs` from the repo root. PASS only proves source integrity and guards, not runtime execution.
+
+## Increment: two native sessions competing for one approved task
+
+`node scripts/run-native-concurrent-pr35.mjs` performs offline source hash/authorization checks without Docker. `--run-local` opts into a fresh disposable offline PostgreSQL 17 instance and executes a real synthetic prepare+approval transaction, followed by **two independent psql processes** attempting the same `raxi_runtime_claim` and then a committed-state invariant of exactly one claimed run and one reserved budget amount. This is a new test **not yet executed**. Unlike prior PR35 sequential claim smoke it is a genuine two-connection attempt, although exact start-time overlap is scheduler-dependent; evidence must include both outcomes. Does not perform simulated-provider dispatch, journal-step replay, crash recovery or native `runOne` adapter integration. Codex review and local execution required before claiming PASS.
