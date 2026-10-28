@@ -42,3 +42,9 @@ Use `docs/RAXI_HQ_STAGING_READINESS_AND_FIRST_DIRECTOR_RUN.md` gates and add tar
 ## Offline verification
 
 From repo root, run `node scripts/verify-director-e2e-scope.mjs`. This only reads source files and checks the expected integration imports and prohibitions: no Docker, network, SQL, provider access or mutation. Passing verifies **scope and code wiring presence only**, not E2E behavior or runtime correctness.
+
+## PR #32 targeted local runner (review-only until user runs)
+
+**Command from `apps/raxi-hq`:** `node scripts/run-director-local-e2e.mjs --run-local`. Without this exact opt-in, the runner refuses. It bundles and executes only existing suites `supervisedHostIntegration.test.ts` and `supabaseSupervised.test.ts`, using Node test and the existing PGlite fixtures, serially. This does not invoke Docker, hosted staging, native PostgreSQL 17, real Supabase Auth, real providers or deployments. No test outcome is claimed until the user supplies console output and process exit status. This is an **existing-test integration execution**, not a new test implementation.
+
+The existing suite contains named tests for independent Director/Researcher authorizations, simultaneous duplicate preparation/claim, revoked scope at dispatch with zero provider calls, journal idempotency, recovery after simulated persisted uncertainty, ownership separation and synthetic Supabase Auth/session-revocation checks. Evidence from these suites remains **PGLITE_LOCAL with Auth test doubles**; physical PG17 and hosted Auth/JWT remain separately pending. A passing test suite cannot satisfy hosted staging migration authorization.
