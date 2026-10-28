@@ -16,7 +16,7 @@ await build({
  outdir:dir,outExtension:{'.js':'.mjs'},bundle:true,
  platform:'node',format:'esm',
  define:{'import.meta.env':'{}'},
- external:['@electric-sql/pglite','@supabase/supabase-js','../scripts/staging-runtime-acceptance.mjs']
+ external:['@electric-sql/pglite','@supabase/supabase-js']
 });
 console.log('SCOPE: two existing local PGlite integration suites; no native PG17, no real Supabase Auth or hosted execution.');
 const result=spawnSync(process.execPath,['--test','--test-concurrency=1',...entries.map(name=>`${dir}/${name.replace(/\.tsx?$/,'.mjs')}`)],{stdio:'inherit',env:{...process.env,RAXI_DIRECTOR_LOCAL_E2E:'1'}});
