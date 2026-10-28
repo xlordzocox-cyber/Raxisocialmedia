@@ -83,7 +83,7 @@ try{
   approved jsonb;
   claimed jsonb;
   repeated jsonb;
-  task_id uuid;
+  v_task_id uuid;
   digest text;
   run_count integer;
   reservation bigint;
@@ -94,22 +94,22 @@ try{
    'authorization',jsonb_build_object('confirmed',true,'maxCostMicros',10,
    'expiresAt',to_char(clock_timestamp()+interval '10 minutes','YYYY-MM-DD"T"HH24:MI:SS"Z"')));
   task:=public.raxi_supervised_prepare('${owner}'::uuid,'${workspace}'::uuid,'${taskKey}'::uuid,'DIRECTOR',spec,spec::text,null);
-  task_id:=(task->>'id')::uuid;
+  v_task_id:=(task->>'id')::uuid;
   digest:=task#>>'{input_snapshot,supervised,scopeDigest}';
   if task->>'status'<>'WAITING_APPROVAL' then raise exception 'prepare did not wait approval'; end if;
   begin
-   perform public.raxi_supervised_approve('${foreign}'::uuid,task_id,'${approvalKey}'::uuid,digest,false);
+   perform public.raxi_supervised_approve('${foreign}'::uuid,v_task_id,'${approvalKey}'::uuid,digest,false);
    raise exception 'foreign approval accepted';
   exception when others then
    if SQLERRM <> 'owner or scope denied' then raise; end if;
   end;
-  approved:=public.raxi_supervised_approve('${owner}'::uuid,task_id,'${approvalKey}'::uuid,digest,false);
+  approved:=public.raxi_supervised_approve('${owner}'::uuid,v_task_id,'${approvalKey}'::uuid,digest,false);
   if approved->>'status'<>'QUEUED' then raise exception 'approval failed to enqueue'; end if;
-  claimed:=public.raxi_runtime_claim(task_id,'PR35-LOCAL');
+  claimed:=public.raxi_runtime_claim(v_task_id,'PR35-LOCAL');
   if claimed is null then raise exception 'valid approved claim missing'; end if;
-  repeated:=public.raxi_runtime_claim(task_id,'PR35-LOCAL-REPEAT');
+  repeated:=public.raxi_runtime_claim(v_task_id,'PR35-LOCAL-REPEAT');
   if repeated is not null then raise exception 'duplicate claim accepted'; end if;
-  select count(*) into run_count from public.raxi_agent_runs where task_id=task_id;
+  select count(*) into run_count from public.raxi_agent_runs where task_id=v_task_id;
   select reserved_micros into reservation from public.raxi_runtime_policies where workspace_id='${workspace}'::uuid;
   if run_count<>1 or reservation<>10 then raise exception 'duplicate run or reservation'; end if;
  end $pr35$;
