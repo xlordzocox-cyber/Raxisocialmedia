@@ -122,30 +122,33 @@ try{
    child.stdin.end(command);
  });
  const a=startPsql('PR35-RACE-A','hold');
+ // Attach rejection handling immediately, before any polling awaits.
+ const aHandled=a.then(value=>({ok:true,value}),error=>({ok:false,error}));
  // Allow A's claim to acquire its row lock before launching B. The overlap
  // must be proven by observing B in pg_stat_activity waiting on a Lock.
  let aHolding=false;
  for(let i=0;i<25;i++){
-   const status=sql(`select count(*) from pg_stat_activity
-     where application_name='PR35-RACE-A' and query like 'select pg_sleep(6)%' and state='active';`);
-   if(/\b1\b/.test(status)){aHolding=true;break;}
+   const status=sh(['exec',id,'psql','-X','-q','-t','-A','-v','ON_ERROR_STOP=1','-U','postgres','-d','postgres','-c',`select count(*) from pg_stat_activity
+     where application_name='PR35-RACE-A' and query like 'select pg_sleep(6)%' and state='active';`]);
+   if(status==='1'){aHolding=true;break;}
    await new Promise(done=>setTimeout(done,100));
  }
  if(!aHolding){
-   await Promise.allSettled([a]);
+   await aHandled;
    die('STOP: A did not reach transaction hold point');
  }
  const b=startPsql('PR35-RACE-B','compete');
+ const bHandled=b.then(value=>({ok:true,value}),error=>({ok:false,error}));
  let observed=false;
  for(let i=0;i<20&&Date.now()<deadline;i++){
-   const activity=sql(`select count(*) from pg_stat_activity
-    where application_name='PR35-RACE-B' and wait_event_type='Lock' and state='active';`);
-   if(/\b1\b/.test(activity)){observed=true;break;}
+   const activity=sh(['exec',id,'psql','-X','-q','-t','-A','-v','ON_ERROR_STOP=1','-U','postgres','-d','postgres','-c',`select count(*) from pg_stat_activity
+    where application_name='PR35-RACE-B' and wait_event_type='Lock' and state='active';`]);
+   if(activity==='1'){observed=true;break;}
    await new Promise(done=>setTimeout(done,150));
  }
- const outcomes=await Promise.allSettled([a,b]);
+ const outcomes=await Promise.all([aHandled,bHandled]);
  if(!observed)die('STOP: no verified lock contention; overlap unproven');
- if(outcomes.some(x=>x.status==='rejected'))die('STOP: claim process failure '+outcomes.filter(x=>x.status==='rejected').map(x=>String(x.reason)).join('; '));
+ if(outcomes.some(x=>!x.ok))die('STOP: claim process failure '+outcomes.filter(x=>!x.ok).map(x=>String(x.error)).join('; '));
  const values=outcomes.map(x=>x.value);
  if(values.filter(x=>x==='true').length!==1||values.filter(x=>x==='false').length!==1)
    die('STOP: contention produced unexpected claims '+JSON.stringify(values));
