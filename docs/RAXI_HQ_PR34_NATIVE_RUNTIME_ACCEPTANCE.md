@@ -30,3 +30,7 @@ No Supabase staging/production SQL, migration application, Auth account creation
 From repo root: `node scripts/preflight-native-runtime-pr34.mjs`. This performs **only local file reads and hashing**, never Docker. A PASS is not a native runtime execution result.
 
 **Next implementation step:** inspect the precise function signatures and required input fixtures, then implement negative-first native runtime SQL tests with an explicit `--run-local` flag, separated from the future native adapter integration. Request Codex review before running the new harness.
+
+## New executable smoke increment (not full runtime acceptance)
+
+`node scripts/run-native-pg17-runtime-pr34.mjs` verifies seven sources and manifest in offline-only precheck mode. `node scripts/run-native-pg17-runtime-pr34.mjs --run-local` opts into a new disposable PG17 container, synthetic fixture bootstrap and seven source loads, then checks effective function EXECUTE grant boundaries between `service_role` and `authenticated`, presence of append-only journal trigger, denial of journal TRUNCATE, and a missing-task claim rejection as `service_role`. Cleanup is guarded by exact container identity and failures signal nonzero exit. **This does NOT test an authorized task claim, concurrency, real journal mutations/replay, full approval lifecycle, or native `runOne` adapter.** Nothing executed yet; outcomes must come from user local run.
