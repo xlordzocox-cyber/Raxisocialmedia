@@ -13,7 +13,7 @@ User ran `pg_dump` from Docker `postgres:17` (pg_dump 17.11), using `--schema=pu
 - `raxi-staging-public-20261027-180405.dump`
 - Archive UTC created: `2026-10-28 00:04:06 UTC`.
 - Size: **1,679 bytes**.
-- SHA-256: **PENDING EXACT RECHECK** — the value originally transcribed in this PR contained 63 hex characters; do not use it for validation. Obtain a fresh exact 64-character hash of the **existing local file** using `Get-FileHash` before recording the value. Do not regenerate or restore the archive.
+- SHA-256: `214d57ca84bbc3341f53663eb6a88daa52838c451a0858c0a913337c094cd7fd` (**64 hexadecimal characters**, independently re-read from the unchanged existing local file by the user with `Get-FileHash`; user output reports `Caracteres: 64` and `PASS`).
 - `pg_restore --list` returned success and listed SCHEMA `public` and COMMENT for it, no Raxi tables. Archive format CUSTOM / gzip, dumped from PG 17.11 with pg_dump 17.11.
 - This proves archive is parseable **not** that restore succeeded or that it is a comprehensive Supabase backup. The hash was checked locally but no offsite copy, separate restore verification or signature is evidenced.
 - Existing dump was created using `PGSSLMODE=require`, **encryption without strict server certificate hostname/CA verification**. Do not describe that transfer as server-identity validated.
