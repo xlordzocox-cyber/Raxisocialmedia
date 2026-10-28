@@ -82,12 +82,15 @@ end $test$;`);
 set local role service_role;
 do $test$
 begin
+ if current_user <> 'service_role' then raise exception 'wrong runtime role'; end if;
  begin
   perform public.raxi_runtime_claim('${missing}'::uuid,'PR34-LOCAL');
   raise exception 'unexpected claim on missing task';
  exception when others then
   if SQLERRM <> 'runtime task required' then raise; end if;
  end;
+ if exists (select 1 from public.raxi_agent_runs where task_id='${missing}'::uuid)
+ then raise exception 'missing task created run'; end if;
 end $test$;
 rollback;`);
  if(!tested.includes('DO'))die('STOP: role-based missing task assertion did not run');
