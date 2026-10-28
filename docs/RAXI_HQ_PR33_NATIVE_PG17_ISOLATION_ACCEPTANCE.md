@@ -21,10 +21,10 @@ Run no shell-expanded hosted connection strings and no Supabase CLI apply/push/r
 | --- | --- |
 | PostgreSQL identity | PG 17 exact major version and isolated container inspect, no network/ports |
 | Source and role parity | Pin SQL fixture hashes; minimal synthetic `auth.users` and `auth.sessions`; identify PostgreSQL role assumptions and any grant differences, clearly mark native synthetic Auth |
-| RLS workspace A/B | Use two distinct **non-owner, non-superuser** SQL roles with `row_security=on`; assert A can see/write A only and B can see/write B only; check direct table SELECT, functions/RPC and forbidden paths |
+| RLS workspace A/B | Use the actual SQL role `authenticated` with **two synthetic JWT identities** A/B supplied through the same `auth.uid()` mechanism expected by the SQL policies; make each query transaction-scoped, change subject identity and verify each can SELECT its own rows but not the other workspace. Do NOT fabricate write grants: base tables grant authenticated SELECT only where declared. Check actual functions/RPC separately, respecting their explicit grants |
 | Privilege boundaries | Explicit grants/denies; no default public EXECUTE for privileged functions, no bypassrls roles |
 | Human approval | Missing, expired, revoked, wrong scope and foreign-workspace approvals must fail closed without provider dispatch |
-| Idempotent concurrent claims | Two sessions racing same synthetic task yield exactly one logical claim/reservation and no duplicate simulated provider effect |
+| Idempotent concurrent claims | Two sessions using the actual runtime `service_role` path racing the same synthetic task yield one logical claim/reservation. `service_role` has BYPASSRLS in the existing local bootstrap, so test explicit workspace authorization in functions separately from RLS; do not claim RLS enforcement under service_role |
 | Journal integrity | Append-only guarantees; attempted UPDATE, DELETE and TRUNCATE denied to runtime role; transaction failure leaves no orphan event |
 | Crash/uncertainty | Simulate lost confirmation; reconcile using receipt once, never retry an unconfirmed external effect |
 | Cleanup | Verify only newly created test container removed, existing PG17/OpenGym untouched |
@@ -55,3 +55,13 @@ Checked `supabase/proposals/supervised_host_stage_b.sql`: Stage B proposes `serv
 `PG17_LOCAL_SQL_SECURITY_PASS` → `PG17_LOCAL_RUNTIME_ADAPTER_PASS` → `STAGING_MIGRATION_APPROVED_AND_RESTORABLE` → `STAGING_REAL_AUTH_AND_RLS_PASS` → `STAGING_SIMULATED_PROVIDER_SUPERVISED_PASS` → separately reviewed production deployment decision.
 
 No gate implies authorization for the next. Production remains outside test scope until fresh backup/recovery evidence, rollback plan, permissions audit, deployment dry run and explicit human approval exist.
+
+## Codex P2 correction — two distinct identities and explicit SQL source order
+
+**A. RLS phase:** base migrations define `authenticated` grants and owner policies through `auth.uid()`. Test as the **same non-BYPASSRLS** database role `authenticated` while switching only synthetic JWT `sub` A/B with transaction-local claims. Verify cross-workspace reads are denied and unauthorized DML is rejected if no grants; never create two artificial owner-specific SQL roles or invent table write privileges.
+
+**B. Runtime phase:** `supabase/proposals/agent_runtime.sql` checks `current_user='service_role'` for claim/execute. Existing `supabase/tests/pg17-bootstrap.sql` uses `service_role` with BYPASSRLS. Test role-dependent authorization, journal integrity, approvals and idempotency under this actual semantic; bypassing RLS here means these results cannot be labeled RLS tests.
+
+**C. Required fixture source order:** first the already pinned four base migrations in the order listed by `supabase/staging/raxi-hq-staging.manifest.json`, then `supabase/proposals/agent_runtime.sql`, then `supabase/proposals/supervised_host_stage_a.sql`, then `supabase/proposals/supervised_host_stage_b.sql` where stage B is specifically under test. Compare every source and LF-normalized SHA-256 against the manifest's seven canonical inputs, plus use reviewed local `supabase/tests/pg17-bootstrap.sql`. Source mismatches STOP. Do not load the runtime proposal alone or assert claims/journal exist from base migrations. Local fixture application does **not** authorize installing SQL in hosted staging.
+
+**Status:** Codex P2 findings identified; this plan correction is pending fresh review and has NOT been executed in native PostgreSQL yet.
