@@ -78,8 +78,8 @@ rollback;`);
   const probe=spawnSync('docker',['inspect',id,'--format','{{.Name}}|{{.Id}}'],{encoding:'utf8',timeout:10000});
   if(probe.status===0&&probe.stdout.trim()==='/'+name+'|'+id){
    const removal=spawnSync('docker',['rm','-f',id],{encoding:'utf8',timeout:30000});
-   if(removal.status!==0)console.error('CLEANUP FAILED; inspect exact test container ID:',id);
+   if(removal.status!==0){process.exitCode=1;console.error('CLEANUP FAILED; inspect exact test container ID:',id);}
    else console.log('CLEANUP PASS: removed only PR33 disposable container.');
-  }else console.error('CLEANUP STOP: container identity differs; manual inspection required.');
+  }else {process.exitCode=1;console.error('CLEANUP STOP: container identity differs; manual inspection required.');}
  }
 }
