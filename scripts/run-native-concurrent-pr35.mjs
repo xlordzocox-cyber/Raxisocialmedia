@@ -100,21 +100,46 @@ try{
  if(!prep.includes('DO'))die('STOP: preparation and approval checks did not run');
  const taskId=sql(`select id from public.raxi_agent_tasks where external_id='SUPERVISED-${taskKey}';`).match(/[0-9a-f]{8}-[0-9a-f-]{27,}/)?.[0];
  if(!taskId)die('STOP: committed task ID missing');
+ // Session A holds a committed task row lock while B demonstrably waits on it.
+ // B starts before A commits; pg_stat_activity must report a Lock wait for B.
  const {spawn}=await import('node:child_process');
- const claim=(worker)=>new Promise((resolve,reject)=>{
-   const command=`begin; set local role service_role;
-     select coalesce((public.raxi_runtime_claim('${taskId}'::uuid,'${worker}') is not null)::text,'false'); commit;`;
+ const deadline=Date.now()+25000;
+ const startPsql=(worker,mode)=>new Promise((resolve,reject)=>{
+   const command=mode==='hold'
+    ? `begin; set local role service_role; set local statement_timeout='20s';
+       select coalesce((public.raxi_runtime_claim('${taskId}'::uuid,'${worker}') is not null)::text,'false');
+       select pg_sleep(6); commit;`
+    : `begin; set local role service_role; set local statement_timeout='20s';
+       select coalesce((public.raxi_runtime_claim('${taskId}'::uuid,'${worker}') is not null)::text,'false'); commit;`;
    const child=spawn('docker',['exec','-i',id,'psql','-X','-q','-t','-A','-v','ON_ERROR_STOP=1','-U','postgres','-d','postgres','-f','-'],{windowsHide:true,stdio:['pipe','pipe','pipe']});
-   let output='',error='';
+   let output='',error='',settled=false;
+   const timer=setTimeout(()=>{child.kill();finish(Error('claim process timeout: '+worker));},22000);
+   const finish=(err,value)=>{if(settled)return;settled=true;clearTimeout(timer);if(err)reject(err);else resolve(value);};
    child.stdout.on('data',v=>output+=v.toString());
    child.stderr.on('data',v=>error+=v.toString());
-   child.on('error',reject);
-   child.on('close',code=>code===0?resolve(output.trim()):reject(Error('claim process failed: '+error.slice(0,250))));
+   child.on('error',err=>finish(err));
+   child.on('close',code=>code===0?finish(null,output.trim()):finish(Error('claim failed '+worker+': '+error.slice(0,250))));
    child.stdin.end(command);
  });
- const outcomes=await Promise.all([claim('PR35-RACE-A'),claim('PR35-RACE-B')]);
- if(outcomes.filter(x=>x==='true').length!==1||outcomes.filter(x=>x==='false').length!==1)
-   die('STOP: two-session claims did not produce exactly one winner: '+JSON.stringify(outcomes));
+ const a=startPsql('PR35-RACE-A','hold');
+ // Allow A's claim to acquire its row lock before launching B. The overlap
+ // must be proven by observing B in pg_stat_activity waiting on a Lock.
+ await new Promise(done=>setTimeout(done,800));
+ const b=startPsql('PR35-RACE-B','compete');
+ let observed=false;
+ for(let i=0;i<20&&Date.now()<deadline;i++){
+   const activity=sql(`select count(*) from pg_stat_activity
+    where query like '%PR35-RACE-B%' and wait_event_type='Lock' and state='active';`);
+   if(/\\b1\\b/.test(activity)){observed=true;break;}
+   await new Promise(done=>setTimeout(done,150));
+ }
+ const outcomes=await Promise.allSettled([a,b]);
+ if(!observed)die('STOP: no verified lock contention; overlap unproven');
+ if(outcomes.some(x=>x.status==='rejected'))die('STOP: claim process failure '+outcomes.filter(x=>x.status==='rejected').map(x=>String(x.reason)).join('; '));
+ const values=outcomes.map(x=>x.value);
+ if(values.filter(x=>x==='true').length!==1||values.filter(x=>x==='false').length!==1)
+   die('STOP: contention produced unexpected claims '+JSON.stringify(values));
+ console.log('PASS: two native sessions overlapped, PG Lock wait observed, exactly one successful claim');
  const check=sql(`do $pr35$
  declare n integer; reservation bigint; runs integer;
  begin
@@ -124,7 +149,7 @@ try{
   if n<>1 or runs<>1 or reservation<>10 then raise exception 'claim invariant failed'; end if;
  end $pr35$;`);
  if(!check.includes('DO'))die('STOP: SQL race result assertion not executed');
- console.log('PASS: native two independent PostgreSQL sessions raced one approved DIRECTOR task; one claimed, one denied, one run, one budget reservation');
+ console.log('PASS: native two independent PostgreSQL sessions with observed lock wait; one claimed, one denied, one run, one budget reservation');
  console.log('PASS: PR35_NATIVE_CONCURRENT_CLAIM_SQL_ONLY. Journal replay, provider, native adapter, hosted Auth NOT TESTED.');
 }finally{
  if(id){
