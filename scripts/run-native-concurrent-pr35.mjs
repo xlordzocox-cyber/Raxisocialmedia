@@ -124,7 +124,17 @@ try{
  const a=startPsql('PR35-RACE-A','hold');
  // Allow A's claim to acquire its row lock before launching B. The overlap
  // must be proven by observing B in pg_stat_activity waiting on a Lock.
- await new Promise(done=>setTimeout(done,800));
+ let aHolding=false;
+ for(let i=0;i<25;i++){
+   const status=sql(`select count(*) from pg_stat_activity
+     where query like 'select pg_sleep(6)%' and state='active';`);
+   if(/\b1\b/.test(status)){aHolding=true;break;}
+   await new Promise(done=>setTimeout(done,100));
+ }
+ if(!aHolding){
+   await Promise.allSettled([a]);
+   die('STOP: A did not reach transaction hold point');
+ }
  const b=startPsql('PR35-RACE-B','compete');
  let observed=false;
  for(let i=0;i<20&&Date.now()<deadline;i++){
