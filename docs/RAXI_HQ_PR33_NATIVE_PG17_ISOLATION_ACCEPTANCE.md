@@ -41,3 +41,17 @@ Run no shell-expanded hosted connection strings and no Supabase CLI apply/push/r
 ## Stop conditions
 
 Stop if missing immutable SQL hash, unknown role privileges, required extensions not present, Docker cannot guarantee offline isolation, unexpected pre-existing container, cleanup identity mismatch, network access, or a test proposes changing staging/production. No automatic switch to PGlite fallback and no live grants as a workaround.
+
+## SQL-grounded preflight findings (source inspection only)
+
+Checked `supabase/migrations/20261019030541_raxi_hq_v09_private_core.sql`: base Raxi tables including `public.raxi_workspaces`, `raxi_agent_tasks`, `raxi_agent_events` and `raxi_approvals` explicitly enable RLS; `authenticated` receives table-specific SELECT grants. **RLS enablement and grants alone do not prove owner/workspace isolation**; the exact policy expressions, ownership and effective role/JWT settings must be verified in the native fixture.
+
+Checked `supabase/proposals/supervised_host_stage_a.sql`: real `raxi_supervised_prepare`, `raxi_supervised_approve`, `raxi_supervised_step` and execution-key functions exist in a proposal; verify SECURITY DEFINER privileges, search_path and default PUBLIC EXECUTE as actually declared before selecting roles.
+
+Checked `supabase/proposals/supervised_host_stage_b.sql`: Stage B proposes `service_role` usage on `auth` and narrow column grants (`auth.sessions(id,user_id,not_after)`, `auth.users(id,is_anonymous)`), plus `raxi_supervised_host_command`/identity functions. These remain **proposals**, not applied grants on staging. A synthetic local role named `service_role` cannot replace genuine hosted JWT/session verification.
+
+### Gate sequence toward production
+
+`PG17_LOCAL_SQL_SECURITY_PASS` → `PG17_LOCAL_RUNTIME_ADAPTER_PASS` → `STAGING_MIGRATION_APPROVED_AND_RESTORABLE` → `STAGING_REAL_AUTH_AND_RLS_PASS` → `STAGING_SIMULATED_PROVIDER_SUPERVISED_PASS` → separately reviewed production deployment decision.
+
+No gate implies authorization for the next. Production remains outside test scope until fresh backup/recovery evidence, rollback plan, permissions audit, deployment dry run and explicit human approval exist.
