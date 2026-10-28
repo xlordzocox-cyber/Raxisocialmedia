@@ -106,10 +106,10 @@ try{
  const deadline=Date.now()+25000;
  const startPsql=(worker,mode)=>new Promise((resolve,reject)=>{
    const command=mode==='hold'
-    ? `begin; set local role service_role; set local statement_timeout='20s';
+    ? `begin; set local role service_role; set local application_name='PR35-RACE-A'; set local statement_timeout='20s';
        select coalesce((public.raxi_runtime_claim('${taskId}'::uuid,'${worker}') is not null)::text,'false');
        select pg_sleep(6); commit;`
-    : `begin; set local role service_role; set local statement_timeout='20s';
+    : `begin; set local role service_role; set local application_name='PR35-RACE-B'; set local statement_timeout='20s';
        select coalesce((public.raxi_runtime_claim('${taskId}'::uuid,'${worker}') is not null)::text,'false'); commit;`;
    const child=spawn('docker',['exec','-i',id,'psql','-X','-q','-t','-A','-v','ON_ERROR_STOP=1','-U','postgres','-d','postgres','-f','-'],{windowsHide:true,stdio:['pipe','pipe','pipe']});
    let output='',error='',settled=false;
@@ -127,7 +127,7 @@ try{
  let aHolding=false;
  for(let i=0;i<25;i++){
    const status=sql(`select count(*) from pg_stat_activity
-     where query like 'select pg_sleep(6)%' and state='active';`);
+     where application_name='PR35-RACE-A' and query like 'select pg_sleep(6)%' and state='active';`);
    if(/\b1\b/.test(status)){aHolding=true;break;}
    await new Promise(done=>setTimeout(done,100));
  }
@@ -139,7 +139,7 @@ try{
  let observed=false;
  for(let i=0;i<20&&Date.now()<deadline;i++){
    const activity=sql(`select count(*) from pg_stat_activity
-    where query like '%PR35-RACE-B%' and wait_event_type='Lock' and state='active';`);
+    where application_name='PR35-RACE-B' and wait_event_type='Lock' and state='active';`);
    if(/\b1\b/.test(activity)){observed=true;break;}
    await new Promise(done=>setTimeout(done,150));
  }
