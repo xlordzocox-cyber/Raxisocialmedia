@@ -140,7 +140,7 @@ try{
  for(let i=0;i<20&&Date.now()<deadline;i++){
    const activity=sql(`select count(*) from pg_stat_activity
     where query like '%PR35-RACE-B%' and wait_event_type='Lock' and state='active';`);
-   if(/\\b1\\b/.test(activity)){observed=true;break;}
+   if(/\b1\b/.test(activity)){observed=true;break;}
    await new Promise(done=>setTimeout(done,150));
  }
  const outcomes=await Promise.allSettled([a,b]);
