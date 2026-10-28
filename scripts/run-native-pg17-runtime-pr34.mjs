@@ -13,8 +13,21 @@ const sh=(args,input)=>{
 };
 const manifest=JSON.parse(readFileSync(resolve(root,'supabase/staging/raxi-hq-staging.manifest.json'),'utf8'));
 if(manifest.executionReady!==false||Object.values(manifest.authorizations||{}).some(v=>v!==false))die('STOP: hosted authorizations changed');
+const requiredFlags=['applySql','runB2','deploy','createUsers','realProviders','additionalSpend'];
+if(!manifest.authorizations||typeof manifest.authorizations!=='object'||Array.isArray(manifest.authorizations)||
+ requiredFlags.some(k=>!Object.hasOwn(manifest.authorizations,k)||manifest.authorizations[k]!==false)||
+ Object.keys(manifest.authorizations).length!==requiredFlags.length)die('STOP: hosted authorization flags missing or changed');
+const expectedPaths=[
+ 'supabase/migrations/20261019030541_raxi_hq_v09_private_core.sql',
+ 'supabase/migrations/20261019030659_raxi_hq_v09_fk_indexes.sql',
+ 'supabase/migrations/20261019030808_raxi_hq_v09_workspace_onboarding.sql',
+ 'supabase/migrations/20261019231655_raxi_hq_real_idea_write.sql',
+ 'supabase/proposals/agent_runtime.sql',
+ 'supabase/proposals/supervised_host_stage_a.sql',
+ 'supabase/proposals/supervised_host_stage_b.sql'
+];
 const steps=manifest.applicationPlan.steps;
-if(steps.length!==7||steps.some((s,i)=>s.order!==i+1)||steps.filter(s=>s.kind==='BASE_MIGRATION').length!==4||steps.filter(s=>s.kind==='RUNTIME_PROPOSAL').length!==3)die('STOP: unexpected SQL source plan');
+if(steps.length!==7||steps.some((s,i)=>s.order!==i+1||s.path!==expectedPaths[i])||steps.filter(s=>s.kind==='BASE_MIGRATION').length!==4||steps.filter(s=>s.kind==='RUNTIME_PROPOSAL').length!==3)die('STOP: unexpected SQL source plan');
 const sources=steps.map(step=>{
  if(!/^supabase\/(migrations|proposals)\/[\w-]+\.sql$/.test(step.path))die('STOP: unexpected SQL path');
  const sql=readFileSync(resolve(root,step.path),'utf8');
