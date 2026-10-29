@@ -9,6 +9,7 @@ import {spawnSync} from 'node:child_process';
 import {loadPreparationManifest,verifySqlSources,inspectRaxiSchema} from '../apps/raxi-hq/scripts/staging-manifest.mjs';
 import {assertBootstrapIntegrity} from './pr35-bootstrap-guard.mjs';
 import {verifyPr38RecoveryEvidence} from './pr38-recovery-contract.mjs';
+import {describePr39CatalogMismatch} from './pr39-catalog-diagnostic.mjs';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
 const fail=why=>{throw Error('PR39 STOP: '+why);};
@@ -111,21 +112,28 @@ function catalogue(id){
 // definitions, constraints, indexes, triggers, RLS policies, grants, column ACLs
 // and function definitions/EXECUTE ACLs. No SQL writes are possible via this port.
 async function inspectNativeRaxi(id){
+ const observations=[];
  const port={
   async query(statement,params=[]){
    if(typeof statement!=='string'||!/^\s*select\b/i.test(statement)||
       statement.includes(';')||!Array.isArray(params)||params.length)
     fail('native inspector attempted non-readonly catalog SQL');
    const result=sql(id,'select row_to_json(r) from ('+statement+') as r;');
-   return {rows:result?result.split(/\r?\n/).filter(Boolean).map(line=>{
+   const rows=result?result.split(/\r?\n/).filter(Boolean).map(line=>{
     const row=JSON.parse(line);
     if(!row||typeof row!=='object'||Array.isArray(row))
      fail('malformed native Raxi catalog row');
     return row;
-   }):[]};
+   }):[];
+   observations.push(rows);
+   return {rows};
   }
  };
- return inspectRaxiSchema(port);
+ const schema=await inspectRaxiSchema(port);
+ if(observations.length!==5)fail('unexpected canonical inspector query count');
+ return {schema,tables:observations[0],functions:observations[1],
+  roles:observations[2],otherPublicRelations:observations[4],
+  postgresMajor:schema.postgresMajor};
 }
 function readIsolation(id,user,own,other){
  const token='{"sub":"'+user+'","role":"authenticated"}';
@@ -151,7 +159,8 @@ try{
     before.rlsTables<20||before.policies<20||
     before.workspaceSelect!==true||before.ideaSelect!==true)
   fail('synthetic Raxi table/ACL/RLS fixture incomplete before export');
- const sourceSchema=await inspectNativeRaxi(origin);
+ const sourceInspection=await inspectNativeRaxi(origin);
+ const sourceSchema=sourceInspection.schema;
  if(sourceSchema.postgresMajor!==17||sourceSchema.tables.length!==20||
     sourceSchema.functions.length!==23)
   fail('unexpected native Raxi table/function inventory before export');
@@ -178,9 +187,15 @@ try{
  const after=catalogue(restore);
  if(JSON.stringify(after)!==JSON.stringify(before))
   fail('source and destination synthetic Raxi data fingerprint mismatch');
- const restoredSchema=await inspectNativeRaxi(restore);
- if(JSON.stringify(restoredSchema)!==JSON.stringify(sourceSchema))
+ const restoredInspection=await inspectNativeRaxi(restore);
+ const restoredSchema=restoredInspection.schema;
+ if(JSON.stringify(restoredSchema)!==JSON.stringify(sourceSchema)){
+  const diff=describePr39CatalogMismatch(sourceInspection,restoredInspection);
+  console.error('PR39 DIAGNOSTIC: '+diff.count+' catalog field differences'+
+    (diff.truncated?' (first 80 shown)':'')+'; no comparison safeguards disabled.');
+  for(const entry of diff.issues)console.error('PR39 DIAGNOSTIC: '+entry);
   fail('source and restored canonical Raxi catalog differ (RLS, ACL, functions or objects)');
+ }
  const afterIsolation=synthetic.users.map((u,i)=>
   readIsolation(restore,u,synthetic.workspaces[i],synthetic.workspaces[1-i]));
  if(afterIsolation.some(x=>x!=='1:0:1:0'))fail('restored fixture RLS isolation failed');
