@@ -9,7 +9,8 @@ import {spawnSync} from 'node:child_process';
 import {loadPreparationManifest,verifySqlSources,inspectRaxiSchema} from '../apps/raxi-hq/scripts/staging-manifest.mjs';
 import {assertBootstrapIntegrity} from './pr35-bootstrap-guard.mjs';
 import {verifyPr38RecoveryEvidence} from './pr38-recovery-contract.mjs';
-import {describePr39CatalogMismatch} from './pr39-catalog-diagnostic.mjs';
+import {describePr39CatalogMismatch,assertPr39CatalogEquality} from './pr39-catalog-diagnostic.mjs';
+import {reviewedSlugDefinitions,slugContextQuery,summarizeSlugContexts} from './pr39-constraint-analysis.mjs';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
 const fail=why=>{throw Error('PR39 STOP: '+why);};
@@ -25,6 +26,7 @@ if(scope.status!=='NO_GO_HOSTED_MIGRATION'||scope.scope!=='PUBLIC_ONLY_VERIFIED'
 const bootstrap=read('supabase/tests/pg17-bootstrap.sql');
 assertBootstrapIntegrity(bootstrap);
 const sources=await verifySqlSources(manifest);
+const slugDefinitions=reviewedSlugDefinitions(sources);
 if(sources.length!==7||sources.slice(0,4).some(s=>s.kind!=='BASE_MIGRATION')||
    sources.slice(4).some(s=>s.kind!=='RUNTIME_PROPOSAL'))
  fail('reviewed SQL sources changed');
@@ -189,13 +191,21 @@ try{
   fail('source and destination synthetic Raxi data fingerprint mismatch');
  const restoredInspection=await inspectNativeRaxi(restore);
  const restoredSchema=restoredInspection.schema;
- if(JSON.stringify(restoredSchema)!==JSON.stringify(sourceSchema)){
-  const diff=describePr39CatalogMismatch(sourceInspection,restoredInspection);
+ const diff=describePr39CatalogMismatch(sourceInspection,restoredInspection,slugDefinitions);
+ if(diff.count||JSON.stringify(restoredSchema)!==JSON.stringify(sourceSchema)){
   console.error('PR39 DIAGNOSTIC: '+diff.count+' catalog field differences'+
     (diff.truncated?' (first 80 shown)':'')+'; no comparison safeguards disabled.');
   for(const entry of diff.issues)console.error('PR39 DIAGNOSTIC: '+entry);
+  const context=id=>{
+   const rows=sql(id,slugContextQuery).split(/\r?\n/).filter(Boolean);
+   if(rows.length!==1)fail('expected one slug constraint context');
+   return JSON.parse(rows[0]);
+  };
+  for(const row of summarizeSlugContexts(context(origin),context(restore)))
+   console.error('PR39 SLUG CONTEXT: '+row.field+' '+row.classification+' [before '+row.before+', restored '+row.restored+']');
   fail('source and restored canonical Raxi catalog differ (RLS, ACL, functions or objects)');
  }
+ assertPr39CatalogEquality(sourceInspection,restoredInspection);
  const afterIsolation=synthetic.users.map((u,i)=>
   readIsolation(restore,u,synthetic.workspaces[i],synthetic.workspaces[1-i]));
  if(afterIsolation.some(x=>x!=='1:0:1:0'))fail('restored fixture RLS isolation failed');

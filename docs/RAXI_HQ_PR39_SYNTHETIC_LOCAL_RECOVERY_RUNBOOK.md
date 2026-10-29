@@ -94,7 +94,21 @@ The next revision adds exact **named constraint comparison** (missing, unexpecte
 
 ## Acceptance criteria for this PR
 
-- [ ] Git diff contains **only** new runbook, local opt-in runner, and offline tests.
+### Investigación del tercer ensayo (2026-10-29)
+
+En el commit `12cc2becbc8a2e9b7c3e220e46e9e650c91add9e`, la evidencia del usuario
+localizó la discrepancia en `raxi_workspaces_slug_check`, origen `484099262f84` /
+restaurado `1efa6e7fdbc4`; el ensayo terminó FAIL (1) y ambos contenedores se
+limpiaron. La investigación offline reproduce esos fingerprints como expansión
+BETWEEN con AND anidado frente a AND plano. El gate sigue rechazándolos.
+
+Ver [investigación, límites y corrección propuesta](RAXI_HQ_PR39_CONSTRAINT_DIVERGENCE.md).
+El nuevo diagnóstico añade contexto resuelto únicamente en un futuro ensayo
+autorizado; no valida semántica ni habilita PASS. **No ejecutar `--run-local`
+sin nueva autorización específica.** La suite offline actual contiene 79 negativas;
+no debe confundirse con un nuevo ensayo PostgreSQL.
+
+- [ ] Git diff contains **only** runbook, local opt-in runner, catalog/constraint diagnostic helpers and offline tests.
 - [ ] Exact HEAD reviewed by Codex; fix P1/P2 and verify rerun.
 - [ ] Local **preflight** passes without Docker/network/SQL; invalid flags and tampered manifest/NO-GO rejected.
 - [ ] Local negative tests pass; \`git diff --check\` passes; report only observed exit codes.
