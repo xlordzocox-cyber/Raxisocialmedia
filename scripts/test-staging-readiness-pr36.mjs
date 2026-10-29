@@ -12,7 +12,9 @@ const expected=read(original.expectedSchemaPath);
 const check=(m=original,reader=read,sql=catalog,schema=expected)=>
  verifyReadinessInputs(m,reader,sql,schema);
 assert.equal(check().stage,'PREINSTALL_ONLY');
-console.log('PASS: original staging contract remains NO-GO');
+assert.equal(check(original,read,catalog,JSON.stringify(JSON.parse(expected),null,4)+'\n').stage,'PREINSTALL_ONLY');
+assert.equal(check(original,read,catalog.replaceAll('\n','\r\n')).stage,'PREINSTALL_ONLY');
+console.log('PASS: pinned manifest / canonical JSON + LF/CRLF catalog preserve NO-GO');
 const mutate=fn=>{const copy=structuredClone(original);fn(copy);return copy;};
 const rejects=[
  ['production ref',()=>check(mutate(m=>m.project.ref=PRODUCTION_REF))],
@@ -24,7 +26,16 @@ const rejects=[
  ['changed source order',()=>check(mutate(m=>m.applicationPlan.steps.reverse()))],
  ['campaign migration inclusion',()=>check(mutate(m=>m.applicationPlan.excluded=[]))],
  ['SQL source tamper',()=>check(original,path=>read(path)+(path===REVIEWED_SOURCES[0]?'\n-- altered':''))],
- ['expected schema tamper',()=>check(original,read,catalog,expected+'\n ')],
+ ['semantic schema tamper',()=>check(original,read,catalog,expected.replace('"postgresMajor": 18','"postgresMajor": 17'))],
+ ['manifest and SQL hash co-tamper',()=>check(mutate(m=>m.applicationPlan.steps[0].sha256Lf='0'.repeat(64)),
+   path=>read(path)+(path===REVIEWED_SOURCES[0]?'\n-- covert source mutation':''))],
+ ['manifest and schema hash co-tamper',()=>check(mutate(m=>m.expectedSchemaSha256='0'.repeat(64)),
+   read,catalog,expected.replace('"postgresMajor": 18','"postgresMajor": 17'))],
+ ['catalog quoted Auth row reference',()=>check(original,read,catalog.replace(
+   'WITH checks AS (',
+   'WITH checks AS (\n SELECT \'probe\' name, EXISTS(SELECT 1 FROM "auth"."users") ok UNION ALL'
+ ))],
+ ['catalog fake privilege checks',()=>check(original,read,catalog.replaceAll('has_column_privilege(','true /* has_column_privilege */('))],
  ['hosted GRANT injection',()=>check(original,read,catalog+'\nGRANT SELECT ON auth.users TO anon;')],
  ['second catalog statement',()=>check(original,read,catalog+'\nSELECT 1;')],
  ['Auth private row SELECT',()=>check(original,read,catalog.replace('FROM checks ORDER BY name','FROM auth.users ORDER BY name'))],
