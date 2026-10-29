@@ -8,6 +8,7 @@ import {verifyPreparationManifest,loadPreparationManifest,verifySqlSources}
  from '../apps/raxi-hq/scripts/staging-manifest.mjs';
 import {assertBootstrapIntegrity} from './pr35-bootstrap-guard.mjs';
 import {verifyPr38RecoveryEvidence} from './pr38-recovery-contract.mjs';
+import {describePr39CatalogMismatch} from './pr39-catalog-diagnostic.mjs';
 
 if(process.argv.length!==2)throw Error('PR39 STOP: offline test takes no flags');
 const root=fileURLToPath(new URL('..',import.meta.url));
@@ -60,6 +61,31 @@ async function negativeAsync(label,fn){
 }
 await negativeAsync('changed SQL with unchanged reviewed hash',()=>
  verifySqlSources(pinned,async path=>read(path)+(path===pinned.applicationPlan.steps[0].path?'\n-- unreviewed content':'')));
+
+const baselineCatalog={
+ schema:{tables:[{name:'raxi_workspaces',sha256:'baseline'}]},
+ postgresMajor:17,
+ tables:[{name:'raxi_workspaces',rls:true,policies:[{name:'owner',qual:'owner_user_id=auth.uid()'}],
+  grants:[{role:'authenticated',privilege:'SELECT'}]}],
+ functions:[{name:'raxi_probe()',definition:'SELECT 1'}],
+ roles:[{name:'authenticated',bypass_rls:false}],
+ otherPublicRelations:[]
+};
+assert.equal(describePr39CatalogMismatch(baselineCatalog,structuredClone(baselineCatalog)).count,0);
+console.log('PASS: identical synthetic catalog has zero differences');
+const driftCase=(label,mutation,pattern)=>{
+ const changed=structuredClone(baselineCatalog);
+ mutation(changed);
+ const diff=describePr39CatalogMismatch(baselineCatalog,changed);
+ assert.ok(diff.count>0,label+' must produce diagnostic');
+ assert.match(diff.issues.join('\n'),pattern);
+ failures++;
+ console.log('PASS: synthetic catalog drift found '+label);
+};
+driftCase('RLS policy changes',c=>c.tables[0].policies[0].qual='true',/RLS policy definitions/);
+driftCase('ACL grant changes',c=>c.tables[0].grants[0].privilege='INSERT',/ACL grant list/);
+driftCase('function definition changes',c=>c.functions[0].definition='SELECT 0',/function definition/);
+driftCase('missing restored Raxi table',c=>c.tables=[],/missing restored/);
 
 for(const args of [['--hosted'],['--run'],['--run-local','--hosted']]){
  const result=spawnSync(process.execPath,
