@@ -1,6 +1,6 @@
 // Raxi HQ PR38: pure offline NO-GO recovery classification (no I/O or network).
 // NOT a backup tool, restore executor, B2 authorization or full recovery validator.
-import {verifyPreparationManifest} from '../apps/raxi-hq/scripts/staging-manifest.mjs';
+import {verifyPreparationManifest,canonical} from '../apps/raxi-hq/scripts/staging-manifest.mjs';
 
 const STOP=reason=>{throw Error('PR38 STOP: '+reason);};
 const exactKeys=(obj,keys,label)=>{
@@ -45,7 +45,7 @@ export function verifyPr38RecoveryEvidence(evidence,manifest){
     evidence.project.name!=='raxi-hq-staging'||
     evidence.project.organizationId!=='qpjzdqkvjzgqwvismeku'||
     evidence.project.region!=='us-east-2'||evidence.project.postgresMajor!==17||
-    JSON.stringify(evidence.project)!==JSON.stringify(manifest.project))
+    canonical(evidence.project)!==canonical(manifest.project))
   STOP('staging project identity does not match pinned manifest');
  if(evidence.productionExcluded!=='jrkefsylpfriiqefcmzq'||
     evidence.upstreamMainBase!=='857c94dd7a8805df899117556688c04599b3169a')
