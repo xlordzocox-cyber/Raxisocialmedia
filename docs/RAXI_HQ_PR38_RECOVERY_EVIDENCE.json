@@ -1,0 +1,61 @@
+{
+  "kind": "RAXI_PR38_RECOVERY_REVIEW_ONLY",
+  "formatVersion": 1,
+  "project": {
+    "ref": "zvhxjindgyvtasstfjut",
+    "name": "raxi-hq-staging",
+    "organizationId": "qpjzdqkvjzgqwvismeku",
+    "region": "us-east-2",
+    "postgresMajor": 17
+  },
+  "productionExcluded": "jrkefsylpfriiqefcmzq",
+  "upstreamMainBase": "857c94dd7a8805df899117556688c04599b3169a",
+  "overall": "NO_GO_HOSTED_MIGRATION",
+  "provenScope": "PUBLIC_ONLY_VERIFIED",
+  "observedArchive": {
+    "filename": "raxi-staging-public-20261027-180405.dump",
+    "bytes": 1679,
+    "sha256": "214d57ca84bbc3341f53663eb6a88daa52838c451a0858c0a913337c094cd7fd",
+    "archiveKind": "PG17_CUSTOM_PUBLIC_SCHEMA_ONLY",
+    "publicSchemaRestored": true,
+    "publicTableCount": 0,
+    "observedQueryResult": "t|0",
+    "evidenceKind": "USER_SUPPLIED_LOCAL_TERMINAL_OUTPUT",
+    "noNetworkDisposablePg17": true
+  },
+  "gaps": {
+    "futureRaxiTablesAndData": "NOT_BACKED_UP",
+    "authManagedRowsAndSessions": "NOT_BACKED_UP",
+    "authServiceRecovery": "NOT_TESTED",
+    "storageMetadata": "NOT_BACKED_UP",
+    "storageObjectBytes": "NOT_BACKED_UP",
+    "roleGrantsOwnershipAcl": "NOT_BACKED_UP",
+    "projectConfigurationAndSecrets": "NOT_RECOVERED",
+    "edgeFunctionDeployment": "NOT_RECOVERED",
+    "offsiteEncryptedCopy": "NOT_OBSERVED",
+    "tlsVerifyFullServerIdentity": "NOT_VERIFIED",
+    "crossServiceRestore": "NOT_TESTED",
+    "hostedRlsAndTenants": "NOT_TESTED"
+  },
+  "objectives": {
+    "rpoMinutes": null,
+    "rtoMinutes": null,
+    "retentionDays": null,
+    "recoveryOwner": null
+  },
+  "noHostedPermissions": true,
+  "authorizedOperations": {
+    "exportManagedAuthData": false,
+    "downloadStorageObjects": false,
+    "newBackup": false,
+    "restore": false,
+    "createProject": false,
+    "applySql": false,
+    "runB2": false,
+    "createUsers": false,
+    "deploy": false,
+    "realProviders": false,
+    "additionalSpend": false
+  },
+  "nextStep": "REVIEW_AND_SCOPED_APPROVAL_REQUIRED"
+}
