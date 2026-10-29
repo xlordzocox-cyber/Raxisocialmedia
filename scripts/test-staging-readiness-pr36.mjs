@@ -13,7 +13,8 @@ const check=(m=original,reader=read,sql=catalog,schema=expected)=>
  verifyReadinessInputs(m,reader,sql,schema);
 assert.equal(check().stage,'PREINSTALL_ONLY');
 assert.equal(check(original,read,catalog,JSON.stringify(JSON.parse(expected),null,4)+'\n').stage,'PREINSTALL_ONLY');
-assert.equal(check(original,read,catalog.replaceAll('\n','\r\n')).stage,'PREINSTALL_ONLY');
+const catalogCrLf=catalog.replaceAll('\r\n','\n').replaceAll('\n','\r\n');
+assert.equal(check(original,read,catalogCrLf).stage,'PREINSTALL_ONLY');
 console.log('PASS: pinned manifest / canonical JSON + LF/CRLF catalog preserve NO-GO');
 const mutate=fn=>{const copy=structuredClone(original);fn(copy);return copy;};
 const rejects=[
