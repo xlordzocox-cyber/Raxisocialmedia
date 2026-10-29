@@ -63,6 +63,20 @@ Before any actual hosted export or write, still required:
 3. Obtain separate explicit approval for **each**: reading/exporting hosted private data, any full-stack recovery environment and related cost, uploading or restoring data, applying a five-file migration, creating test accounts, enabling a simulated Director.
 4. Auth \`service_role\` five-column grants remain 0/5 from PR37; Stage B's reviewed proposed grants must not be applied ad hoc. No \`supabase db push\` or unrelated campaign migration.
 
+## 2026-10-29 first authorized native run: FAIL, safe cleanup PASS
+
+The user executed `node scripts/pr39-local-synthetic-recovery.mjs --run-local` on Windows, initially at reviewed commit `d7ea9f3e8bede148912fd1d17c6cc54477b53661`:
+
+- Git clean, Docker server 29.7.2, cached `postgres:17` image. All offline gates had passed before the native run.
+- `PASS: PR39_PINNED_OFFLINE_PREFLIGHT` printed. Source fixture and archive creation advanced to the destination; the synthetic 2-workspace/2-idea data comparison did **not** raise an error.
+- **`Error: PR39 STOP: source and restored canonical Raxi catalog differ (RLS, ACL, functions or objects)`**; `RESULTADO PR39: 1`. This is **not PASS**, even if row data compares successfully.
+- The restored-database owner isolation assertions had **not yet run** when the catalog mismatch stopped the test.
+- `CLEANUP PASS` for both disposable test containers, exact names `raxi-pr39-restore-b83fa6f7902c` and `raxi-pr39-src-0b41313870ee`. The user did not run hosted SQL or touch other containers.
+
+**Disposition: NEEDS_REPRO_DIAGNOSTIC; HOSTED NO-GO UNCHANGED.** The initial error does not identify which object's policies, ACL, function definition, constraint or index differs. Do not silently normalize, ignore, waive or count that check as passed.
+
+The follow-up adds `scripts/pr39-catalog-diagnostic.mjs` and collects the already local-only raw catalogue metadata returned by `inspectRaxiSchema`. If a canonical mismatch persists, it must print **only object names, changed field names and short SHA fingerprints**, then return nonzero and clean up both disposable containers. A separate offline unit test injects synthetic RLS policy, ACL, function and missing-table changes to confirm diagnostics detect them. No raw Auth rows, real credentials, SQL definition bodies or file exports are printed. **This diagnostic is not a fix for the underlying mismatch**; inspect its results and determine whether the restore requires correction. New Codex review and local revalidation are required before the next native run or merge.
+
 ## Acceptance criteria for this PR
 
 - [ ] Git diff contains **only** new runbook, local opt-in runner, and offline tests.
