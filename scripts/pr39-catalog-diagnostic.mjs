@@ -8,6 +8,32 @@ const stable=value=>value===undefined?'__MISSING__':canonical(value);
 const finger=value=>createHash('sha256').update(stable(value),'utf8').digest('hex').slice(0,12);
 const identity=(label,row)=>label==='functions'?row.name:row.name;
 const FIELD_LIMIT=80;
+// Compare constraints by their actual PostgreSQL names, not only a table-level hash.
+function constraintsDiff(table,before,after){
+ if(!Array.isArray(before)||!Array.isArray(after))
+  return [table+': constraints metadata missing or malformed'];
+ const map=(items,label)=>{
+  const result=new Map();
+  for(const row of items){
+   if(!row||typeof row.name!=='string'||!row.name||
+      typeof row.definition!=='string'||result.has(row.name))
+    throw Error('PR39 STOP: invalid/duplicate '+label+' constraint identity');
+   result.set(row.name,row);
+  }
+  return result;
+ };
+ const source=map(before,'source'),restored=map(after,'restored'),issues=[];
+ issues.push(table+': constraint inventory source='+source.size+' restored='+restored.size);
+ for(const name of [...new Set([...source.keys(),...restored.keys()])].sort()){
+  const a=source.get(name),b=restored.get(name);
+  if(!a){issues.push(table+'/constraint/'+name+': unexpected in restore [sha '+finger(b)+']');continue;}
+  if(!b){issues.push(table+'/constraint/'+name+': missing in restore [sha '+finger(a)+']');continue;}
+  if(stable(a)!==stable(b))
+   issues.push(table+'/constraint/'+name+': definition differs [before '+finger(a.definition)+
+     ', restored '+finger(b.definition)+']');
+ }
+ return issues;
+}
 export function describePr39CatalogMismatch(source,destination){
  const issues=[];
  if(!source||!destination)throw Error('PR39 diagnostic requires both catalog snapshots');
@@ -35,8 +61,13 @@ export function describePr39CatalogMismatch(source,destination){
     const changed=field==='definition'?'function definition':
       field==='policies'?'RLS policy definitions':
       field==='grants'?'ACL grant list':field;
-    issues.push(section+'/'+key+': '+changed+
-      ' [before '+finger(l[field])+', restored '+finger(r[field])+']');
+    if(section==='tables'&&field==='constraints'){
+     const breakdown=constraintsDiff(section+'/'+key,l[field],r[field]);
+     issues.push(...breakdown);
+    }else{
+     issues.push(section+'/'+key+': '+changed+
+       ' [before '+finger(l[field])+', restored '+finger(r[field])+']');
+    }
    }
   }
  }
