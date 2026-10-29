@@ -45,6 +45,8 @@ if(process.argv.length!==3||process.argv[2]!=='--run-local'){
 }
 const image='postgres:17',name='raxi-pr35-'+randomBytes(6).toString('hex');
 let id=null;
+// Track spawned claim clients until their OS close events, including on failure.
+const activeClaims=new Set();
 try{
  sh(['image','inspect',image,'--format','{{.Id}}']);
  const existing=sh(['ps','-aq','--filter','name=^/'+name+'$']);
@@ -112,13 +114,32 @@ try{
     : `begin; set local role service_role; set local application_name='PR35-RACE-B'; set local statement_timeout='20s';
        select coalesce((public.raxi_runtime_claim('${taskId}'::uuid,'${worker}') is not null)::text,'false'); commit;`;
    const child=spawn('docker',['exec','-i',id,'psql','-X','-q','-t','-A','-v','ON_ERROR_STOP=1','-U','postgres','-d','postgres','-f','-'],{windowsHide:true,stdio:['pipe','pipe','pipe']});
-   let output='',error='',settled=false;
-   const timer=setTimeout(()=>{child.kill();finish(Error('claim process timeout: '+worker));},22000);
-   const finish=(err,value)=>{if(settled)return;settled=true;clearTimeout(timer);if(err)reject(err);else resolve(value);};
+   let output='',error='',settled=false,timedOut=false,closeDeadline;
+   let noteClosed;
+   const lifecycle={child,closed:false,done:new Promise(resolve=>{noteClosed=resolve;})};
+   activeClaims.add(lifecycle);
+   const finish=(err,value)=>{
+     if(settled)return;
+     settled=true;clearTimeout(timer);clearTimeout(closeDeadline);
+     if(err)reject(err);else resolve(value);
+   };
+   // Request termination at the deadline but do not resolve before 'close'.
+   // A bounded fallback rejects so an unkillable docker exec cannot hang forever.
+   const timer=setTimeout(()=>{
+     timedOut=true;
+     try{child.kill();}catch(err){error+='; kill failed: '+String(err);}
+     closeDeadline=setTimeout(()=>finish(Error('claim timeout; process close unconfirmed: '+worker)),3000);
+   },22000);
    child.stdout.on('data',v=>output+=v.toString());
    child.stderr.on('data',v=>error+=v.toString());
    child.on('error',err=>finish(err));
-   child.on('close',code=>code===0?finish(null,output.trim()):finish(Error('claim failed '+worker+': '+error.slice(0,250))));
+   child.on('close',code=>{
+     lifecycle.closed=true;activeClaims.delete(lifecycle);noteClosed();
+     if(timedOut)finish(Error('claim process timed out: '+worker));
+     else if(code===0)finish(null,output.trim());
+     else finish(Error('claim failed '+worker+': '+error.slice(0,250)));
+   });
+   child.stdin.on('error',err=>finish(Error('claim input failed: '+worker+': '+String(err))));
    child.stdin.end(command);
  });
  const a=startPsql('PR35-RACE-A','hold');
@@ -165,6 +186,25 @@ try{
  console.log('PASS: native two independent PostgreSQL sessions with observed lock wait; one claimed, one denied, one run, one budget reservation');
  console.log('PASS: PR35_NATIVE_CONCURRENT_CLAIM_SQL_ONLY. Journal replay, provider, native adapter, hosted Auth NOT TESTED.');
 }finally{
+ // No claim client may be silently abandoned while the fixture container is removed.
+ if(activeClaims.size){
+  const outstanding=[...activeClaims];
+  for(const item of outstanding){
+   if(!item.closed){
+    try{item.child.kill();}catch(error){console.error('CLAIM CLEANUP: kill failed:',String(error));}
+   }
+  }
+  let closeTimer;
+  const allClosed=await Promise.race([
+   Promise.all(outstanding.map(item=>item.done)).then(()=>true),
+   new Promise(resolve=>{closeTimer=setTimeout(()=>resolve(false),4000);})
+  ]);
+  clearTimeout(closeTimer);
+  if(!allClosed){
+   process.exitCode=1;
+   console.error('CLAIM CLEANUP FAILED: process close not confirmed; removing only isolated fixture container.');
+  }
+ }
  if(id){
   const probe=spawnSync('docker',['inspect',id,'--format','{{.Name}}|{{.Id}}'],{encoding:'utf8',timeout:10000});
   if(probe.status===0&&probe.stdout.trim()==='/'+name+'|'+id){
