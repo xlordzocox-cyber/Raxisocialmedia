@@ -6,7 +6,7 @@
 
 PR #31 validated restoration of the **empty** staging \`public\` schema. PR #35 validated the supervised Director locally. PR #38 (merged into \`main\` at \`03e0455fca01a2a9b178a75ec846b9e05850af35\`) records 12 gaps and maintains \`NO_GO_HOSTED_MIGRATION\`.
 
-PR #39 prepares a **stronger strictly local test**: build the already reviewed Raxi schema using the pinned 7 SQL files; insert only synthetic users/workspaces/ideas; perform a PostgreSQL custom-format \`public\` schema + data dump; restore the archive to a **different newly allocated isolated PG17 container**; compare records, RLS policies and effective grants; and test two synthetic users cannot read each other's workspace. This is a *new rehearsal*, **not** a backup of hosted staging, managed Auth, Storage object bytes, or all infrastructure.
+PR #39 prepares a **stronger strictly local test**: build the already reviewed Raxi schema using the pinned 7 SQL files; insert only synthetic users/workspaces/ideas; perform a PostgreSQL custom-format \`public\` schema + data dump; restore the archive to a **different newly allocated isolated PG17 container**; compare records plus the existing canonical `inspectRaxiSchema` fingerprints (tables, functions, constraints, indexes, triggers, RLS policy definitions and effective grants); and test two synthetic users cannot read each other's workspace. This is a *new rehearsal*, **not** a backup of hosted staging, managed Auth, Storage object bytes, or all infrastructure.
 
 ## Exact components and boundaries
 
