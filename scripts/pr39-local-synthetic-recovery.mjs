@@ -58,7 +58,10 @@ async function start(name){
  if(!/^[a-f0-9]{64}$/.test(id))fail('invalid new disposable Docker ID');
  created.push({id,name});
  const cfg=JSON.parse(docker(['inspect',id,'--format','{{json .}}']));
- if(cfg.Id!==id||cfg.Name!=='/'+name||cfg.HostConfig.NetworkMode!=='none'||
+ if(cfg.Id!==id||cfg.Name!=='/'+name||cfg.Config.Image!==image||
+    cfg.HostConfig.NetworkMode!=='none'||
+    !Object.hasOwn(cfg.HostConfig.Tmpfs||{},'/var/lib/postgresql/data')||
+    Object.keys(cfg.HostConfig.Tmpfs||{}).length!==1||
     cfg.HostConfig.Privileged!==false||
     Object.keys(cfg.HostConfig.PortBindings||{}).length!==0||
     cfg.HostConfig.PublishAllPorts!==false||
