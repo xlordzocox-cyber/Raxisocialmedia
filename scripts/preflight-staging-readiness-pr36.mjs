@@ -8,7 +8,8 @@ const root=fileURLToPath(new URL('..',import.meta.url));
 const read=(path)=>readFileSync(resolve(root,path),'utf8');
 const manifest=JSON.parse(read('supabase/staging/raxi-hq-staging.manifest.json'));
 const sql=read('supabase/tests/staging-b2-preflight.readonly.sql');
-const expected=read(manifest.expectedSchemaPath);
+// Use fixed review path before the manifest's untrusted path is validated.
+const expected=read('supabase/staging/raxi-hq-staging.expected-schema.json');
 const status=verifyReadinessInputs(manifest,read,sql,expected);
 console.log('PASS: PR36_OFFLINE_STAGING_READINESS_CONTRACT');
 console.log('PROJECT: '+status.projectRef+'; '+status.sqlSources+' pinned ordered SQL sources; '+status.hostedFlagsDisabled+' disabled hosted flags.');
