@@ -77,6 +77,21 @@ The user executed `node scripts/pr39-local-synthetic-recovery.mjs --run-local` o
 
 The follow-up adds `scripts/pr39-catalog-diagnostic.mjs` and collects the already local-only raw catalogue metadata returned by `inspectRaxiSchema`. If a canonical mismatch persists, it must print **only object names, changed field names and short SHA fingerprints**, then return nonzero and clean up both disposable containers. A separate offline unit test injects synthetic RLS policy, ACL, function and missing-table changes to confirm diagnostics detect them. No raw Auth rows, real credentials, SQL definition bodies or file exports are printed. **This diagnostic is not a fix for the underlying mismatch**; inspect its results and determine whether the restore requires correction. New Codex review and local revalidation are required before the next native run or merge.
 
+## 2026-10-29 second authorized native run — exact table-field discrepancy
+
+User local PowerShell revalidated commit `c6967f3a72bd0a7d72a1d1ee62f8a378882ec0f4`: Node syntax passed, **19 offline negative cases PASS**, no-flag preflight PASS. Then the separately authorized `--run-local` rehearsal printed:
+
+```text
+PR39 DIAGNOSTIC: 1 catalog field differences
+PR39 DIAGNOSTIC: tables/raxi_workspaces: constraints [before 67ea0699577d, restored a787867114ba]
+Error: PR39 STOP: source and restored canonical Raxi catalog differ (RLS, ACL, functions or objects)
+RESULTADO PR39: 1
+```
+
+Two new disposable containers were cleaned up with `CLEANUP PASS`: `raxi-pr39-restore-39509c35d5a0` and `raxi-pr39-src-93c5b2585c4d`. **No merge and no hosted changes.** This observed result narrows the discrepancy to **the `constraints` field on `public.raxi_workspaces`**. It does **not** yet identify which named constraint or expression differs; do not attribute a cause or weaken the comparison without evidence.
+
+The next revision adds exact **named constraint comparison** (missing, unexpected, changed definition, and order-only mismatch), printing short digests and names but **no raw constraint SQL definitions**. It must keep the original fail-closed native catalog comparison and cleanup; it cannot turn the mismatch into PASS. Four additional offline negative cases cover per-constraint differences (**23 negative tests expected on the new head, not yet user-verified**). Independent Codex review and new local tests are required before using the updated `--run-local` version.
+
 ## Acceptance criteria for this PR
 
 - [ ] Git diff contains **only** new runbook, local opt-in runner, and offline tests.
