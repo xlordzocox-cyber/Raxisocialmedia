@@ -145,7 +145,7 @@ Evidencia del usuario: preflight PASS; persistió la discrepancia del CHECK con
 `BETWEEN_EXPANSION_AND_REGROUPING_CANDIDATE` y
 `SEMANTIC_EQUIVALENCE_NOT_VERIFIED`. El diagnóstico adicional se interrumpió por
 `unrecognized configuration parameter "lc_collate"`, resultado 1; ambos
-contenedores desechables se limpiaron. **Este es el último resultado nativo: FAIL.**
+contenedores desechables se limpiaron. **Resultado nativo del cuarto ensayo: FAIL.**
 
 ### Causa y cambio mínimo
 
@@ -225,3 +225,16 @@ ensayo nativo expresamente autorizado. `pg_node_tree` sigue siendo formato inter
 los metadatos coincidentes siguen sin conceder equivalencia semántica. La
 clasificación del CHECK, el comparador estricto, el FAIL por discrepancia y el
 finally de limpieza no se modificaron. PR abierto/en borrador, sin merge.
+
+## Quinto ensayo comunicado y propuesta siguiente
+
+El usuario probó `fe52230687eaf310f8ea7226d417192a1fc54765`: preflight PASS,
+ambas huellas y clasificación previas persistieron; los siete grupos de contexto
+reportaron IDENTICAL_METADATA. El comparador retuvo FAIL (1), equivalencia
+NOT_VERIFIED y limpieza correcta. La corrección de locale no supone equivalencia
+del CHECK. No se ejecutó una nueva prueba nativa en esta investigación.
+
+Ver [propuesta estructural acotada](RAXI_HQ_PR39_STRUCTURAL_EQUIVALENCE_PROPOSAL.md):
+evidencia confirmada frente a árboles aún no capturados, mecanismo recomendado,
+justificación lógica limitada, riesgos, alternativas y modelo offline sintético.
+No hay política de equivalencia habilitada; el comparador original no cambia.

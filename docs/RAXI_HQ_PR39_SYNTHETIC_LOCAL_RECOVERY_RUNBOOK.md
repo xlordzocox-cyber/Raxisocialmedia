@@ -119,6 +119,16 @@ La suite offline actual contiene **103 negativas PASS**. Ver el apartado P1 del
 No se ejecutó otra prueba nativa y no se concede equivalencia al CHECK. **La
 próxima ejecución --run-local sigue requiriendo nueva autorización humana.**
 
+### Después del quinto ensayo: investigación, no aceptación
+
+El quinto ensayo comunicado en `fe52230` obtuvo IDENTICAL_METADATA en los siete
+grupos, pero conservó FAIL por la definición del CHECK y limpió ambos contenedores.
+Ver [propuesta estructural offline](RAXI_HQ_PR39_STRUCTURAL_EQUIVALENCE_PROPOSAL.md).
+Su especificación sintética se prueba por separado, no se incorpora al ejecutor
+y nunca concede PASS. Captura tipada nativa, política explícita, validación y
+autorización humana siguen pendientes. **No ejecutar Docker/SQL/--run-local por
+haber leído o aprobado este documento.**
+
 - [ ] Git diff contains **only** runbook, local opt-in runner, catalog/constraint diagnostic helpers and offline tests.
 - [ ] Exact HEAD reviewed by Codex; fix P1/P2 and verify rerun.
 - [ ] Local **preflight** passes without Docker/network/SQL; invalid flags and tampered manifest/NO-GO rejected.
