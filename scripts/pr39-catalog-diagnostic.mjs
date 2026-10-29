@@ -4,7 +4,8 @@
 import {createHash} from 'node:crypto';
 import {canonical} from '../apps/raxi-hq/scripts/staging-manifest.mjs';
 
-const finger=value=>createHash('sha256').update(canonical(value),'utf8').digest('hex').slice(0,12);
+const stable=value=>value===undefined?'__MISSING__':canonical(value);
+const finger=value=>createHash('sha256').update(stable(value),'utf8').digest('hex').slice(0,12);
 const identity=(label,row)=>label==='functions'?row.name:row.name;
 const FIELD_LIMIT=80;
 export function describePr39CatalogMismatch(source,destination){
@@ -30,7 +31,7 @@ export function describePr39CatalogMismatch(source,destination){
    if(!b.has(key)){issues.push(section+': missing restored '+key);continue;}
    const l=a.get(key),r=b.get(key);
    for(const field of [...new Set([...Object.keys(l),...Object.keys(r)])].sort()){
-    if(canonical(l[field])===canonical(r[field]))continue;
+    if(stable(l[field])===stable(r[field]))continue;
     const changed=field==='definition'?'function definition':
       field==='policies'?'RLS policy definitions':
       field==='grants'?'ACL grant list':field;
@@ -39,9 +40,9 @@ export function describePr39CatalogMismatch(source,destination){
    }
   }
  }
- if(canonical(source.postgresMajor)!==canonical(destination.postgresMajor))
+ if(stable(source.postgresMajor)!==stable(destination.postgresMajor))
   issues.push('PostgreSQL major version differs');
- if(!issues.length&&canonical(source.schema)!==canonical(destination.schema))
+ if(!issues.length&&stable(source.schema)!==stable(destination.schema))
   issues.push('canonical inspector mismatch without raw row difference');
  return Object.freeze({count:issues.length,issues:issues.slice(0,FIELD_LIMIT),
    truncated:issues.length>FIELD_LIMIT});
