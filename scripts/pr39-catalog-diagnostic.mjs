@@ -23,15 +23,21 @@ function constraintsDiff(table,before,after){
   return result;
  };
  const source=map(before,'source'),restored=map(after,'restored'),issues=[];
- issues.push(table+': constraint inventory source='+source.size+' restored='+restored.size);
  for(const name of [...new Set([...source.keys(),...restored.keys()])].sort()){
   const a=source.get(name),b=restored.get(name);
   if(!a){issues.push(table+'/constraint/'+name+': unexpected in restore [sha '+finger(b)+']');continue;}
   if(!b){issues.push(table+'/constraint/'+name+': missing in restore [sha '+finger(a)+']');continue;}
-  if(stable(a)!==stable(b))
-   issues.push(table+'/constraint/'+name+': definition differs [before '+finger(a.definition)+
-     ', restored '+finger(b.definition)+']');
+  if(stable(a)!==stable(b)){
+   if(a.definition!==b.definition)
+    issues.push(table+'/constraint/'+name+': definition differs [before '+finger(a.definition)+
+      ', restored '+finger(b.definition)+']');
+   else issues.push(table+'/constraint/'+name+': non-definition metadata differs [before '+
+      finger(a)+', restored '+finger(b)+']');
+  }
  }
+ if(!issues.length)
+  issues.push(table+': constraint lists differ only by ordering or representation [source='+
+    source.size+', restored='+restored.size+']');
  return issues;
 }
 export function describePr39CatalogMismatch(source,destination){
