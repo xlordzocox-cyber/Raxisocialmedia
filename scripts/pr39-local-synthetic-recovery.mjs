@@ -110,11 +110,11 @@ function catalogue(id){
 async function inspectNativeRaxi(id){
  const port={
   async query(statement,params=[]){
-   if(typeof statement!=='string'||!/^\\s*select\\b/i.test(statement)||
+   if(typeof statement!=='string'||!/^\s*select\b/i.test(statement)||
       statement.includes(';')||!Array.isArray(params)||params.length)
     fail('native inspector attempted non-readonly catalog SQL');
    const result=sql(id,'select row_to_json(r) from ('+statement+') as r;');
-   return {rows:result?result.split(/\\r?\\n/).filter(Boolean).map(line=>{
+   return {rows:result?result.split(/\r?\n/).filter(Boolean).map(line=>{
     const row=JSON.parse(line);
     if(!row||typeof row!=='object'||Array.isArray(row))
      fail('malformed native Raxi catalog row');
