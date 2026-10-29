@@ -16,9 +16,9 @@ Prepare a reproducible, fail-closed acceptance checklist **without installing th
 ## What this PR does
 
 This PR adds only:
-1. `scripts/pr36-readiness-contract.mjs` — pure validation of **staging identity**, all six hosted denials, seven immutable ordered source SQL hashes, excluded unrelated campaign migration, expected-schema checksum and catalog-query shape. Returns explicit `PREINSTALL_ONLY`/`NO-GO` fields; never claims effective privileges.
+1. `scripts/pr36-readiness-contract.mjs` — pure validation of **staging identity**, all six hosted denials, seven immutable ordered source SQL hashes, excluded unrelated campaign migration, expected-schema checksum and the SHA-256(LF) of the exact reviewed Auth catalog SQL. The existing canonical JSON schema hash and reviewed whole-manifest pin are reused, rather than hashing JSON whitespace or trusting manifest-declared source hashes alone. Returns explicit `PREINSTALL_ONLY`/`NO-GO` fields; never claims effective privileges.
 2. `scripts/preflight-staging-readiness-pr36.mjs` — offline source-integrity check with **zero** Docker/network/SQL calls.
-3. `scripts/test-staging-readiness-pr36.mjs` — negative tests for changed staging ref, production ref, changed flags, source hash/order/exclusion, schema and catalog SQL mutation.
+3. `scripts/test-staging-readiness-pr36.mjs` — 18 offline negative cases for changed staging ref, production ref, changed flags, source hash/order/exclusion, schema and catalog SQL mutation (including coordinated manifest+SQL/hash changes and quoted Auth table references), plus positive canonical JSON whitespace and catalog CRLF normalization.
 4. This evidence-based readiness plan. **No changes** to migrations, stage proposals, runtime, Pixi, stores, permissions or `AGENTS.md`.
 
 From repository root:
