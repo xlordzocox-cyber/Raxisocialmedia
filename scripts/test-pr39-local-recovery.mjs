@@ -66,6 +66,7 @@ const baselineCatalog={
  schema:{tables:[{name:'raxi_workspaces',sha256:'baseline'}]},
  postgresMajor:17,
  tables:[{name:'raxi_workspaces',rls:true,policies:[{name:'owner',qual:'owner_user_id=auth.uid()'}],
+  constraints:[{name:'raxi_workspaces_slug_check',definition:'CHECK (length(slug) > 2)' }],
   grants:[{role:'authenticated',privilege:'SELECT'}]}],
  functions:[{name:'raxi_probe()',definition:'SELECT 1'}],
  roles:[{name:'authenticated',bypass_rls:false}],
@@ -86,6 +87,19 @@ driftCase('RLS policy changes',c=>c.tables[0].policies[0].qual='true',/RLS polic
 driftCase('ACL grant changes',c=>c.tables[0].grants[0].privilege='INSERT',/ACL grant list/);
 driftCase('function definition changes',c=>c.functions[0].definition='SELECT 0',/function definition/);
 driftCase('missing restored Raxi table',c=>c.tables=[],/missing restored/);
+driftCase('changed named constraint definition',
+ c=>c.tables[0].constraints[0].definition='CHECK (false)',
+ /constraint\\/raxi_workspaces_slug_check: definition differs/);
+driftCase('missing named constraint',
+ c=>c.tables[0].constraints=[],
+ /constraint\\/raxi_workspaces_slug_check: missing in restore/);
+driftCase('unexpected named constraint',
+ c=>c.tables[0].constraints.push({name:'raxi_workspaces_new_check',definition:'CHECK (true)'}),
+ /constraint\\/raxi_workspaces_new_check: unexpected in restore/);
+driftCase('constraint metadata order-only drift',
+ c=>c.tables[0].constraints=[{name:'raxi_workspaces_other_check',definition:'CHECK (true)'},...c.tables[0].constraints],
+ /constraint\\/raxi_workspaces_other_check: unexpected in restore/);
+
 
 for(const args of [['--hosted'],['--run'],['--run-local','--hosted']]){
  const result=spawnSync(process.execPath,
