@@ -76,6 +76,6 @@ const preflight=spawnSync(process.execPath,
   env:{...process.env,PATH:''}});
 assert.equal(preflight.status,0,preflight.stderr);
 assert.match(preflight.stdout,/PASS: PR39_PINNED_OFFLINE_PREFLIGHT/);
-assert.match(preflight.stdout,/PRECHECK ONLY: no Docker called/);
+assert.match(preflight.stdout,/PRECHECK ONLY: no Docker, network, SQL, backup or restore performed\./);
 console.log('PASS: default preflight succeeds without a PATH to Docker');
 console.log('PASS: PR39_OFFLINE_NEGATIVE_TESTS ('+failures+' denied cases; no Docker/network/SQL).');
