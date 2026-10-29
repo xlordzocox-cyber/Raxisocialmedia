@@ -1,5 +1,8 @@
 // PR36 static, offline-only preflight. Never performs network, SQL, Docker or writes.
-import {createHash} from 'node:crypto';
+import {
+ verifyPreparationManifest,verifySchemaCandidate,sqlDigest,
+ REVIEWED_STAGING_MANIFEST_SHA256
+} from '../apps/raxi-hq/scripts/staging-manifest.mjs';
 
 export const STAGING_REF='zvhxjindgyvtasstfjut';
 export const PRODUCTION_REF='jrkefsylpfriiqefcmzq';
@@ -15,10 +18,16 @@ export const REVIEWED_SOURCES=[
 ];
 export const EXCLUDED='supabase/migrations/20261020234358_raxi_hq_campaign_strategy_pending_review.sql';
 const reject=(reason)=>{throw Error('PR36 STOP: '+reason);};
-const digest=(text)=>createHash('sha256').update(text.replace(/\r\n/g,'\n')).digest('hex');
+// Exact previously reviewed catalog SQL, never an executable SQL permission grant.
+export const REVIEWED_AUTH_CATALOG_SQL_SHA256_LF=
+ '75a3977f52b17a9628d9b9cb19bdbf1814dd355066769f81ce2745cb7d73630b';
 
 export function verifyReadinessInputs(manifest,readText,catalogSql,expectedSchemaText){
  if(!manifest||typeof manifest!=='object'||Array.isArray(manifest))reject('manifest missing');
+ // Pin the ENTIRE reviewed manifest; seven per-source hashes alone are not sufficient.
+ // This rejects any coordinated manifest+SQL or manifest+schema mutation.
+ try{verifyPreparationManifest(manifest);}
+ catch{reject('reviewed staging manifest SHA256 changed: '+REVIEWED_STAGING_MANIFEST_SHA256);}
  const project=manifest.project;
  if(!project||project.ref!==STAGING_REF||project.ref===PRODUCTION_REF||
    project.name!=='raxi-hq-staging'||project.region!=='us-east-2'||
@@ -44,29 +53,23 @@ export function verifyReadinessInputs(manifest,readText,catalogSql,expectedSchem
      !/^[a-f0-9]{64}$/.test(step.sha256Lf))
     reject('SQL source identity/order changed: '+i);
   const source=readText(path);
-  if(typeof source!=='string'||digest(source)!==step.sha256Lf)
+  if(typeof source!=='string'||sqlDigest(source)!==step.sha256Lf)
     reject('SQL SHA256(LF) differs: '+path);
  }
- if(manifest.expectedSchemaPath!=='supabase/staging/raxi-hq-staging.expected-schema.json'||
-    !/^[a-f0-9]{64}$/.test(manifest.expectedSchemaSha256)||
-    digest(expectedSchemaText)!==manifest.expectedSchemaSha256)
-  reject('expected schema reference changed');
- const expected=JSON.parse(expectedSchemaText);
+ if(manifest.expectedSchemaPath!=='supabase/staging/raxi-hq-staging.expected-schema.json')
+  reject('unexpected expected schema path');
+ if(typeof expectedSchemaText!=='string')reject('expected schema missing');
+ let expected;
+ try{expected=JSON.parse(expectedSchemaText);}
+ catch{reject('expected schema invalid JSON');}
+ // Existing Raxi HQ contract hashes the CANONICALIZED JSON OBJECT, not LF text.
+ try{verifySchemaCandidate(manifest,expected);}
+ catch{reject('canonical expected schema checksum or historical major changed');}
  if(expected.postgresMajor!==18)
-  reject('historical PG18 expected schema baseline changed; review before declaring parity');
- // This SQL is a pre-existing catalog-query artifact, not an execution mechanism.
- if(typeof catalogSql!=='string')reject('catalog SQL missing');
- const stripped=catalogSql.replace(/--[^\n]*/g,'').trim();
- if(!/^WITH\s+checks\s+AS\s*\(/i.test(stripped)||
-     !/FROM\s+checks\s+ORDER\s+BY\s+name\s*;?\s*$/i.test(stripped)||
-     (stripped.match(/;/g)||[]).length!==1||
-     /\b(?:INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|GRANT|REVOKE|TRUNCATE|COPY|DO|CALL|EXECUTE|MERGE|VACUUM|ANALYZE|pg_read_file|pg_ls_dir)\b/i.test(stripped)||
-     /\b(?:FROM|JOIN)\s+(?:auth|storage|public)\s*\./i.test(stripped))
-  reject('catalog query has unreviewed shape or prohibited row access');
- if(!catalogSql.includes('has_column_privilege')||
-     !catalogSql.includes('service_role_select_auth_sessions_required_columns')||
-     !catalogSql.includes('service_role_select_auth_users_required_columns'))
-  reject('required exact Auth catalog privilege checks missing');
+  reject('historical PG18 baseline changed; never claim hosted PG17 parity');
+ // Never certify a query with regex/substrings; compare the exact reviewed source.
+ if(typeof catalogSql!=='string'||sqlDigest(catalogSql)!==REVIEWED_AUTH_CATALOG_SQL_SHA256_LF)
+  reject('pinned read-only Auth catalog SQL SHA256(LF) changed');
  return Object.freeze({
   stage:'PREINSTALL_ONLY',projectRef:STAGING_REF,sqlSources:7,
   hostedFlagsDisabled:6,expectedSchema:'HISTORICAL_PG18_NOT_HOSTED_PARITY',
