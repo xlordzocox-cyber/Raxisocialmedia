@@ -38,3 +38,18 @@ Run `node scripts/preflight-native-supervised-pr35.mjs` from the repo root. PASS
 ## Increment: two native sessions competing for one approved task
 
 `node scripts/run-native-concurrent-pr35.mjs` performs offline source hash/authorization checks without Docker. `--run-local` opts into a fresh disposable offline PostgreSQL 17 instance and executes a real synthetic prepare+approval transaction, followed by **two independent psql processes** attempting the same `raxi_runtime_claim` and then a committed-state invariant of exactly one claimed run and one reserved budget amount. This is a new test **not yet executed**. Unlike prior PR35 sequential claim smoke it is a genuine two-connection attempt, although exact start-time overlap is scheduler-dependent; evidence must include both outcomes. Does not perform simulated-provider dispatch, journal-step replay, crash recovery or native `runOne` adapter integration. Codex review and local execution required before claiming PASS.
+
+## Increment: committed confirmation recovery, distinct native PG17 clients
+
+The opt-in `scripts/run-native-recovery-pr35.mjs` is a separate **local-only** acceptance script, not an application/hosted integration. Its default invocation is offline source/bootstrap/authorization preflight. With `--run-local`, it uses the pinned seven SQL files in an isolated, disposable, networkless `postgres:17` instance and:
+
+1. Prepares, approves and claims a synthetic DIRECTOR task using canonical SQL and commits the setup.
+2. Executes `dispatch`, `ack`, `finish` in independent `psql` client connections and commits every journal step.
+3. For `finish`, intentionally suppresses the response body while still committing the transaction: the *client does not obtain the confirmation JSON*.
+4. Exits that connection, reconnects using a distinct `psql` process, reads the durable confirmation from the append-only journal, and replays the exact finished operation.
+5. Asserts that the recovery returns the exact persisted confirmation, rejects a changed replay, leaves **three journal entries**, **one run**, **one budget reservation**, **one ACK**, **one completion event**, and no automatically created RESEARCHER stage.
+6. Verifies exact disposable-container identity before cleanup and fails if cleanup cannot be confirmed.
+
+**Not yet executed:** This is a controlled *post-COMMIT dropped client confirmation*, not a real network failure, machine crash, PostgreSQL service restart, actual simulated-provider dispatch, lost unknown receipt reconciliation or app `runOne` native adapter restart. No externally billed calls, hosted SQL/B2 or deployments are authorized. Codex review and explicit user-local test evidence are required before recording any PASS.
+
+**Office UX traceability:** These durable journal identities and provenance fields are future evidence sources for Raxi HQ agent details and the human-decision inbox; do not emit live avatar motion from this synthetic test or create a parallel store/runtime.
