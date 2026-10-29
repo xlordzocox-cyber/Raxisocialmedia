@@ -105,8 +105,19 @@ BETWEEN con AND anidado frente a AND plano. El gate sigue rechazándolos.
 Ver [investigación, límites y corrección propuesta](RAXI_HQ_PR39_CONSTRAINT_DIVERGENCE.md).
 El nuevo diagnóstico añade contexto resuelto únicamente en un futuro ensayo
 autorizado; no valida semántica ni habilita PASS. **No ejecutar `--run-local`
-sin nueva autorización específica.** La suite offline actual contiene 79 negativas;
+sin nueva autorización específica.** La suite offline en `59805f6` contiene 79 negativas;
 no debe confundirse con un nuevo ensayo PostgreSQL.
+
+### Correctivo P1 del diagnóstico tras el cuarto ensayo
+
+El cuarto ensayo del usuario en `59805f6` conservó FAIL y limpió ambos contenedores;
+el SELECT diagnóstico falló al tratar lc_collate como GUC. El correctivo lee
+datcollate/datctype desde pg_catalog.pg_database de current_database() y añade
+proveedor, locale, reglas ICU y versión registrada, con consumidores explícitos.
+La suite offline actual contiene **103 negativas PASS**. Ver el apartado P1 del
+[informe](RAXI_HQ_PR39_CONSTRAINT_DIVERGENCE.md) para contrato, fuentes PG17 y riesgos.
+No se ejecutó otra prueba nativa y no se concede equivalencia al CHECK. **La
+próxima ejecución --run-local sigue requiriendo nueva autorización humana.**
 
 - [ ] Git diff contains **only** runbook, local opt-in runner, catalog/constraint diagnostic helpers and offline tests.
 - [ ] Exact HEAD reviewed by Codex; fix P1/P2 and verify rerun.

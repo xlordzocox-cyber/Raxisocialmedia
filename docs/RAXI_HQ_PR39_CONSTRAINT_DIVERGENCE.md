@@ -1,7 +1,7 @@
 # PR #39 — investigación de raxi_workspaces_slug_check
 
 **2026-10-29 — TEXTUAL_CAUSE_IDENTIFIED / NATIVE_EQUIVALENCE_PENDING.**
-El tercer ensayo comunicado por Luis sigue siendo **FAIL controlado (1)** en
+El tercer ensayo comunicado por Luis terminó en **FAIL controlado (1)** en
 `12cc2becbc8a2e9b7c3e220e46e9e650c91add9e`. Sus 23 negativas offline y preflight
 pasaron; los dos contenedores fueron eliminados según la evidencia del usuario.
 Esta investigación no ejecuta Docker, SQL ni `--run-local`.
@@ -137,3 +137,91 @@ Todo ello debe fallar. La clasificación de causas nunca concede autorización.
 **Estado final requerido:** PR #39 abierto; ensayo nativo pendiente, último resultado
 nativo FAIL. NO_GO_HOSTED_MIGRATION inalterado. Sin merge, SQL alojado, B2,
 proveedores, contenedores ejecutados ni cambios en Guardian/observador/OpenGym.
+
+## P1 posterior al cuarto ensayo — procedencia de locale PG17
+
+**Base del correctivo: `59805f66369ca754bb2abd072cb66d66a49eb230`.**
+Evidencia del usuario: preflight PASS; persistió la discrepancia del CHECK con
+`BETWEEN_EXPANSION_AND_REGROUPING_CANDIDATE` y
+`SEMANTIC_EQUIVALENCE_NOT_VERIFIED`. El diagnóstico adicional se interrumpió por
+`unrecognized configuration parameter "lc_collate"`, resultado 1; ambos
+contenedores desechables se limpiaron. **Este es el último resultado nativo: FAIL.**
+
+### Causa y cambio mínimo
+
+La consulta incorporada en la revisión anterior confundía atributos de creación de
+la base de datos con GUC de sesión: `current_setting` no es la procedencia válida
+de LC_COLLATE/LC_CTYPE en PG17. El fallo ocurrió antes de poder obtener todo el
+contexto y no demuestra una diferencia semántica adicional del CHECK.
+
+El SELECT ahora lee **`pg_catalog.pg_database` filtrado por
+`d.datname = pg_catalog.current_database()`**, sin consultar otra base ni sustituir
+valores faltantes por datos inventados. Contrato JSON, dentro de `settings`:
+
+| Clave | Procedencia PostgreSQL 17 | Contrato |
+| --- | --- | --- |
+| `lcCollate` | `d.datcollate` | Conservada, string |
+| `lcCtype` | `d.datctype` | Conservada, string |
+| `localeProvider` | `d.datlocprovider` | Nueva; `b` builtin, `c` libc o `i` ICU |
+| `locale` | `d.datlocale` | Nueva; string o null (libc usa datcollate/datctype) |
+| `icuRules` | `d.daticurules` | Nueva; string o null |
+| `collationVersion` | `d.datcollversion` | Nueva; string o null; versión **registrada** |
+
+Se conservan searchPath, strings, encoding y version desde los cuatro GUC
+documentados existentes. `summarizeSlugContexts` exige las diez claves de settings;
+el fixture y todos sus consumidores conocidos se actualizaron explícitamente.
+Un contexto antiguo sin las nuevas claves se rechaza, no se completa por defecto.
+Las siete categorías externas del resumen y sus fingerprints no cambian.
+
+`collationVersion` no acredita la versión efectiva actual de la biblioteca del
+sistema. No se añadió una consulta de versión efectiva ni se afirmó verificarla.
+Los metadatos de objetos collation individuales (incluidos colllocale y collicurules)
+se conservan separados de los metadatos de la base actual.
+
+### Auditoría estática del SELECT completo
+
+Se contrastaron las columnas de pg_database, pg_collation, pg_constraint,
+pg_attribute, pg_class, pg_namespace, pg_operator, pg_proc y pg_type con los
+catálogos oficiales de **PostgreSQL 17**. Los nuevos nombres datlocale y
+colllocale no se sustituyen por sus nombres de PG16; no se utiliza conenforced
+de PG18. No se identificó otro parámetro o columna inexistente en esta revisión.
+
+Referencias específicas:
+[pg_database PG17](https://www.postgresql.org/docs/17/catalog-pg-database.html),
+[pg_collation PG17](https://www.postgresql.org/docs/17/catalog-pg-collation.html),
+[configuración de cliente PG17](https://www.postgresql.org/docs/17/runtime-config-client.html),
+[pg_constraint PG17](https://www.postgresql.org/docs/17/catalog-pg-constraint.html),
+[pg_attribute PG17](https://www.postgresql.org/docs/17/catalog-pg-attribute.html),
+[pg_class PG17](https://www.postgresql.org/docs/17/catalog-pg-class.html),
+[pg_namespace PG17](https://www.postgresql.org/docs/17/catalog-pg-namespace.html),
+[pg_operator PG17](https://www.postgresql.org/docs/17/catalog-pg-operator.html),
+[pg_proc PG17](https://www.postgresql.org/docs/17/catalog-pg-proc.html),
+[pg_type PG17](https://www.postgresql.org/docs/17/catalog-pg-type.html).
+
+### Validaciones del correctivo y riesgos pendientes
+
+- Suite offline: **103 negativas PASS** (79 anteriores + 14 del contrato SQL +
+  10 del contexto nuevo). Además, casos válidos de los tres proveedores,
+  nullable y detección de cambios de metadatos comprobados.
+- Contrato SQL estático: rechaza GUC inexistente (también missing_ok), procedencia
+  errónea, filtro ausente/ajeno, catálogo no cualificado, columnas de otra versión,
+  campos desconocidos, comentarios que oculten procedencia y sentencias múltiples.
+- Preflight sin flags PASS; siete fuentes, bootstrap y manifest intactos; las
+  autorizaciones alojadas permanecen falsas. Sintaxis y diff PASS.
+- Revisión independiente Codex local: ejecutó las 103 negativas offline y revisó
+  el SELECT/contrato; sin hallazgos P1/P2 nuevos en el correctivo.
+- No Docker, SQL, `--run-local` nativo, B2, proveedores ni modificaciones alojadas.
+  No se ejecutaron build ni suite de la app: no hay cambios de aplicación.
+
+Huellas SHA-256 de esta validación (logs ignorados en apps/raxi-hq/.validation):
+`pr39-pg17-p1-offline.log`:
+`1429253972be7b1d1abf60fd45bfedc2fdd34c984cef1b5c58c34520483853ed`;
+`pr39-pg17-p1-preflight.log`:
+`d538f42d73c7404add987ae25aea46a60b9238bb6925cac43c1d4f622692246f`.
+
+El contrato offline es una inspección acotada de la consulta conocida, **no un
+parser SQL ni una prueba de ejecución**. El SELECT corregido sigue pendiente de
+ensayo nativo expresamente autorizado. `pg_node_tree` sigue siendo formato interno;
+los metadatos coincidentes siguen sin conceder equivalencia semántica. La
+clasificación del CHECK, el comparador estricto, el FAIL por discrepancia y el
+finally de limpieza no se modificaron. PR abierto/en borrador, sin merge.

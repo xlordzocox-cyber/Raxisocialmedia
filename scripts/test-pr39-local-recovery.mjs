@@ -9,7 +9,7 @@ import {verifyPreparationManifest,loadPreparationManifest,verifySqlSources}
 import {assertBootstrapIntegrity} from './pr35-bootstrap-guard.mjs';
 import {verifyPr38RecoveryEvidence} from './pr38-recovery-contract.mjs';
 import {describePr39CatalogMismatch,assertPr39CatalogEquality} from './pr39-catalog-diagnostic.mjs';
-import {reviewedSlugDefinitions,classifySlugRepresentation,constraintFingerprint,summarizeSlugContexts} from './pr39-constraint-analysis.mjs';
+import {reviewedSlugDefinitions,classifySlugRepresentation,constraintFingerprint,summarizeSlugContexts,slugContextQuery} from './pr39-constraint-analysis.mjs';
 
 if(process.argv.length!==2)throw Error('PR39 STOP: offline test takes no flags');
 const root=fileURLToPath(new URL('..',import.meta.url));
@@ -153,12 +153,74 @@ for(const field of ['indexes','triggers','columns','column_grants']){
 }
 negative('strict role divergence',()=>assertPr39CatalogEquality(baselineCatalog,mutated(baselineCatalog,c=>c.roles[0].bypass_rls=true)));
 negative('strict canonical hash divergence',()=>assertPr39CatalogEquality(baselineCatalog,mutated(baselineCatalog,c=>c.schema.tables[0].sha256='altered')));
-const context={settings:{searchPath:'"$user", public',strings:'on',encoding:'UTF8',lcCollate:'C',lcCtype:'C',version:'170011'},
+// Offline contract inspection, not SQL parsing/execution or a PG17 runtime proof.
+// The referenced column inventory was checked against the PG17 catalog docs.
+function assertPg17SqlContract(sql){
+ assert.ok(typeof sql==='string'&&!/[;]|--|\/\*/.test(sql),'single comment-free diagnostic SELECT');
+ const settings=[...sql.matchAll(/\bcurrent_setting\(\s*'([^']+)'\s*\)/gi)].map(m=>m[1]).sort();
+ assert.deepEqual(settings,['search_path','server_encoding','server_version_num','standard_conforming_strings'].sort(),'only reviewed session GUCs');
+ assert.equal((sql.match(/\bcurrent_setting\s*\(/gi)||[]).length,settings.length,'no uninspected setting calls');
+ assert.ok(/\bfrom target t cross join pg_catalog\.pg_database d where d\.datname=pg_catalog\.current_database\(\)$/.test(sql),'current database only');
+ const origins={lcCollate:'datcollate',lcCtype:'datctype',localeProvider:'datlocprovider',locale:'datlocale',icuRules:'daticurules',collationVersion:'datcollversion'};
+ for(const [key,column] of Object.entries(origins)){
+  const escaped=new RegExp("'"+key+"'\\s*,\\s*d\\."+column+'\\b','g');
+  assert.equal((sql.match(escaped)||[]).length,1,'exact catalog provenance '+key);
+ }
+ const columns={
+  a:['atttypid','atttypmod','attcollation','attnotnull','attrelid','attname','attisdropped'],
+  c:['oid','conrelid','conname','contype','convalidated','condeferrable','condeferred','conislocal','connoinherit','coninhcount','conkey','collname','collnamespace','collprovider','collisdeterministic','collencoding','collcollate','collctype','colllocale','collicurules','collversion'],
+  d:['datname','datcollate','datctype','datlocprovider','datlocale','daticurules','datcollversion'],f:['id'],n:['oid','nspname'],
+  o:['oid','oprcode','oprnamespace','oprname','oprleft','oprright','oprresult'],
+  p:['oid','proname','pronamespace','provolatile','typname','typnamespace'],r:['oid','relnamespace','relname'],
+  t:['conbin','contype','convalidated','condeferrable','condeferred','conislocal','connoinherit','coninhcount','conkey','atttypid','atttypmod','attcollation','attnotnull']
+ };
+ for(const [,alias,column] of sql.matchAll(/\b([acdfnoprt])\.([a-z_][a-z_0-9]*)\b/g))
+  assert.ok(columns[alias].includes(column),'only reviewed PG17 alias/column');
+ assert.ok(!/\b(?:daticulocale|colliculocale|conenforced)\b/.test(sql),'no legacy/future catalog columns');
+}
+assertPg17SqlContract(slugContextQuery);
+console.log('PASS: PG17 diagnostic SQL contract uses current-database catalog locale values and reviewed columns (not executed)');
+for(const [label,change] of [
+ ['lc_collate GUC',s=>s.replace('d.datcollate',"current_setting('lc_collate')")],
+ ['lc_ctype GUC',s=>s.replace('d.datctype',"current_setting('lc_ctype')")],
+ ['missing_ok hides wrong GUC',s=>s.replace('d.datcollate',"current_setting('lc_collate',true)")],
+ ['unreviewed session parameter',s=>s.replace("current_setting('server_encoding')","current_setting('invented_parameter')")],
+ ['wrong locale provenance',s=>s.replace("'lcCollate',d.datcollate","'lcCollate',d.datctype")],
+ ['missing database filter',s=>s.replace('where d.datname=pg_catalog.current_database()','')],
+ ['foreign database filter',s=>s.replace('d.datname=pg_catalog.current_database()',"d.datname='other_database'")],
+ ['unqualified catalog source',s=>s.replace('pg_catalog.pg_database','pg_database')],
+ ['PG16 locale column',s=>s.replace('d.datlocale','d.daticulocale')],
+ ['PG16 collation column',s=>s.replace('c.colllocale','c.colliculocale')],
+ ['PG18 constraint column',s=>s.replace('t.convalidated','t.conenforced')],
+ ['unknown operator column',s=>s.replace('o.oprcode','o.nonexistent')],
+ ['multiple statements',s=>s+'; select 1'],
+ ['comment masks provenance',s=>s.replace('d.datcollate',"'invented' /* d.datcollate */")]]){
+ negative('PG17 SQL contract '+label,()=>assertPg17SqlContract(change(slugContextQuery)));
+}
+const context={settings:{searchPath:'"$user", public',strings:'on',encoding:'UTF8',lcCollate:'C',lcCtype:'C',version:'170011',
+ localeProvider:'c',locale:null,icuRules:null,collationVersion:null},
  constraint:{kind:'c',validated:true,deferrable:false,deferred:false,local:true,noInherit:false,inherited:0,columns:[3]},
  column:{type:'text',notNull:true,typeMod:-1,collation:'pg_catalog.default'},operators:[{schema:'pg_catalog',name:'~',left:'text',right:'text',result:'boolean'}],
  functions:[{schema:'pg_catalog',name:'length',arguments:'text',result:'integer',volatility:'i'}],types:[{schema:'pg_catalog',name:'text'}],
  collations:[{schema:'pg_catalog',name:'default',provider:'d',deterministic:true,encoding:-1,collate:null,ctype:null,locale:null,rules:null,version:null}]};
 assert.ok(summarizeSlugContexts(context,structuredClone(context)).every(x=>x.classification==='IDENTICAL_METADATA'));
+for(const provider of ['b','c','i']){
+ const sample=structuredClone(context);sample.settings.localeProvider=provider;
+ if(provider!=='c')sample.settings.locale='synthetic-locale';
+ if(provider==='i'){sample.settings.icuRules='synthetic-rules';sample.settings.collationVersion='synthetic-version';}
+ assert.ok(summarizeSlugContexts(sample,structuredClone(sample)).every(x=>x.classification==='IDENTICAL_METADATA'));
+}
+for(const key of ['localeProvider','locale','icuRules','collationVersion']){
+ negative('missing database locale metadata '+key,()=>summarizeSlugContexts(mutated(context,c=>delete c.settings[key]),context));
+ negative('invalid database locale metadata '+key,()=>summarizeSlugContexts(mutated(context,c=>c.settings[key]={}),context));
+}
+negative('invalid database locale provider',()=>summarizeSlugContexts(mutated(context,c=>c.settings.localeProvider='d'),context));
+negative('non-PG17 context version',()=>summarizeSlugContexts(mutated(context,c=>c.settings.version='180000'),context));
+for(const key of ['localeProvider','locale','icuRules','collationVersion']){
+ const changed=mutated(context,c=>c.settings[key]=key==='localeProvider'?'i':'different-synthetic-value');
+ assert.ok(summarizeSlugContexts(context,changed).some(x=>x.field==='settings'&&x.classification==='DIFFERENT_METADATA'));
+ console.log('PASS: diagnostic reports database '+key+' change without granting equality');
+}
 for(const key of Object.keys(context)){
  const changed=structuredClone(context);changed[key]=Array.isArray(context[key])?[]:{};
  negative('malformed resolved context '+key,()=>summarizeSlugContexts(changed,changed));

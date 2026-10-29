@@ -35,7 +35,8 @@ export const slugContextQuery=`with target as (
 )
 select jsonb_build_object(
  'settings',jsonb_build_object('searchPath',current_setting('search_path'),'strings',current_setting('standard_conforming_strings'),
- 'encoding',current_setting('server_encoding'),'lcCollate',current_setting('lc_collate'),'lcCtype',current_setting('lc_ctype'),'version',current_setting('server_version_num')),
+ 'encoding',current_setting('server_encoding'),'lcCollate',d.datcollate,'lcCtype',d.datctype,'version',current_setting('server_version_num'),
+ 'localeProvider',d.datlocprovider,'locale',d.datlocale,'icuRules',d.daticurules,'collationVersion',d.datcollversion),
  'constraint',jsonb_build_object('kind',t.contype,'validated',t.convalidated,'deferrable',t.condeferrable,'deferred',t.condeferred,
  'local',t.conislocal,'noInherit',t.connoinherit,'inherited',t.coninhcount,'columns',t.conkey),
  'column',jsonb_build_object('type',pg_catalog.format_type(t.atttypid,t.atttypmod),'notNull',t.attnotnull,'typeMod',t.atttypmod,
@@ -44,7 +45,7 @@ select jsonb_build_object(
  'functions',(select coalesce(jsonb_agg(jsonb_build_object('schema',n.nspname,'name',p.proname,'arguments',pg_catalog.pg_get_function_identity_arguments(p.oid),'result',pg_catalog.pg_get_function_result(p.oid),'volatility',p.provolatile) order by n.nspname,p.proname,p.oid),'[]'::jsonb) from funcs f join pg_catalog.pg_proc p on p.oid=f.id join pg_catalog.pg_namespace n on n.oid=p.pronamespace),
  'types',(select coalesce(jsonb_agg(jsonb_build_object('schema',n.nspname,'name',p.typname) order by n.nspname,p.typname),'[]'::jsonb) from (select distinct id from types) f join pg_catalog.pg_type p on p.oid=f.id join pg_catalog.pg_namespace n on n.oid=p.typnamespace),
  'collations',(select coalesce(jsonb_agg(jsonb_build_object('schema',n.nspname,'name',c.collname,'provider',c.collprovider,'deterministic',c.collisdeterministic,'encoding',c.collencoding,'collate',c.collcollate,'ctype',c.collctype,'locale',c.colllocale,'rules',c.collicurules,'version',c.collversion) order by n.nspname,c.collname),'[]'::jsonb) from (select distinct id from collations) f join pg_catalog.pg_collation c on c.oid=f.id join pg_catalog.pg_namespace n on n.oid=c.collnamespace)
-) v from target t`;
+) v from target t cross join pg_catalog.pg_database d where d.datname=pg_catalog.current_database()`;
 
 export function summarizeSlugContexts(before,after){
  const fields=['settings','constraint','column','operators','functions','types','collations'];
@@ -59,7 +60,9 @@ export function summarizeSlugContexts(before,after){
     throw Error('PR39 STOP: malformed constraint context field '+key);
   }
   const s=value.settings,c=value.constraint,col=value.column;
-  if(!object(s,['searchPath','strings','encoding','lcCollate','lcCtype','version'])||!strings(s,Object.keys(s))||!/^17\d{4}$/.test(s.version)||
+  const settingStrings=['searchPath','strings','encoding','lcCollate','lcCtype','version','localeProvider'];
+  if(!object(s,[...settingStrings,'locale','icuRules','collationVersion'])||!strings(s,settingStrings)||!/^17\d{4}$/.test(s.version)||
+   !['b','c','i'].includes(s.localeProvider)||['locale','icuRules','collationVersion'].some(k=>s[k]!==null&&typeof s[k]!=='string')||
    !object(c,['kind','validated','deferrable','deferred','local','noInherit','inherited','columns'])||c.kind!=='c'||
    ['validated','deferrable','deferred','local','noInherit'].some(k=>typeof c[k]!=='boolean')||!Number.isSafeInteger(c.inherited)||c.inherited<0||
    !Array.isArray(c.columns)||!c.columns.length||c.columns.some(n=>!Number.isSafeInteger(n)||n<1)||
