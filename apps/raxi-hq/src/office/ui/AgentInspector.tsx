@@ -12,7 +12,10 @@ export function AgentInspector({ view }: { view: OfficeAgentView }) {
         <dt>Zona</dt><dd>{agent.zone}</dd><dt>Destino representado</dt><dd>{agent.destinationZone ?? '—'}</dd>
         <dt>Seguridad declarada</dt><dd>{agent.securityState}</dd>
         <dt>Esperando</dt><dd>{agent.waitingFor ?? missing}</dd>
-        <dt>Tarea</dt><dd>{task ? `${task.title} · ${task.id}` : agent.currentTaskId ? `${agent.currentTaskId} · detalle no disponible` : missing}</dd>
+        <dt>Tarea / referencia declarada</dt><dd>{task ? `${task.title} · ${task.id}`
+          : view.taskState === 'INCONSISTENT' ? 'Metadatos inconsistentes · tarea no atribuida'
+            : view.taskState === 'INCOMPLETE' ? 'Información incompleta · relación de tarea sin confirmar'
+              : agent.currentTaskId ? `${agent.currentTaskId} · referencia sin detalle confirmado` : missing}</dd>
         <dt>Proveedor / modelo declarados</dt><dd>{agent.provider ?? missing} · {agent.model === 'read-only adapter' ? 'adaptador de solo lectura' : agent.model ?? missing}</dd>
         <dt>Capacidades descriptivas · no conceden permisos</dt><dd>{agent.capabilities.join(', ') || missing}</dd>
         <dt>Última marca del agente</dt><dd>{agent.lastEventAt ?? missing}</dd>

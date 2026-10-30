@@ -48,7 +48,7 @@ New tests cover rendered-position snapshots/repeated selection, A→B replacemen
 
 Node scene fixtures exercise production methods without WebGL. They do not substitute for browser QA or establish live executor behavior.
 
-Final local results: **639/639 application tests PASS**, including the 13 new P1 regressions; **1/1 staging guard PASS** (640 total). Typecheck and production build PASS. Five relative evidence links PASS. Staged diff/secret-path scan PASS across 15 files; no staged deletions. Dependency audit exits 1 for the single preexisting moderate advisory below (zero high/critical).
+Initial P1 results at `bb447a1a72720cbbfe4079efd2b969a0ecb873d9`: **639/639 application tests PASS**, including the 13 new P1 regressions; **1/1 staging guard PASS** (640 total). Typecheck and production build PASS. Five relative evidence links PASS. Staged diff/secret-path scan PASS across 15 files; no staged deletions. Dependency audit exits 1 for the single preexisting moderate advisory below (zero high/critical). Follow-up results are recorded separately below.
 
 Raw command logs remain ignored under the application's `.validation/` directory; no generated test bundles or temporary files are published. SHA-256 fingerprints of this run:
 
@@ -108,3 +108,66 @@ The QA verifies responsive layout with browser viewport overrides, not physical 
 - Guardian is not claimed active; security labels are descriptive. No live bridge, provider execution, hosted Auth/RLS validation or production persistence is proven by this UX PR.
 
 Rollback is a revert of this presentation-only change after human review; no schema/data rollback or infrastructure cleanup is required. Keep the PR unmerged for review.
+
+## Follow-up: first-frame focus and task attribution
+
+Both edge cases were reproduced against `bb447a1a72720cbbfe4079efd2b969a0ecb873d9`, not inferred from static inspection alone. The initial red run passed the original 13 regressions and failed the four newly introduced reproduction cases (one sprite case and three contradictory task cases).
+
+### A — Newly created sprite before the first frame
+
+`OfficeScene.update()` constructed a real `AgentSprite` at its default `(0,0)`. `focusAgent()` accepted those finite coordinates even though the newly synchronized motion already occupied `(488,242)` in the reproduction. Only `tick()` had previously copied motion coordinates to the sprite.
+
+The fix initializes **only a newly created sprite** at its motion's current position and depth before attaching it to the scene. It does not advance motion, use the destination, call an extra tick or rewrite coordinates of existing sprites. Handoff offsets and the regular animation continue to be applied by the existing tick.
+
+The regression switches source, constructs an actual `AgentSprite` through the production `update()` path, then calls `focusAgent()` with no frame in between. It checks the exact current position and camera target, subsequent continuous route movement, unchanged domain data, and preservation of an existing sprite's rendered offset on refresh. A minimal canvas-resource adapter supports construction in Node; it is not a replacement sprite/motion and does not claim WebGL rendering.
+
+### B — Task reference versus assignment
+
+The original selector joined only by `agent.currentTaskId`. It could expose a task title belonging to another agent or carrying a contradictory campaign. The presentation selector now derives an explicit relationship state without repairing or mutating source data:
+
+| State | Rule and presentation |
+| --- | --- |
+| `NONE` | No declared current task; no attribution |
+| `UNAVAILABLE` | Referenced own-record is absent; reference remains explicitly unconfirmed |
+| `INCONSISTENT` | Record ID differs, declared owner differs, or both campaign IDs exist and disagree; task title withheld and inconsistency shown |
+| `INCOMPLETE` | Owner is missing, or only one side supplies campaign metadata; task title withheld and incomplete relationship shown |
+| `MATCHED` | IDs/owner agree; campaigns either both agree or both are absent; task detail may be displayed |
+
+`MATCHED` means coherence of available snapshot metadata, never authorization, human approval, verified execution, or proof of campaign membership beyond that metadata. Bilateral absence of campaign IDs invents no campaign. The extra strict handling of unilateral campaign metadata is conservative: the view can show incomplete information until the source supplies a coherent relationship.
+
+The 11 added regressions bring the focused file to 24 tests: real sprite initialization, conflicting owner/campaign/both, missing owner, unilateral campaign metadata in each direction, consistent campaigns, bilateral absence, mismatched task record ID, and a mounted inspector refresh through matched → inconsistent → incomplete → recovered → missing. The contradictory task title is not retained in the rendered inspector.
+
+### Follow-up QA and boundaries
+
+All five existing edited files were recovered unchanged after interruption: `OfficeScene.ts`, `AgentInspector.tsx`, `agentViewSelectors.ts`, `tests/officeUX.test.tsx`, and `tests/manual/observation.tsx` (+129/-4 before documentation). Existing red/green logs and three screenshots were retained; the final commands and browser QA were repeated on the recovered code before publishing.
+
+The opt-in local harness `tests/manual/observation.html?taskLinks=1` renders a synthetic MOCK inspector without admitting its fixtures to `HQStore` or calling a repository. The harness verifies owner/campaign conflict, incomplete metadata, missing task and recovery to coherent metadata. It is outside the production entrypoint and creates no store, permission, server operation or connection.
+
+Browser QA repeated desktop (1440×1000) and mobile (390×844), showing the contradictory title withheld, recovery only on coherent metadata, incomplete message legible and no horizontal page overflow (page width 390 at viewport 390). Historical source admission, dock selection and Enter refocus were repeated with actual Pixi rendering; Codex remained HISTORICAL/EXTERNAL_EXECUTOR, with no fabricated task. Error console queries returned no errors. Browser QA verifies presentation; the exact no-frame timing guarantee comes from the regression, not a screenshot.
+
+Preserved evidence:
+
+- [Desktop owner conflict](../output/reports/raxi-hq-agent-focus-dock/edge-cases/desktop-owner-conflict.jpg)
+- [Desktop historical focus](../output/reports/raxi-hq-agent-focus-dock/edge-cases/desktop-source-focus.jpg)
+- [Mobile incomplete](../output/reports/raxi-hq-agent-focus-dock/edge-cases/mobile-incomplete.jpg)
+- [Repeated mobile QA after recovery](../output/reports/raxi-hq-agent-focus-dock/edge-cases/mobile-incomplete-resumed.jpg)
+- [Repeated historical focus after recovery](../output/reports/raxi-hq-agent-focus-dock/edge-cases/desktop-source-focus-resumed.jpg)
+
+Dependencies/lockfile remain unchanged. A fresh dependency audit still reports the same single moderate `qs` advisory (zero high/critical); audit exits 1 and remediation remains separate. The correction does not modify PR39, domain/store/reducer, motion/sprite classes, camera helper, supervised host, runtime, Supabase, SQL, migrations, Guardian or the historical observer. Ten original image deletions remain outside this worktree. Rollback of the corrective commit affects only presentation/tests/docs/evidence; it has no database or service effects.
+
+### Final follow-up validation
+
+Commands were rerun after recovering the unchanged corrective source files. **650/650 application tests PASS**, including **24/24 focused tests** (11 new edge-case regressions), plus **1/1 offline staging guard PASS**: **651 total**, zero failed/skipped/canceled. Typecheck, build, `git diff --check`, protected-path checks, 10 relative evidence links and staged secret/path inspection across 11 corrective paths PASS. No staged deletions or dependency modifications.
+
+Independent local Codex review of the corrective code found no blocking issue and separately executed the 24 focused tests successfully. An immutable-commit review and GitHub review request are separate from test success; neither grants merge authorization. No claim is made that a previous GitHub review of `bb447a1` applies to this correction.
+
+Ignored `.validation/` artifacts from the repeated run (not the initial P1 logs):
+
+| Artifact | SHA-256 |
+| --- | --- |
+| `office-p1-edge-resumed-tests.log` | `3048ccdc035cfd166c1c8f2c56f7fbd4559427c1a68a6eb1550955bfc8ff7b8a` |
+| `office-p1-edge-resumed-focused.log` | `d70f4c81e10c8e28ea1058edd0765ebef516ebdeed3b3463c83b7d5e605fcff9` |
+| `office-p1-edge-resumed-guard.log` | `ea3fb6a6fde594430e615d8cc73a70cf71476ef7f5c72e04b02ca0cc7825123e` |
+| `office-p1-edge-resumed-typecheck.log` | `236189c12f0a4a176be02a7e6dae4a48b84cf0bc7b101374891c5d1457577ede` |
+| `office-p1-edge-resumed-build.log` | `d767dd207f690c8488313c189741ea2de6d3ba9c95ccb2481f023d9ebe354643` |
+| `office-p1-edge-resumed-audit.json` | `e5f34547f0af478c4918deed42013f3a55f67da8284ed208dd14059a99beb485` |

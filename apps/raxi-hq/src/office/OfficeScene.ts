@@ -169,6 +169,11 @@ export class OfficeScene {
       let sprite = this.sprites.get(agent.id);
       if (!sprite) {
         sprite = new AgentSprite(agent.id, agent, zones[agent.zone].accent);
+        // A new sprite must already occupy its motion's current visual position before
+        // selection can request focus; do not wait for tick or jump to its destination.
+        const position=this.motions.get(agent.id)!.position;
+        sprite.position.set(position.x,position.y);
+        sprite.zIndex=position.y;
         this.bindAgentEvents(sprite,agent.id);
         this.depthLayer.addChild(sprite);
         this.sprites.set(agent.id, sprite);
