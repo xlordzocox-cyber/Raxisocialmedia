@@ -32,10 +32,14 @@ export class OfficeScene {
   private drag?: { x: number; y: number };
   private canvas: HTMLCanvasElement;
   private focusTarget?: { x: number; y: number };
+  private focusAgentId?: string;
+  private destroyed = false;
+  private reducedMotion?: MediaQueryList;
   private focusCriticalEvents = false;
   private highlightUntil = 0;
 
-  constructor(private host: HTMLElement, onSelect: (id: string) => void, private onHover: (id?: string) => void = () => {}, private onZoom: (percent: number) => void = () => {}) {
+  constructor(private host: HTMLElement, onSelect: (id: string) => void, private onHover: (id?: string) => void = () => {}, private onZoom: (percent: number) => void = () => {}, private onCriticalFocusChange: (enabled: boolean) => void = () => {}) {
+    this.reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
     this.app = new Application({ backgroundColor: 0x090d18, antialias: true, resolution: window.devicePixelRatio || 1, autoDensity: true });
     const canvas = this.app.view as HTMLCanvasElement;
     this.canvas=canvas;
@@ -49,7 +53,7 @@ export class OfficeScene {
     this.depthLayer.addChild(...createOfficeFurniture(),...this.stationLights.values());
     this.world.addChild(this.depthLayer,this.zoneHighlight,this.effectLayer);
     this.app.stage.eventMode='static';
-    this.app.stage.on('pointerdown',(event:FederatedPointerEvent)=>{ this.focusTarget=undefined; this.drag={x:event.global.x,y:event.global.y}; canvas.style.cursor='grabbing'; });
+    this.app.stage.on('pointerdown',(event:FederatedPointerEvent)=>{ this.takeCameraControl(); this.drag={x:event.global.x,y:event.global.y}; canvas.style.cursor='grabbing'; });
     this.app.stage.on('pointermove',(event:FederatedPointerEvent)=>{
       if(!this.drag) return;
       this.world.x+=event.global.x-this.drag.x; this.world.y+=event.global.y-this.drag.y;
@@ -85,6 +89,9 @@ export class OfficeScene {
 
   resetCamera():void {
     this.focusTarget=undefined;
+    this.focusAgentId=undefined;
+    this.focusCriticalEvents=false;
+    this.onCriticalFocusChange?.(false);
     const {width,height}=this.app.screen;
     const scale=this.fitScale*1.05;
     this.world.scale.set(scale);
@@ -92,9 +99,30 @@ export class OfficeScene {
     this.constrainCamera();
     this.onZoom(105);
   }
-  setCriticalEventFocus(enabled:boolean):void { this.focusCriticalEvents=enabled; if(!enabled) this.focusTarget=undefined; }
+  setCriticalEventFocus(enabled:boolean):void {
+    if (this.destroyed) return;
+    this.focusCriticalEvents=enabled;
+    this.focusTarget=undefined; this.focusAgentId=undefined;
+    this.onCriticalFocusChange(enabled);
+  }
+  /** Manual camera intent wins until the user explicitly enables critical following again. */
+  private takeCameraControl():void {
+    this.focusTarget=undefined; this.focusAgentId=undefined;
+    this.focusCriticalEvents=false;
+    this.onCriticalFocusChange(false);
+  }
+  focusAgent(id:string):boolean {
+    if (this.destroyed || !this.state || !getOwnAgent(this.state.agents,id)) return false;
+    const sprite=this.sprites.get(id);
+    if (!sprite || !Number.isFinite(sprite.x) || !Number.isFinite(sprite.y)) return false;
+    this.takeCameraControl();
+    // Snapshot rendered feet (including handoff offset), never a destination or invented position.
+    this.focusAgentId=id;
+    this.focusTarget={x:this.app.screen.width/2-sprite.x*this.world.scale.x,y:this.app.screen.height/2-sprite.y*this.world.scale.y};
+    return true;
+  }
   zoom(factor:number,x=this.app.screen.width/2,y=this.app.screen.height/2):void {
-    this.focusTarget=undefined;
+    this.takeCameraControl();
     zoomAt(this.world,factor,x,y,this.fitScale*0.8,this.fitScale*2.8);
     this.constrainCamera(); this.onZoom(Math.round(this.world.scale.x/this.fitScale*100));
   }
@@ -115,8 +143,19 @@ export class OfficeScene {
   }
 
   update(state: HQState): void {
+    if (this.destroyed) return;
     if ((this.state && state.mode !== this.state.mode) ||
+        (this.state && state.sourceHealth.source !== this.state.sourceHealth.source) ||
+        (this.state?.observation?.viewerId !== state.observation?.viewerId) ||
+        (this.state?.observation?.runId !== state.observation?.runId) ||
         (state.mode === 'MOCK' && state.events.length === 0 && this.state?.events.length)) this.reset();
+    if (this.focusAgentId && (!getOwnAgent(state.agents,this.focusAgentId) || state.selectedAgentId !== this.focusAgentId)) {
+      this.focusTarget=undefined; this.focusAgentId=undefined;
+    }
+    if ((this.state && state.sourceHealth.connection !== this.state.sourceHealth.connection) || !Object.keys(state.agents).length) {
+      this.focusTarget=undefined; this.focusAgentId=undefined;
+      this.focusCriticalEvents=false; this.onCriticalFocusChange?.(false);
+    }
     this.state = state;
     for (const [id,sprite] of this.sprites) {
       if (getOwnAgent(state.agents,id)) continue;
@@ -173,7 +212,7 @@ export class OfficeScene {
       zone.anchor.x+117,zone.anchor.y+34,zone.anchor.x,zone.anchor.y+101,
     ]);
     this.highlightUntil=this.elapsed+1600;
-    if(critical && this.focusCriticalEvents && !this.drag) {
+    if(critical && this.focusCriticalEvents && !this.drag && !this.focusAgentId) {
       this.focusTarget={x:this.app.screen.width/2-zone.anchor.x*this.world.scale.x,y:this.app.screen.height/2-zone.anchor.y*this.world.scale.y};
     }
   }
@@ -184,9 +223,12 @@ export class OfficeScene {
   }
 
   private tick(deltaMs: number): void {
+    if (this.destroyed) return;
     this.elapsed += deltaMs;
     if(this.focusTarget) {
-      if(!advanceCameraFocus(this.world,this.focusTarget,this.cameraBounds(),deltaMs)) this.focusTarget=undefined;
+      if(!advanceCameraFocus(this.world,this.focusTarget,this.cameraBounds(),this.reducedMotion?.matches ? 250 : deltaMs)) {
+        this.focusTarget=undefined; this.focusAgentId=undefined;
+      }
     }
     this.zoneHighlight.alpha=Math.max(0,Math.min(1,(this.highlightUntil-this.elapsed)/500));
     for(const light of this.stationLights.values()) light.alpha=0;
@@ -224,10 +266,13 @@ export class OfficeScene {
     for (const effect of this.effects) effect.destroy({ children: true });
     this.sprites.clear(); this.motions.clear(); this.seen.clear(); this.memoryOrigins.clear(); this.effects = [];
     this.zoneHighlight.clear(); this.highlightUntil=0; this.focusTarget=undefined;
+    this.focusAgentId=undefined; this.focusCriticalEvents=false; this.onCriticalFocusChange?.(false);
     for(const light of this.stationLights.values()) light.alpha=0;
   }
 
   destroy(): void {
+    this.destroyed=true; this.focusTarget=undefined; this.focusAgentId=undefined;
+    this.state=undefined;
     this.resizeObserver.disconnect();
     this.canvas.removeEventListener('wheel',this.handleWheel);
     this.app.destroy(true, { children: true });
