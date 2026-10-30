@@ -39,6 +39,18 @@ aside { background: var(--panel); padding: 16px; border-radius: 12px; }
 .agent-dock-list small { color: var(--muted); }
 .agent-inspector { min-width: 0; max-height: 830px; overflow-y: auto; }
 .agent-inspector h2 { overflow-wrap: anywhere; }
+.task-board { margin-top: 20px; padding: 20px; background: var(--panel); border: 1px solid #29364d; border-radius: 12px; min-width: 0; overflow-wrap: anywhere; }
+.task-board-heading { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 10px; }
+.task-board-heading h2 { margin: 0; }.task-board-heading span, .task-board > p { color: var(--muted); font-size: 12px; }
+.task-board-filters { display: flex; flex-wrap: wrap; gap: 16px; margin: 18px 0; }
+.task-board-filters label { display: grid; gap: 8px; flex: 1 1 200px; min-width: 0; font-size: 13px; }
+.task-board-filters select { width: 100%; min-width: 0; min-height: 44px; padding: 10px; background: #101a2a; color: var(--text); border: 1px solid #445775; border-radius: 7px; }
+.task-board-filters select:focus-visible { outline: 3px solid #ffd166; outline-offset: 2px; }
+.task-board-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,280px),1fr)); gap: 16px; }
+.task-board-card { min-width: 0; padding: 16px; background: #101a2a; border: 1px solid #29364d; border-radius: 10px; overflow-wrap: anywhere; }
+.task-board-card h3 { margin: 12px 0 8px; }.task-classification { color: #8ce7e0; font-size: 12px; }
+.task-board-card ul { padding-left: 18px; color: #ffd166; font-size: 12px; }
+@media (max-width: 600px) { .task-board { padding: 14px; }.task-board-heading { display: block; }.task-board-heading span { display: block; margin-top: 10px; } }
 @media (max-width: 600px) { .agent-dock { padding: 12px; }.agent-dock-list button { flex-basis: 152px; }.agent-dock-heading { display: block; } }
 .empty-agents { margin-top: 14px; padding: 12px; border: 1px solid #29364d; border-radius: 8px; font-size: 12px; }.empty-agents p { margin: 5px 0 0; }
 dl { font-size: 12px; } dt { color: var(--muted); margin-top: 10px; } dd { margin: 3px 0; overflow-wrap: anywhere; }

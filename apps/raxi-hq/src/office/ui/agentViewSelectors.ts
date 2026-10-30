@@ -1,5 +1,15 @@
 import { getOwnAgent } from '../../domain/agents';
 import type { HQState } from '../../domain/hq';
+import type { AgentSnapshot } from '../../domain/agents';
+import type { TaskSnapshot } from '../../domain/tasks';
+
+/** Shared presentation coherence check. MATCHED is metadata, never authorization. */
+export function taskOwnerMetadata(agent: AgentSnapshot, task: TaskSnapshot): 'INCONSISTENT' | 'INCOMPLETE' | 'MATCHED' {
+  if ((task.ownerAgentId !== undefined && task.ownerAgentId !== agent.id) ||
+    (task.campaignId !== undefined && agent.campaignId !== undefined && task.campaignId !== agent.campaignId)) return 'INCONSISTENT';
+  if (task.ownerAgentId === undefined || (task.campaignId === undefined) !== (agent.campaignId === undefined)) return 'INCOMPLETE';
+  return 'MATCHED';
+}
 
 /** Presentation only. Never substitutes a roster, authorizes work or admits source data. */
 export function officeAgentView(state: HQState) {
@@ -11,12 +21,8 @@ export function officeAgentView(state: HQState) {
   let taskState: 'NONE' | 'UNAVAILABLE' | 'INCONSISTENT' | 'INCOMPLETE' | 'MATCHED' = 'NONE';
   if (agent?.currentTaskId) {
     if (!candidate) taskState='UNAVAILABLE';
-    else if (candidate.id !== agent.currentTaskId ||
-      (candidate.ownerAgentId !== undefined && candidate.ownerAgentId !== agent.id) ||
-      (candidate.campaignId !== undefined && agent.campaignId !== undefined && candidate.campaignId !== agent.campaignId)) taskState='INCONSISTENT';
-    else if (candidate.ownerAgentId === undefined ||
-      (candidate.campaignId === undefined) !== (agent.campaignId === undefined)) taskState='INCOMPLETE';
-    else taskState='MATCHED';
+    else if (candidate.id !== agent.currentTaskId) taskState='INCONSISTENT';
+    else taskState=taskOwnerMetadata(agent,candidate);
   }
   const task = taskState === 'MATCHED' ? candidate : undefined;
   const event = agent ? state.events.find(item => item.actorId === agent.id) : undefined;
