@@ -107,6 +107,8 @@ export class AgentSprite extends Container {
     this.nameLabel.visible=this.selected||this.hovered;
   }
   beginHandoff(elapsed:number):void { this.handoffUntil=elapsed+1800; }
+  /** Clear only handoff presentation when its evidence/context is withdrawn. */
+  cancelHandoff():void { this.handoffUntil=0; this.bubble.visible=false; }
   faceMovement(dx:number):void { if(Math.abs(dx)>0.1) this.direction=dx<0?-1:1; }
 
   animate(status:AgentStatus,elapsed:number):void {

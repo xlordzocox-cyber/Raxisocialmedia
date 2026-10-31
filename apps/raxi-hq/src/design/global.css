@@ -39,6 +39,15 @@ aside { background: var(--panel); padding: 16px; border-radius: 12px; }
 .agent-dock-list small { color: var(--muted); }
 .agent-inspector { min-width: 0; max-height: 830px; overflow-y: auto; }
 .agent-inspector h2 { overflow-wrap: anywhere; }
+.handoff-timeline { margin-top: 20px; padding: 20px; background: var(--panel); border: 1px solid #445775; border-radius: 12px; overflow-wrap: anywhere; }
+.handoff-timeline h2 { margin: 0 0 12px; }.handoff-context { color: #8ce7e0; }.handoff-timeline > p { font-size: 12px; }
+.handoff-list { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,310px),1fr)); gap: 16px; }
+.handoff-list article { background: #101a2a; padding: 16px; border: 1px solid #29364d; border-radius: 10px; min-width: 0; }
+.handoff-list h3 { color: #c9afff; font-size: 14px; }.handoff-evidence { color: #8ce7e0; font-size: 12px; }
+.handoff-list ul { color: #ffd166; font-size: 12px; padding-left: 18px; }
+.handoff-list summary { cursor: pointer; min-height: 44px; display: list-item; padding: 10px 0; color: #c9afff; }
+.handoff-list summary:focus-visible { outline: 3px solid #ffd166; outline-offset: 2px; }
+@media (max-width:600px) { .handoff-timeline { padding: 14px; } }
 .task-board { margin-top: 20px; padding: 20px; background: var(--panel); border: 1px solid #29364d; border-radius: 12px; min-width: 0; overflow-wrap: anywhere; }
 .task-board-heading { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 10px; }
 .task-board-heading h2 { margin: 0; }.task-board-heading span, .task-board > p { color: var(--muted); font-size: 12px; }

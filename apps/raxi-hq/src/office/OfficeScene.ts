@@ -10,6 +10,7 @@ import { HandoffEffect } from './effects/HandoffEffect';
 import { MemoryArchiveEffect } from './effects/MemoryArchiveEffect';
 import { PendingMemoryOrigins } from './effects/memoryOrigins';
 import { advanceCameraFocus, clampCamera, zoomAt, type CameraBounds } from './camera';
+import { handoffSnapshot, canAnimateDemoHandoff } from './handoffPolicy';
 
 /** Pixi receives domain snapshots and emits selection intent. No adapter imports. */
 export class OfficeScene {
@@ -181,6 +182,11 @@ export class OfficeScene {
       sprite.updateAgent(agent);
       sprite.setSelected(state.selectedAgentId === agent.id);
     });
+    const handoffRows=new Map(handoffSnapshot(state).rows.map(row=>[row.event.id,row]));
+    this.clearHandoffs(effect=>{
+      const row=effect.eventId?handoffRows.get(effect.eventId):undefined;
+      return !row || row.key!==effect.declarationKey || !canAnimateDemoHandoff(row,this.motions.get(effect.senderId)?.position,this.motions.get(effect.receiverId)?.position,!!this.reducedMotion?.matches);
+    });
     for (const event of [...state.events].reverse()) {
       if (this.seen.has(event.id)) continue;
       this.seen.add(event.id);
@@ -196,13 +202,16 @@ export class OfficeScene {
           this.highlight('SUPERMEMORY_CORE',true);
         }
       }
-      if (['HANDOFF_SENT', 'ASSET_RECEIVED'].includes(event.type) && event.actorId && event.targetId) {
+      const handoff=handoffRows.get(event.id);
+      if (handoff && event.actorId && event.targetId) {
         const from = this.motions.get(event.actorId)?.position;
         const to = this.motions.get(event.targetId)?.position;
-        if (from && to) {
+        const active=this.effects.filter((effect):effect is HandoffEffect=>effect instanceof HandoffEffect);
+        const busy=active.some(effect=>[effect.senderId,effect.receiverId].some(id=>id===event.actorId||id===event.targetId));
+        if (from && to && !busy && active.length<2 && canAnimateDemoHandoff(handoff,from,to,!!this.reducedMotion?.matches)) {
           this.sprites.get(event.actorId)?.beginHandoff(this.elapsed);
           this.sprites.get(event.targetId)?.beginHandoff(this.elapsed);
-          this.addEffect(new HandoffEffect(event.actorId, event.targetId, { ...from }, { ...to }));
+          this.addEffect(new HandoffEffect(event.actorId, event.targetId, { ...from }, { ...to },event.id,handoff.key));
           this.highlight(getOwnAgent(state.agents,event.targetId)?.zone ?? 'WAR_ROOM',false);
         }
       }
@@ -227,8 +236,23 @@ export class OfficeScene {
     this.effectLayer.addChild(effect);
   }
 
+  private clearHandoffs(remove:(effect:HandoffEffect)=>boolean):void {
+    const affected=new Set<string>();
+    this.effects=this.effects.filter(effect=>{
+      if(!(effect instanceof HandoffEffect)||!remove(effect))return true;
+      affected.add(effect.senderId);affected.add(effect.receiverId);effect.destroy({children:true});return false;
+    });
+    for(const id of affected) {
+      if(this.effects.some(effect=>effect instanceof HandoffEffect&&(effect.senderId===id||effect.receiverId===id)))continue;
+      const sprite=this.sprites.get(id),motion=this.motions.get(id);
+      sprite?.cancelHandoff?.();
+      if(sprite&&motion){sprite.position.set(motion.position.x,motion.position.y);sprite.zIndex=sprite.y;}
+    }
+  }
+
   private tick(deltaMs: number): void {
     if (this.destroyed) return;
+    if(this.reducedMotion?.matches)this.clearHandoffs(()=>true);
     this.elapsed += deltaMs;
     if(this.focusTarget) {
       if(!advanceCameraFocus(this.world,this.focusTarget,this.cameraBounds(),this.reducedMotion?.matches ? 250 : deltaMs)) {
@@ -276,6 +300,7 @@ export class OfficeScene {
   }
 
   destroy(): void {
+    this.clearHandoffs(()=>true);
     this.destroyed=true; this.focusTarget=undefined; this.focusAgentId=undefined;
     this.state=undefined;
     this.resizeObserver.disconnect();

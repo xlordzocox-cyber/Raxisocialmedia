@@ -10,7 +10,7 @@ export class HandoffEffect extends Container {
   private trail = new Graphics();
   private age = 0;
 
-  constructor(readonly senderId: string, readonly receiverId: string, private readonly from: Point, private readonly to: Point) {
+  constructor(readonly senderId: string, readonly receiverId: string, private readonly from: Point, private readonly to: Point, readonly eventId?:string, readonly declarationKey?:string) {
     super();
     this.packet.beginFill(0xf5fbff).drawRoundedRect(-9, -7, 18, 14, 2).endFill();
     this.packet.lineStyle(2, 0x35e7ff).drawRoundedRect(-9, -7, 18, 14, 2);
