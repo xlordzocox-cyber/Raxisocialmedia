@@ -51,7 +51,7 @@ export function CampaignWorkspace({ id, session, getSession, open, selectedId, g
   const counts = { DRAFT: 0, PLANNING: 0, BLOCKED: 0, CANCELED: 0 };
   for (const item of session.campaigns) counts[item.status]++;
   const options: Record<CampaignStatus, CampaignStatus[]> = { DRAFT: ['PLANNING', 'CANCELED'], PLANNING: ['BLOCKED', 'CANCELED'], BLOCKED: ['PLANNING', 'CANCELED'], CANCELED: [] };
-  return <section id={id} className="campaign-workspace" aria-label="Campaign Workspace" hidden={!open}>
+  return <section id={id} tabIndex={-1} className="campaign-workspace" aria-label="Campaign Workspace" hidden={!open}>
     <div className="campaign-workspace-heading"><div><span className="campus-eyebrow">CENTRO DE OPERACIONES · WRITE_INTERNAL</span><h3>Campaign Workspace</h3><p>Campaign Brief y decisiones internas de Luis.</p></div><strong>{session.campaigns.length} Campaigns</strong></div>
     <p className="campaign-session-warning">{persistent ? 'REAL · SUPABASE · Datos canónicos del workspace autenticado. Los guardados requieren confirmación de PostgreSQL.' : 'LOCAL · SESIÓN · Las campañas creadas en esta fase viven solo durante esta sesión.'}</p>
     <div className="campaign-metrics">{(['DRAFT', 'PLANNING', 'BLOCKED', 'CANCELED'] as const).map(status => <div key={status}><strong>{counts[status]}</strong><span>{campaignStatusLabel[status]}</span></div>)}</div>
