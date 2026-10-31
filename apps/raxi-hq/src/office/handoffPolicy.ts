@@ -39,6 +39,9 @@ export function handoffSnapshot(state:HQState) {
         if(task.campaignId && event.campaignId && task.campaignId!==event.campaignId){warnings.push('Campaña del evento y tarea contradictorias');coherent=false;}
         const owner=getOwnAgent(state.agents,task.ownerAgentId);
         if(owner && taskOwnerMetadata(owner,task)==='INCONSISTENT'){warnings.push('Metadatos de tarea y propietario contradictorios');coherent=false;}
+        for(const [role,agent] of [['emisor',actor],['receptor',target]] as const){
+          if(task.campaignId && agent?.campaignId && task.campaignId!==agent.campaignId){warnings.push(`Campaña de tarea y ${role} contradictorias`);coherent=false;}
+        }
       }
     }
     for(const agent of [actor,target])if(agent?.campaignId && event.campaignId && agent.campaignId!==event.campaignId){warnings.push('Campaña de agente y evento contradictorias');coherent=false;}

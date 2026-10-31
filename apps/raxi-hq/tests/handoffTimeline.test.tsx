@@ -90,6 +90,34 @@ for(const bad of ['missing-task','task-id','owner','campaign','agent-campaign','
   if(bad==='owner-campaign-without-event'){state.events[0].campaignId=undefined;state.agents.a.campaignId='other';}
   assert.equal(handoffSnapshot(state).rows[0].demoEligible,false);
 });
+for(const participant of ['a','b'] as const)test(`task campaign contradicting ${participant} blocks DEMO without an event campaign`,()=>{
+  const state=snapshot('MOCK',[event({taskId:'t'})]);
+  state.tasks.t={id:'t',title:'T',status:'QUEUED',ownerAgentId:'a',campaignId:'c1'};
+  state.agents.a.campaignId='c1';state.agents.b.campaignId='c1';state.agents[participant].campaignId='c2';
+  const row=handoffSnapshot(state).rows[0];assert.equal(row.demoEligible,false);
+  assert.ok(row.warnings.length>0);assert.equal(row.event.campaignId,undefined);
+});
+test('receiver campaign contradiction cancels an active effect without changing the event header',()=>{
+  const restore=canvasResources();try{
+    const scene=sceneFixture(),state=snapshot('MOCK',[event({taskId:'t'})]);
+    state.tasks.t={id:'t',title:'T',status:'QUEUED',ownerAgentId:'a',campaignId:'c1'};
+    state.agents.a.campaignId='c1';state.agents.b.campaignId='c1';
+    scene.update(state);scene.tick(400);assert.equal(scene.effects.length,1);
+    const next={...state,agents:{...state.agents,b:{...state.agents.b,campaignId:'c2'}}};scene.update(next);
+    assert.equal(scene.effects.filter((effect:unknown)=>effect instanceof HandoffEffect).length,0);
+    assert.equal(scene.sprites.get('a').cancels,1);assert.equal(scene.sprites.get('b').cancels,1);
+    assert.deepEqual({x:scene.sprites.get('a').x,y:scene.sprites.get('a').y},scene.motions.get('a').position);
+    assert.equal(state.events[0],next.events[0]);assert.equal(state.selectedAgentId,'a');
+  }finally{restore();}
+});
+test('missing participant or task campaigns stay absent and do not invent contradictory relations',()=>{
+  for(const missing of ['a','b','task'] as const){
+    const state=snapshot('MOCK',[event({taskId:'t'})]);state.tasks.t={id:'t',title:'T',status:'QUEUED',ownerAgentId:'a',campaignId:'c1'};
+    state.agents.a.campaignId='c1';state.agents.b.campaignId='c1';
+    if(missing==='task')state.tasks.t.campaignId=undefined;else state.agents[missing].campaignId=undefined;
+    const before=JSON.stringify(state);assert.equal(handoffSnapshot(state).rows[0].demoEligible,true);assert.equal(JSON.stringify(state),before);
+  }
+});
 test('sent and received statements are never paired into a completion or QA approval',()=>{
   for(const type of ['HANDOFF_SENT','HANDOFF_RECEIVED','ASSET_RECEIVED'] as const){
     const state=snapshot('LIVE_READ_ONLY',[event({type})]);const row=handoffSnapshot(state).rows[0];

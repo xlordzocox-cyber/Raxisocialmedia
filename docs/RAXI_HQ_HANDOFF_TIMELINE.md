@@ -90,7 +90,7 @@ npm run build
 npm audit --json
 ```
 
-Final executed results: **720/720 application tests PASS**, including **38 new P2B regressions**; **214/214 focused tests** (P1, P2A, observer and P2B, included in the application total); **1/1 offline staging guard PASS**, **721 total**. Zero failures/skips/cancellations. Typecheck, build and diff checks PASS. An earlier intermediate 717-test run is not substituted for the rebuilt final suite after the reviewer fix and extra lifecycle tests.
+Initial published HEAD `1398890` results: **720/720 application tests PASS**, including **38 new P2B regressions**; **214/214 focused tests** (P1, P2A, observer and P2B, included in the application total); **1/1 offline staging guard PASS**, **721 total**. Zero failures/skips/cancellations. Typecheck, build and diff checks PASS. These are baseline evidence, not results for the later receiver-campaign correction below. An earlier intermediate 717-test run is not substituted for the rebuilt final suite after the reviewer fix and extra lifecycle tests.
 
 Regressions cover real scene construction of a HandoffEffect before/after the critical fix, verified true/false LIVE, multiple MOCK source tags, missing/foreign/inherited endpoints, exact and conflicting duplicates, task/campaign contradictions including absent event campaign, optional IDs, unpaired sent/received declarations, old initial history and later headers, repeated snapshots, trust loss/restoration, preserved unrelated effects, changed IDs/headers, account/logout subscription invalidation, destruction, StrictMode/read-only UI, reduced motion, avatar bubble cancellation, bounded effects and preserved camera/selection. No earlier test was removed.
 
@@ -136,3 +136,26 @@ These prove presentation in a real browser, not real transfers, hosted identity,
 Independent local review found and reproduced the additional task/owner campaign P2, now corrected using P1's shared rule and a new regression. Review of the immutable published HEAD and a GitHub Codex review are separate gates; test success does not grant merge authority. If review quota is unavailable, report it rather than claiming review completion.
 
 Rollback is a revert of this visual/test/documentation increment. There is no data/schema recovery, hosted rollout or receipt reconciliation to undo. Keep the PR open in draft and stop for human approval; enabling actual transfer evidence requires a separately authorized design/implementation.
+
+## PR42 receiver-campaign correction (2026-10-31)
+
+GitHub [P2 discussion](https://github.com/xlordzocox-cyber/Raxisocialmedia/pull/42#discussion_r4432456059) on `1398890` identified a remaining asymmetric check: without an event campaign, task/owner campaign `c1` and receiver campaign `c2` still allowed DEMO. Two new regressions reproduced the defect before editing production code: receiver eligibility was `true` instead of `false`, and an active effect survived the contradictory snapshot (one effect instead of zero).
+
+The minimal policy change compares the available task campaign with each available participant campaign, independent of event.campaignId. It records a role-specific warning and blocks DEMO on contradiction. Missing campaigns remain absent and are not inferred; LIVE eligibility is unchanged (always false). OfficeScene already rechecks this shared policy on every update, so it cancels an active effect without a new event ID/header or scene change. No new store, transport, permissions or operational effects were introduced.
+
+Four additional tests cover sender and receiver contradictions, cancellation during an active effect with the exact same event object, and missing campaigns without mutation/inference. The manual presentation lab adds only a synthetic checkbox to exercise the receiver conflict. [Browser capture of the warning and scene](../output/reports/raxi-hq-handoff-evidence/receiver-campaign-conflict.jpg) is actual browser output with synthetic data. This still image proves the displayed warning; deterministic scene tests prove cancellation before natural expiry. It is not evidence of a real transfer.
+
+Fresh correction validation: full application suite **724/724 PASS** (zero failed/skipped/cancelled); P2B **42/42 PASS** and focused office/P1/P2A/observer/P2B **218/218 PASS**, both included in the total; separate staging guard **1/1 PASS** (**725 total**); typecheck and build PASS. These results were executed anew, not inferred from the earlier 720 tests. Audit still reports one preexisting moderate `qs` advisory, no high/critical findings; dependencies remain unchanged. The first audit attempt hit a certificate-chain error; retry using the process system trust store succeeded without disabling TLS verification.
+
+Correction log SHA-256 fingerprints (local ignored `.validation/`, no logs containing credentials published):
+
+| Log | SHA-256 |
+| --- | --- |
+| `handoff-p2-red.log` | `2d33683385e254d470ba35ef9d648075da453fa3e60327e31cf486f6184acb9a` |
+| `handoff-p2-full.log` | `1ca753de42326d9ef49a3bcbeb647721ebcf2b20b594bdd937701b22369cc619` |
+| `handoff-p2-focused.log` | `da27fc21c4773088ede934bd19bd9ecb5505a5015ad9a36d3f479c501764b952` |
+| `handoff-p2-office.log` | `3e2f1136b88e65f84d09762b5351e288a3e9eeaf63de988559bacb68d2ba664a` |
+| `handoff-p2-guard.log` | `02c7d3d75342dde51080f5e150ba0b8468526c328a668f9edec453fc69a63c10` |
+| `handoff-p2-typecheck.log` | `236189c12f0a4a176be02a7e6dae4a48b84cf0bc7b101374891c5d1457577ede` |
+| `handoff-p2-build.log` | `131d2cdd8fd8f677601e46d149d68f9039d11284edbce3f247324e14ec3ccf3f` |
+| `handoff-p2-audit.json` | `e5f34547f0af478c4918deed42013f3a55f67da8284ed208dd14059a99beb485` |
