@@ -28,7 +28,7 @@ export function OperationsInbox({ id, handoffs, open, campaigns, onAction, onOpe
     {handoffs.length === 0 ? <p className="operations-empty">Aún no hay propuestas recibidas.</p> : handoffs.map(({ handoff, provenance }) => {
       const decision = campaigns ? campaignDecision(campaigns, handoff.ideaId) : { status: 'PENDING' as const, campaignId: undefined, reason: undefined };
       const active = evaluation.ideaId === handoff.ideaId && decision.status === 'PENDING';
-      return <article key={handoff.ideaId} className="operations-proposal">
+      return <article key={handoff.ideaId} data-human-proposal={handoff.ideaId} tabIndex={-1} className="operations-proposal">
         <div className="operations-proposal-top"><code>{handoff.ideaId}</code><span>PROPUESTA RECIBIDA</span><span className="operations-provenance" data-provenance={provenance}>{ideaProvenanceLabel[provenance]}</span></div>
         <h4>{handoff.title}</h4><p className="idea-multiline">{handoff.summary}</p><p className="idea-multiline"><strong>Motivo:</strong> {handoff.reason}</p>
         <dl><div><dt>Origen</dt><dd>{ideaSourceLabel[handoff.source]}</dd></div><div><dt>Prioridad</dt><dd>{ideaPriorityLabel[handoff.priority]}</dd></div><div><dt>Canales sugeridos</dt><dd>{handoff.suggestedChannels.map(channel => ideaChannelLabel[channel]).join(', ') || 'Sin canales'}</dd></div><div><dt>Afinidad / confianza</dt><dd>{real ? 'Pendiente de evaluación' : `${handoff.fitScore}% / ${handoff.confidenceScore}%`}</dd></div><div><dt>Recibida</dt><dd>{handoff.sentAt}</dd></div><div><dt>Referencias de evidencia</dt><dd>{handoff.evidenceRefs.join(', ') || 'Sin referencias'}</dd></div></dl>

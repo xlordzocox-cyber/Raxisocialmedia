@@ -61,7 +61,7 @@ export function RealIdeaCenter({ store, campaigns }: { store: RealIdeaStore; cam
         } : undefined,
       }} />
       {state.phase !== 'saving' && <button type="button" onClick={() => { void store.load(); }}>Recargar desde Supabase</button>}
-      {campaignStore && <RealCampaignCenter store={campaignStore} ideas={store} />}
+      {campaignStore && <RealCampaignCenter key={`${state.workspace.ownerId}:${state.workspace.id}`} store={campaignStore} ideas={store} ideaState={state} />}
       {supabase && <RuntimeOfficePanel key={`${state.workspace.ownerId}:${state.workspace.id}`} client={supabase} owner={state.workspace.ownerId} workspace={state.workspace.id} />}
     </>}
   </section>;
