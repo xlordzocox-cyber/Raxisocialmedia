@@ -1,0 +1,68 @@
+# PR #39 · Atestación estructural acotada de `raxi_workspaces_slug_check`
+
+**Estado: OBSERVACIÓN OFFLINE, NO ES PERMISO DE RESTAURACIÓN NI PRUEBA NATIVA DE SEMÁNTICA.**
+
+## Alcance y procedencia
+
+El módulo independiente `scripts/pr39-pg17-structural-attestation.mjs` y su batería `scripts/test-pr39-pg17-structural-attestation.mjs` examinan **una sola captura sintética local**, proporcionada por el usuario después de un ensayo aislado en dos contenedores PostgreSQL 17.11. El archivo original no se añade al repositorio. Su SHA-256 se fija en el verificador:
+
+`d968dfee0b0e3b09ff70ede2776b8c97a309392487db1586904a53034cefd179`
+
+Este digest identifica bytes de un archivo previamente obtenido, **no es una firma del servidor PostgreSQL** ni demuestra por sí solo su autenticidad. La compilación declarada en el archivo coincide entre origen/restauración (`x86_64`, PG17.11, SHA de imagen, binario y `pg_config`), pero `datumAssumptionBytes:8` permanece identificado como **supuesto**, no como una medida independiente del ABI.
+
+## Diseño cerrado y garantías negativas
+
+El verificador importa el parser cerrado ya existente `inspectPg17SlugCandidate`, sin modificarlo. Exige que el JSON recibido sea un objeto simple, con campos exactamente esperados y sin getters, símbolos, objetos cíclicos, claves extra o valores de tamaños excesivos. Exige además:
+
+- `scope=LOCAL_SYNTHETIC_ONLY`, `decision=BLOCKED`, `semanticEquivalence=NOT_VERIFIED`, `nativeValidated=false`, `allowCatalogPass=false` y `positionalStatus=CAPTURED_FOR_REVIEW_NOT_EQUIVALENCE`.
+- Huella fija **del reporte completo** en el modo CLI, y huellas fijas de las dos expresiones `conbin`, sus dos catálogos ordenados por ocurrencia y la información de compilación. No basta recalcular el hash dentro del JSON, ni alterar origen y restauración conjuntamente.
+- Metadatos exactos de la restricción observada: un `CHECK` local y validado, `slug` atributo 3 de tipo `text`, collation 100, PostgreSQL `170011`. Los OID locales de la propia constraint son diferentes como se capturaron; no se interpretan como identidades semánticas.
+- Únicamente las formas `AND(AND(L,U),R)` y `AND(L,U,R)`, en ese orden. El parser rechaza nodos desconocidos, casts no admitidos y otros árboles booleanos.
+- Los **tres subárboles de operandos completos** deben tener `rawDigest` idéntico entre origen y restauración; los hashes de las constantes deben coincidir, incluyendo bytes físicos serializados.
+- Las **35 referencias catalogadas por lado** se comparan por ordinal, tipo (`kind`), campo (`field`), OID e identidad completa, preservando orden, multiplicidad y rutas relativas. El reparto obligatorio es **13 + 13 + 9**.
+- Referencias a operadores conocidos de este caso (`>=`, `<=`, `~`), sus funciones implementadoras, tipos y collations, además del vínculo al atributo `slug`. Cualquier discrepancia rechaza la atestación; no existe normalización genérica de SQL, aliases o expresiones lógicas.
+
+La coincidencia genera únicamente una **observación acotada**:
+
+```text
+structuralObservation: PINNED_3_OPERANDS_IDENTICAL_WITH_AND_REGROUPING
+decision: BLOCKED
+semanticEquivalence: NOT_VERIFIED
+nativeValidated: false
+architectureValidated: false
+allowCatalogPass: false
+```
+
+No se define `PASS`, `GO`, ninguna excepción en `assertPr39CatalogEquality`, ni una transformación del archivo `conbin`. **El ejecutor de restauración sigue rechazando la diferencia.** No se importará este módulo desde `scripts/pr39-local-synthetic-recovery.mjs`, la comparación de catálogo ni un proceso alojado.
+
+## Comandos offline (Windows)
+
+Desde una carpeta limpia del PR #39 en el SHA aprobado:
+
+```powershell
+Set-Location "$HOME\source\RaxiHQ-PR39-CONBIN-20261104"
+node --check scripts/pr39-pg17-structural-attestation.mjs
+node scripts/test-pr39-pg17-structural-attestation.mjs
+
+# Prueba opcional SOLO con el JSON local original, sin copiarlo a GitHub:
+$env:PR39_NATIVE_EVIDENCE_FILE = "$HOME\source\RaxiHQ-PR39-NATIVE-7e8c58ff1f59.json"
+try {
+    node scripts/test-pr39-pg17-structural-attestation.mjs
+    if ($LASTEXITCODE -ne 0) { throw 'Fallo la validacion de evidencia nativa' }
+} finally {
+    Remove-Item Env:PR39_NATIVE_EVIDENCE_FILE -ErrorAction SilentlyContinue
+}
+
+# Observación CLI con huella del archivo completa fijada (NO cambio de política):
+node scripts/pr39-pg17-structural-attestation.mjs --evidence "$HOME\source\RaxiHQ-PR39-NATIVE-7e8c58ff1f59.json"
+```
+
+No se lee Docker, PostgreSQL, Supabase, la red, credenciales ni proveedores. Los tests crean los datos sintéticos de prueba dentro del propio script. El archivo de evidencia original debe permanecer privado y fuera de GitHub.
+
+## Puertas posteriores
+
+1. Revisión independiente de Codex del SHA exacto y todos los P1/P2, más validación real del código publicado en Windows.
+2. Mantener la restauración estricta `FAIL`, documentar el origen de la divergencia y revisar una eventual política excepcional como **otra decisión humana separada**, nunca activada por este módulo.
+3. Continuar `NO_GO_HOSTED_MIGRATION`; no merge, despliegue, SQL alojado, proveedores ni modificación de las siete fuentes SQL fijadas.
+
+El reconocimiento de una forma concreta de árboles `AND` no verifica genéricamente que toda restauración, todos los datos de Auth/Storage ni el catálogo completo sean semánticamente equivalentes.
