@@ -108,3 +108,15 @@ Tras 58 pruebas offline PASS en Windows para V2, Codex reportó **tres P2 adicio
 **Limitaciones adicionales:** validar coherencia de cadenas de identidad **no** comprueba implementación ejecutable, catálogos verdaderos ni semántica nativa de PostgreSQL. El contrato continúa `BLOCKED / NOT_VERIFIED / nativeValidated:false / architectureValidated:false / allowCatalogPass:false`, con `NO_GO_HOSTED_MIGRATION` y comparador del runner inalterados.
 
 El incremento fue publicado mediante GitHub, pero requiere ejecución de las pruebas y una revisión Codex **sobre el HEAD V3 exacto** antes de declarar cerrados los tres hilos. Ningún ensayo Docker/SQL nativo se ha autorizado para esta etapa.
+
+## Revalidación de V3: constructor de OID renumerados y operadores simbólicos
+
+El usuario ejecutó el SHA `12b02fac2e1b770958da51e952f681e862ee514b` en Windows. El caso nominal del resolvedor pasó, pero la ejecución completa terminó `exit 1` con `Error: unknown synthetic type` en `test-pr39-pg17-oid-binding-resolver.mjs:27`, invocado desde la creación de catálogo al renumerar `vartype` a `4321`. El fixture intentó resolver nuevamente `identity(4321)` a través de una tabla artificial que solo conoce 16/23/25, **antes** de restaurar la identidad original. No es evidencia de que el resolvedor OID admita un PASS: el proceso falló antes de finalizar las 67 aserciones de prueba.
+
+Corrección de alcance mínimo: el catálogo renumerado se construye mediante clonación del catálogo sintético original; solo se cambian las columnas OID `vartype` del paquete correspondiente y se mantiene íntegra la identidad catalogada. En paralelo se preserva la actualización simultánea en las referencias del candidato y en `varBinding.vartypeOid`. Se exige que el resultado siga siendo `BLOCKED`.
+
+La revisión independiente detectó además un P2: `pg_operator.oprname` admite nombres simbólicos, mientras la validación heredada exigía nombres alfanuméricos. Se introdujo una gramática cerrada basada en caracteres de operador PG17 y sus prohibiciones léxicas básicas; para el `CHECK` observado se exige además la **identidad exacta por posición**: `>=`, `<=`, `~`. El fixture positivo utiliza estos nombres y los negativos coordinados rechazan un operador distinto aunque sea válido léxicamente, `--`, `/*`, el final `*-` y alias alfanumérico. Fuente primaria: PostgreSQL 17 [Lexical Structure §4.1.3](https://www.postgresql.org/docs/17/sql-syntax-lexical.html).
+
+La batería del resolvedor pasó de 67 a **72 mutaciones negativas previstas**; esta modificación fue publicada por conector GitHub **sin reejecutarla todavía en Windows**, por lo que no se marca como PASS. Antes de continuar con extracción nativa, comprobar en el nuevo HEAD `node --check`, `node scripts/test-pr39-pg17-oid-binding-resolver.mjs`, las 55/103/62 regresiones anteriores, preflight y diff; inspeccionar Codex sobre el SHA final.
+
+**Seguridad inalterada:** `decision:'BLOCKED'`, `nativeValidated:false`, `semanticEquivalence:'NOT_VERIFIED'`, `allowCatalogPass:false`, `NO_GO_HOSTED_MIGRATION`; no se integra este módulo en el runner ni se permite equivalencia. Sin Docker, PostgreSQL, proveedores ni SQL alojado.
