@@ -2,6 +2,7 @@ import { getOwnAgent } from '../domain/agents';
 import type { HQState } from '../domain/hq';
 import type { HQEvent } from '../domain/events';
 import { taskOwnerMetadata } from './ui/agentViewSelectors';
+import { officeDeclarationContext } from './declarationContext';
 
 const types=new Set(['HANDOFF_SENT','HANDOFF_RECEIVED','ASSET_RECEIVED']);
 export function handoffDeclarationKey(event:HQEvent):string {
@@ -10,8 +11,7 @@ export function handoffDeclarationKey(event:HQEvent):string {
   return JSON.stringify([event.id,event.type,event.timestamp,event.source,event.verified,event.actorId,event.targetId,event.taskId,event.assetId,event.campaignId]);
 }
 export function handoffSnapshot(state:HQState) {
-  const demo=state.mode==='MOCK' && state.mockMode && state.sourceHealth.mode==='MOCK' && state.sourceHealth.source==='mock' && state.sourceHealth.connection==='CONNECTED';
-  const live=state.mode==='LIVE_READ_ONLY' && !state.mockMode && state.sourceHealth.mode==='LIVE_READ_ONLY' && state.sourceHealth.source==='munder' && state.sourceHealth.connection==='CONNECTED';
+  const {demo,live}=officeDeclarationContext(state);
   const message=state.mode==='HISTORICAL_REPLAY'?'La captura histórica admitida no acredita handoffs de Raxi.'
     :state.mode==='LIVE_READ_ONLY'&&!live?'Sin declaraciones LIVE vigentes. Sin sustitución por MOCK.'
       :!demo&&!live?'Contexto de procedencia inconsistente; sin entregas representadas.':'';
