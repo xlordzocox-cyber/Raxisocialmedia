@@ -11,6 +11,7 @@ import {assertBootstrapIntegrity} from './pr35-bootstrap-guard.mjs';
 import {verifyPr38RecoveryEvidence} from './pr38-recovery-contract.mjs';
 import {describePr39CatalogMismatch,assertPr39CatalogEquality} from './pr39-catalog-diagnostic.mjs';
 import {reviewedSlugDefinitions,slugContextQuery,summarizeSlugContexts} from './pr39-constraint-analysis.mjs';
+import {selectPr39LocalDockerHost} from './pr39-local-docker-guard.mjs';
 
 const root=fileURLToPath(new URL('..',import.meta.url));
 const fail=why=>{throw Error('PR39 STOP: '+why);};
@@ -40,13 +41,15 @@ const image='postgres:17';
 const sourceName='raxi-pr39-src-'+randomBytes(6).toString('hex');
 const targetName='raxi-pr39-restore-'+randomBytes(6).toString('hex');
 const created=[];
+let pinnedLocalDockerHost=null;
 const synthetic={
  users:['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'],
  workspaces:['cccccccc-cccc-4ccc-8ccc-cccccccccccc','dddddddd-dddd-4ddd-8ddd-dddddddddddd'],
  ideas:['eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','ffffffff-ffff-4fff-8fff-ffffffffffff']
 };
 function docker(args,{input,raw=false,timeout=120000}={}){
- const o=spawnSync('docker',args,{
+ const cliArgs=pinnedLocalDockerHost?['--host',pinnedLocalDockerHost,...args]:args;
+ const o=spawnSync('docker',cliArgs,{
   input,encoding:raw?undefined:'utf8',windowsHide:true,
   timeout,maxBuffer:64*1024*1024
  });
@@ -73,7 +76,7 @@ async function start(name){
   fail('PG17 fixture isolation not proven');
  let ready=false;
  for(let i=0;i<50;i++){
-  const check=spawnSync('docker',['exec',id,'pg_isready','-U','postgres','-d','postgres'],
+  const check=spawnSync('docker',['--host',pinnedLocalDockerHost,'exec',id,'pg_isready','-U','postgres','-d','postgres'],
    {encoding:'utf8',windowsHide:true,timeout:5000});
   if(check.status===0){ready=true;break;}
   await new Promise(done=>setTimeout(done,300));
@@ -150,6 +153,23 @@ function readIsolation(id,user,own,other){
 }
 let failed=false;
 try{
+ // Only non-networked Docker client context queries may run before the socket
+ // has been selected; never allow host/context/TLS overrides for this test.
+ for(const key of ['DOCKER_HOST','DOCKER_CONTEXT','DOCKER_CONFIG',
+   'DOCKER_TLS','DOCKER_TLS_VERIFY','DOCKER_CERT_PATH'])
+  if(Object.hasOwn(process.env,key))fail('Docker endpoint override prohibited: '+key);
+ const contextName=docker(['context','show']);
+ if(!['default','desktop-linux'].includes(contextName))
+  fail('unreviewed Docker context');
+ const contextInfo=JSON.parse(docker(['context','inspect',contextName]));
+ pinnedLocalDockerHost=selectPr39LocalDockerHost({
+  platform:process.platform,environment:process.env,
+  contextName,inspection:contextInfo
+ });
+ // All daemon operations now pass an explicit --host pinned to this endpoint.
+ if(docker(['info','--format','{{.OSType}}'])!=='linux')
+  fail('local Docker daemon is not a Linux Engine');
+ console.log('PASS: PR39_LOCAL_DOCKER_ENDPOINT_GUARD (allowlisted local socket; all subsequent operations pinned)');
  docker(['image','inspect',image,'--format','{{.Id}}']);
  const origin=await start(sourceName);
  sql(origin,bootstrap);
