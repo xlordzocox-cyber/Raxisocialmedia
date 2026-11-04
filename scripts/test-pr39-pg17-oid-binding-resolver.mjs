@@ -17,7 +17,8 @@ const build=()=>({serverVersionNum:170008,imageDigest:'sha256:'+H,imagePlatform:
  postgresBinarySha256:C,datumBytes:8,databaseEncoding:'UTF8',databaseCollationSha256:D});
 function identity(r){
  if(r.oid==='0')return {zeroOid:true};
- const name=r.kind+'_'+r.field;
+ // The same local (kind, OID) must always resolve to the same identity.
+ const name=r.kind+'_'+r.oid;
  if(r.kind==='type')return {schema:'pg_catalog',name,kind:'b',category:'N',length:4,byValue:true,alignment:'i',storage:'p',defined:true,elementType:'none',defaultCollation:'none'};
  if(r.kind==='operator')return {schema:'pg_catalog',name,kind:'b',leftType:'pg_catalog.int4',rightType:'pg_catalog.int4',resultType:'pg_catalog.bool',procedure:'pg_catalog.opfunc(int4,int4)',canMerge:false,canHash:false};
  if(r.kind==='function')return {schema:'pg_catalog',name,arguments:'pg_catalog.text',resultType:'pg_catalog.int4',language:'internal',volatility:'i',parallel:'s',strict:true,leakproof:false,securityDefiner:false,implementationSha256:H};
@@ -34,7 +35,7 @@ assert.equal(result.nativeValidated,false);
 assert.equal(result.architectureValidated,false);
 assert.equal(result.semanticEquivalence,'NOT_VERIFIED');
 assert.equal(result.allowCatalogPass,false);
-assert.ok(result.comparedOccurrences>30);
+assert.equal(result.comparedOccurrences,35);
 assert.match(result.structuralBindingDigest,/^[a-f0-9]{64}$/);
 console.log('PASS: aligned ordered synthetic OID identities still BLOCKED, no native equivalence');
 const clone=structuredClone;
@@ -97,6 +98,46 @@ const cases=[
  ['extra catalog field',(a,s,r)=>{r.verified=true}],
  ['null prototype poison',(a,s,r)=>{r.rows[0].identity=Object.create(null)}],
  ['malformed OID width',(a,s,r)=>{r.rows[0].oid='4294967296'}],
+ // These paired changes previously bypassed completeness validation because
+ // the catalog blindly trusted both candidates' self-described references.
+ ['both candidates and catalogs strip every reference',(a,s,r)=>{
+  for(const atom of a.source.positions)atom.references=[];
+  for(const atom of a.restored.positions)atom.references=[];
+  s.rows=[];r.rows=[];
+ }],
+ ['both sides fabricate a new field/class',(a,s,r)=>{
+  for(const side of [a.source,a.restored]){
+   side.positions[0].references[0].field='inventedFunction';
+   side.positions[0].references[0].kind='collation';
+  }
+  for(const row of [s.rows[0],r.rows[0]]){
+   row.field='inventedFunction';
+   row.kind='collation';
+   row.identity=identity({...row,kind:'collation'});
+  }
+ }],
+ ['both sides remove a mandatory slot',(a,s,r)=>{
+  for(const side of [a.source,a.restored])side.positions[0].references.shift();
+  for(const rows of [s.rows,r.rows]){
+   rows.shift();
+   rows.forEach((row,i)=>{row.ordinal=i});
+  }
+ }],
+ ['one constant typmod altered',(a)=>{a.restored.positions[1].constant.typmod='999'}],
+ ['one constant typmod missing',(a)=>{delete a.restored.positions[1].constant.typmod}],
+ ['one forged type OID contradicts its references',(a)=>{a.restored.positions[0].constant.typeOid='123'}],
+ ['same local function OID conflicting identity on both sides',(a,s,r)=>{
+  for(const rows of [s.rows,r.rows]){
+   const one=rows.find(x=>x.field==='opfuncid'&&x.oid==='65');
+   one.identity.name='forged_same_oid_identity';
+  }
+ }],
+ ['same local collation OID conflicting identity on both sides',(a,s,r)=>{
+  for(const rows of [s.rows,r.rows]){
+   const one=rows.find(x=>x.field==='inputcollid'&&x.oid==='100');
+   one.identity.name='forged_same_collation_oid';
+  }
+ }],
  ];
 for(const [label,mutate] of cases)reject(label,mutate);
 // Same numeric OID is irrelevant without identity; a synthetic equal identity
@@ -108,6 +149,20 @@ const changed=clone(candidate);
 const indices=changed.restored.positions.flatMap((atom)=>atom.references.filter(r=>r.field==='vartype'));
 indices.forEach(ref=>{ref.oid='4321'});
 const mismatchedCatalog=catalog(changed.restored,'restored');
+// Deliberately preserve the original type identity even when a synthetic
+// local OID differs, and keep repeated occurrences internally consistent.
+for(const row of mismatchedCatalog.rows.filter(x=>x.field==='vartype'&&x.oid==='4321')){
+ row.identity=identity({...row,oid:restoredOid});
+}
 assert.equal(inspect(changed,source,mismatchedCatalog).decision,'BLOCKED');
 assert.equal(inspect(changed,source,mismatchedCatalog).nativeValidated,false);
+
+// When both sides intentionally mutate the same typmod, shape recognition
+// still cannot prove native equality, and the structural digest must change.
+const bothTypmod=clone(candidate);
+bothTypmod.source.positions[1].constant.typmod='999';
+bothTypmod.restored.positions[1].constant.typmod='999';
+const sameTypmod=inspect(bothTypmod,source,restored);
+assert.equal(sameTypmod.decision,'BLOCKED');
+assert.notEqual(sameTypmod.structuralBindingDigest,result.structuralBindingDigest);
 console.log(`PASS: PR39_PG17_OID_BINDINGS_OFFLINE (${denied} rejected adversarial cases; raw OID mismatch with equal synthetic identity still BLOCKED; NO Docker/SQL).`);
