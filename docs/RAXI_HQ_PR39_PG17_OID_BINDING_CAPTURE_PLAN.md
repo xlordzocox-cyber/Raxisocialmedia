@@ -94,3 +94,17 @@ Se añadieron negativos para ausencia total de referencias, eliminación de slot
 **Puertas sin cambios**: `BLOCKED`, `nativeValidated:false`, `architectureValidated:false`, `semanticEquivalence:'NOT_VERIFIED'`, `allowCatalogPass:false`; sin importar esta biblioteca en el runner, sin cambios al comparador de catálogo, 7 SQL fuente, manifiesto, permisos o `NO_GO_HOSTED_MIGRATION`.
 
 **Validación pendiente:** los cambios V2 fueron publicados mediante conector GitHub, pero esta versión aún requiere ejecución independiente de `node scripts/test-pr39-pg17-oid-binding-resolver.mjs` y suites anteriores en el worktree Windows, `git diff --check` y revisión Codex del HEAD exacto. No presentar resultados de V1 como si validaran V2. Las capturas nativas, arquitectura de Docker y firmas reales de PostgreSQL 17 siguen **NO EJECUTADAS**; se solicitará autorización humana antes de cualquier laboratorio.
+
+## Segunda revisión Codex y V3 del resolvedor (2026-11-04)
+
+Tras 58 pruebas offline PASS en Windows para V2, Codex reportó **tres P2 adicionales** de consistencia interna del material sintético, todos dentro de `scripts/pr39-pg17-oid-binding-resolver.mjs`:
+
+1. **OID cero restringido por slot**. No basta permitirlo por `kind`. Solo los campos opcionales `opfuncid` y las referencias de collation admiten sintácticamente OID `0`; `funcid`, `opno`, `opresulttype`, `funcresulttype`, `vartype` y `consttype` lo rechazan, aun si ambos lados son alterados simultáneamente. En el candidato actual `opfuncid=0` también produce `STOP` por falta de implementación comprobable.
+2. **Aliases del `Var`**. `varnosyn===varno` y `varattnosyn===varattno` son obligatorios para este esquema cerrado PG17. Alterar ambos candidatos no permite ignorar los límites del extractor anterior.
+3. **Vínculos entre objetos catalogados**. Un operador debe declarar tipos izquierdo/derecho/resultado coherentes con la expresión, la función implementadora debe corresponder por esquema/nombre/firma/resultado al procedimiento declarado del operador y, en un `FUNCEXPR`, la firma de entrada y el resultado deben coincidir con `Var.vartype` y `funcresulttype`. Las constantes by-value deben concordar con metadatos de su tipo. Ningún catálogo sintético puede afirmar una relación de ejecución sin verificar los vínculos tipados.
+
+**Cambios de pruebas:** el fixture positivo V3 usa identidades consistentes para tipos `bool`, `int4`, `text`, funciones `text_length(text)`, `int4_cmp(int4,int4)` y `text_regex(text,text)`, y operadores que referencian a sus propias funciones. Son identidades **sintéticas** elegidas para comprobar el contrato, no una declaración sobre los verdaderos OID de PostgreSQL. Negativos coordinados rechazan `funcid=0`, alias falsificados, procedimiento y firmas de argumentos/resultados contradictorios y `opfuncid=0` sin vínculo demostrable.
+
+**Limitaciones adicionales:** validar coherencia de cadenas de identidad **no** comprueba implementación ejecutable, catálogos verdaderos ni semántica nativa de PostgreSQL. El contrato continúa `BLOCKED / NOT_VERIFIED / nativeValidated:false / architectureValidated:false / allowCatalogPass:false`, con `NO_GO_HOSTED_MIGRATION` y comparador del runner inalterados.
+
+El incremento fue publicado mediante GitHub, pero requiere ejecución de las pruebas y una revisión Codex **sobre el HEAD V3 exacto** antes de declarar cerrados los tres hilos. Ningún ensayo Docker/SQL nativo se ha autorizado para esta etapa.
