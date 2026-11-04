@@ -139,3 +139,17 @@ haber leído o aprobado este documento.**
 **Security classification: PREPARATION_ONLY. Overall hosted readiness: NO_GO_HOSTED_MIGRATION.**
 
 Official technical context is in \`docs/RAXI_HQ_PR38_STAGING_RECOVERY_STRATEGY.md\` and \`docs/RAXI_HQ_STAGING_BACKUP_RECOVERY_PLAN.md\`.
+
+## Actualización de auditoría — 2026-11-04 (preparación de cierre)
+
+**Historia vs. permiso vigente:** las advertencias anteriores sobre ensayos `--run-local` eran vigentes en la fecha de cada sección; el propietario aprobó después una ejecución local, limitada a dos PostgreSQL 17 efímeros y datos sintéticos. Esa autorización se utilizó una vez para obtener `RaxiHQ-PR39-NATIVE-7e8c58ff1f59.json`, que permanece en la computadora del usuario y **no** se publica en este PR. La ejecución mantuvo `FAIL` estricto por `raxi_workspaces_slug_check`, registró 35 enlaces de catálogo por lado y limpió sus dos contenedores. No se demostró recuperación alojada, equivalencia operativa, Auth/Storage reales ni ABI `Datum` independiente. **La autorización anterior no se extiende automáticamente a un nuevo ensayo**.
+
+**Estado de pruebas (antes del control Docker):** el usuario validó en Windows el HEAD `5e5766a76f7ade59ff4eda4fa83aae800fe516fe`: 44 mutaciones de atestación, 3 buffers inválidos, 3 rutas CLI rechazadas en Windows, 72 mutaciones OID, 55 del extractor, 103 negativas de recuperación y 62 de estructura. Preflight de 7 SHA, bootstrap y PR38 NO-GO PASS. La nueva revisión Codex de ese HEAD terminó sin hallazgos nuevos.
+
+**Control adicional de daemon local (pendiente QA en Windows):** `scripts/pr39-local-docker-guard.mjs` y `scripts/test-pr39-local-docker-guard.mjs` introducen una política cerrada de endpoints. El ejecutor `--run-local` realiza `docker context show` e `inspect` (ambos sin contactar al daemon), rechaza las variables de redirección de Docker y solo admite los sockets expresamente revisados (Windows `npipe:////./pipe/docker_engine` o `npipe:////./pipe/dockerDesktopLinuxEngine`; Linux `unix:///var/run/docker.sock`). Rechaza TCP, SSH, contextos arbitrarios y entornos desconocidos. Una vez comprobado, **todas las llamadas al daemon, incluida `pg_isready`, usan `docker --host <socket-verificado>`**. Antes de `run`, `docker info` debe confirmar Linux Engine. Esto acredita un endpoint de cliente local permitido, **no la identidad física criptográfica del daemon**: un proxy externo a través del propio socket no puede descartarse mediante esta sola prueba.
+
+**No ejecutar `--run-local` para probar el guard:** su batería `node scripts/test-pr39-local-docker-guard.mjs` es offline y no crea contenedores. Su integración en el checkout de `main` actual y una nueva revisión Codex del SHA final son requisitos independientes. Toda la instrumentación sigue sin autorizar SQL alojado ni cambios de política.
+
+**Riesgo de integración:** este PR fue creado sobre la base `03e0455fca01a2a9b178a75ec846b9e05850af35`. `main` avanzó hasta `e0bea6bb296f2f1aec0439648e9e60ddc186f3e8` con 25 commits adicionales; el manifiesto de staging conserva su blob idéntico, pero el build/test/typecheck/escáner en el árbol combinado **no se han ejecutado**. Deben verificarse en worktree aislado, sin alterar main ni actualizar la rama mediante un merge automático.
+
+**Estado de salida:** diagnóstico y atestación de evidencia únicamente; `BLOCKED / NOT_VERIFIED`, `allowCatalogPass:false`, `NO_GO_HOSTED_MIGRATION`. La resolución administrativa de hilos viejos no concede aprobación técnica ni de merge.
