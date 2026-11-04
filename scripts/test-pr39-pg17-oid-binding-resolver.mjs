@@ -31,11 +31,11 @@ function identity(r){
  }
  if(r.kind==='operator'){
   const ops={
-   '525':{name:'int4_ge',leftType:'pg_catalog.int4',rightType:'pg_catalog.int4',
+   '525':{name:'>=',leftType:'pg_catalog.int4',rightType:'pg_catalog.int4',
           resultType:'pg_catalog.bool',procedure:'pg_catalog.int4_cmp(pg_catalog.int4,pg_catalog.int4)'},
-   '523':{name:'int4_le',leftType:'pg_catalog.int4',rightType:'pg_catalog.int4',
+   '523':{name:'<=',leftType:'pg_catalog.int4',rightType:'pg_catalog.int4',
           resultType:'pg_catalog.bool',procedure:'pg_catalog.int4_cmp(pg_catalog.int4,pg_catalog.int4)'},
-   '641':{name:'text_regex',leftType:'pg_catalog.text',rightType:'pg_catalog.text',
+   '641':{name:'~',leftType:'pg_catalog.text',rightType:'pg_catalog.text',
           resultType:'pg_catalog.bool',procedure:'pg_catalog.text_regex(pg_catalog.text,pg_catalog.text)'}
   };
   const o=ops[r.oid];
@@ -70,6 +70,11 @@ assert.equal(result.semanticEquivalence,'NOT_VERIFIED');
 assert.equal(result.allowCatalogPass,false);
 assert.equal(result.comparedOccurrences,35);
 assert.match(result.structuralBindingDigest,/^[a-f0-9]{64}$/);
+for(const [i,expected] of ['>=','<=','~'].entries()){
+ const path=candidate.source.positions[i].path;
+ const op=source.rows.find(r=>r.path===path&&r.field==='opno');
+ assert.equal(op?.identity.name,expected,'positive symbolic PG17 operator '+i);
+}
 console.log('PASS: aligned ordered synthetic OID identities still BLOCKED, no native equivalence');
 const clone=structuredClone;
 let denied=0;
@@ -222,6 +227,31 @@ const cases=[
    row.oid='0';row.identity={zeroOid:true};
   }
  }],
+ ['both catalogs replace valid operator with another valid symbol',(a,s,r)=>{
+  for(const rows of [s.rows,r.rows]){
+   rows.find(x=>x.kind==='operator'&&x.oid==='525').identity.name='<';
+  }
+ }],
+ ['both catalogs inject forbidden operator comment-start',(a,s,r)=>{
+  for(const rows of [s.rows,r.rows]){
+   rows.find(x=>x.kind==='operator'&&x.oid==='525').identity.name='--';
+  }
+ }],
+ ['both catalogs inject forbidden operator slash-star',(a,s,r)=>{
+  for(const rows of [s.rows,r.rows]){
+   rows.find(x=>x.kind==='operator'&&x.oid==='525').identity.name='/*';
+  }
+ }],
+ ['both catalogs inject invalid trailing plus operator',(a,s,r)=>{
+  for(const rows of [s.rows,r.rows]){
+   rows.find(x=>x.kind==='operator'&&x.oid==='525').identity.name='*-';
+  }
+ }],
+ ['both catalogs inject alphanumeric operator alias',(a,s,r)=>{
+  for(const rows of [s.rows,r.rows]){
+   rows.find(x=>x.kind==='operator'&&x.oid==='525').identity.name='int4_ge';
+  }
+ }],
  ];
 for(const [label,mutate] of cases)reject(label,mutate);
 // Same numeric OID is irrelevant without identity; a synthetic equal identity
@@ -233,11 +263,12 @@ const changed=clone(candidate);
 const indices=changed.restored.positions.flatMap((atom)=>atom.references.filter(r=>r.field==='vartype'));
 indices.forEach(ref=>{ref.oid='4321'});
 for(const atom of changed.restored.positions)atom.varBinding.vartypeOid='4321';
-const mismatchedCatalog=catalog(changed.restored,'restored');
-// Deliberately preserve the original type identity even when a synthetic
-// local OID differs, and keep repeated occurrences internally consistent.
-for(const row of mismatchedCatalog.rows.filter(x=>x.field==='vartype'&&x.oid==='4321')){
- row.identity=identity({...row,oid:restoredOid});
+const mismatchedCatalog=clone(restored);
+// A local OID renumbering changes only the numeric key, not the catalog
+// identity of the underlying type. Do not invoke identity(4321): the synthetic
+// lookup table deliberately has no such key.
+for(const row of mismatchedCatalog.rows.filter(x=>x.field==='vartype'&&x.oid===restoredOid)){
+ row.oid='4321';
 }
 assert.equal(inspect(changed,source,mismatchedCatalog).decision,'BLOCKED');
 assert.equal(inspect(changed,source,mismatchedCatalog).nativeValidated,false);
