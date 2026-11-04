@@ -8,7 +8,7 @@ function node(tag,fields){return `{${tag} ${Object.entries(fields).map(([k,v])=>
 const varSlug=()=>node('VAR',{varno:'1',varattno:'3',vartype:'25',vartypmod:'-1',varcollid:'100',
  varnullingrels:'(b)',varlevelsup:'0',varnosyn:'1',varattnosyn:'3',location:'-1'});
 const constInt=n=>node('CONST',{consttype:'23',consttypmod:'-1',constcollid:'0',constlen:'4',constbyval:'true',
- constisnull:'false',location:'-1',constvalue:`4 [ ${n} 0 0 0 ]`});
+ constisnull:'false',location:'-1',constvalue:`4 [ ${n} 0 0 0 0 0 0 0 ]`});
 const constRegex=()=>node('CONST',{consttype:'25',consttypmod:'-1',constcollid:'100',constlen:'-1',constbyval:'false',
  constisnull:'false',location:'-1',constvalue:'3 [ 83 89 78 ]'}); // synthetic bytes, NOT Raxi regex
 const length=()=>node('FUNCEXPR',{funcid:'1317',funcresulttype:'23',funcretset:'false',funcvariadic:'false',
@@ -23,6 +23,8 @@ const nested=()=>and([and([lower(),upper()]),regex()]);
 const flat=()=>and([lower(),upper(),regex()]);
 const positive=inspectPg17SlugCandidate(nested(),flat());
 assert.equal(positive.revision,PR39_CONBIN_EXTRACTOR_REVISION);
+assert.equal(positive.assumedDatumBytes,8);
+assert.equal(positive.architectureValidated,false);
 assert.equal(positive.decision,'BLOCKED');
 assert.equal(positive.nativeValidated,false);
 assert.equal(positive.allowCatalogPass,false);
@@ -64,8 +66,16 @@ const mutations=[
  ['unterminated node',s=>s.slice(0,-1)],
  ['broken quote',s=>s.replace(':boolop and',':boolop "unterminated')],
  ['NULL const mismatch',s=>s.replace(':constisnull false',':constisnull true')],
- ['wrong byte length',s=>s.replace('4 [ 2 0 0 0 ]','3 [ 2 0 0 0 ]')],
- ['byte out of range',s=>s.replace('4 [ 2 0 0 0 ]','4 [ 299 0 0 0 ]')],
+ ['wrong logical prefix',s=>s.replace('4 [ 2 0 0 0 0 0 0 0 ]','3 [ 2 0 0 0 0 0 0 0 ]')],
+ ['truncated by-value payload',s=>s.replace('4 [ 2 0 0 0 0 0 0 0 ]','4 [ 2 0 0 0 ]')],
+ ['oversized by-value payload',s=>s.replace('4 [ 2 0 0 0 0 0 0 0 ]','4 [ 2 0 0 0 0 0 0 0 0 ]')],
+ ['by-value logical length vs constlen',s=>s.replace(':constlen 4',':constlen 2')],
+ ['by-reference wrong byte count',s=>s.replace('3 [ 83 89 78 ]','3 [ 83 89 ]')],
+ ['explicit cast funcformat=1',s=>s.replace(':funcformat 0',':funcformat 1')],
+ ['implicit cast funcformat=2',s=>s.replace(':funcformat 0',':funcformat 2')],
+ ['SQL syntax funcformat=3',s=>s.replace(':funcformat 0',':funcformat 3')],
+ ['out-of-range funcformat=4',s=>s.replace(':funcformat 0',':funcformat 4')],
+ ['byte out of range',s=>s.replace('4 [ 2 0 0 0 0 0 0 0 ]','4 [ 299 0 0 0 0 0 0 0 ]')],
  ['wrong consttype',s=>s.replace(':consttype 23',':consttype -2')],
  ['negative OID',s=>s.replace(':opno 525',':opno -3')],
  ['op returns set',s=>s.replace(':opretset false',':opretset true')],
@@ -77,15 +87,19 @@ const mutations=[
  ['non-empty varnullingrels',s=>s.replace(':varnullingrels (b)',':varnullingrels (b 1)')],
  ['unsafe location',s=>s.replace(':location -1',':location 20')],
  ['unexpected field order',s=>s.replace(':constisnull false :location',':location -1 :constisnull false :location')],
- ['null marker forged',s=>s.replace(':constvalue 4 [ 2 0 0 0 ]',':constvalue <>')],
+ ['null marker forged',s=>s.replace(':constvalue 4 [ 2 0 0 0 0 0 0 0 ]',':constvalue <>')],
  ['control bytes',s=>'\0'+s],
  ['overlong',s=>' '.repeat(65537)+s],
  ['leading garbage',s=>'broken '+s],
  ['missing args opener',s=>s.replace(':args (',':args [')],
  ['missing args closer',s=>s.replace(/\) :location -1\}/,'] :location -1}')],
- ['missing const byte close',s=>s.replace('2 0 0 0 ]','2 0 0 0 )')],
+ ['missing const byte close',s=>s.replace('2 0 0 0 0 0 0 0 ]','2 0 0 0 0 0 0 0 )')],
 ];
-for(const [label,change] of mutations)bad(label,change(nested()),flat());
+for(const [label,change] of mutations){
+ const source=nested(),altered=change(source);
+ assert.notEqual(altered,source,'mutation must not be a no-op: '+label);
+ bad(label,altered,flat());
+}
 for(const [label,l,r] of [
  ['source already flat',flat(),flat()],
  ['restore also nested',nested(),nested()],
