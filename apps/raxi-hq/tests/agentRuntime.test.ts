@@ -361,3 +361,41 @@ test('verified but uncited sources remain intact in canonical result',async()=>{
   assert.deepEqual(saved.sources,sources);assert.deepEqual(saved.sourceIds,['cited']);
  }finally{await f.db.close();}
 });
+
+test('runtime projection does not invent blocked events from unknown/lease/future receipts',()=>{
+ const base={workspaceId:workspace,ownerId:owner,serverTime:'2026-11-04T12:00:00Z',
+  tasks:[{id:'task',status:'BLOCKED',title:'Uncertain runtime fixture',simulated:false,result:null}],events:[] as unknown[]};
+ const event=(id:number,event_type:string)=>({id,workspace_id:workspace,agent_id:'agent',task_id:'task',event_type,
+  source_kind:'AGENT_EXECUTOR',evidence_status:'VERIFIED',occurred_at:'2026-11-04T11:59:50Z',
+  payload:{simulated:false,stage:'DIRECTOR',leaseUntil:'2026-11-04T12:00:30Z'}});
+ for(const type of ['RUNTIME_OUTCOME_UNKNOWN','RUNTIME_LEASE_UNKNOWN','RUNTIME_FUTURE_TYPE']){
+  const result=projectRuntime({...base,events:[event(1,type)]},owner,workspace);
+  assert.deepEqual(result.hq.events,[],'An unknown receipt is not an AGENT_BLOCKED event');
+  assert.deepEqual(result.hq.agents,{},'No agent activity is inferred from an unrecognized event');
+  assert.equal(result.tasks[0].status,'BLOCKED','Original server task state stays visible');
+  assert.equal(result.hq.sourceHealth.eventsLoaded,0);
+ }
+ const mixed=projectRuntime({...base,events:[event(1,'RUNTIME_ACKNOWLEDGED'),event(2,'RUNTIME_OUTCOME_UNKNOWN')]},owner,workspace);
+ assert.deepEqual(mixed.hq.events.map(item=>item.type),['TASK_STARTED']);
+ assert.equal(mixed.hq.events.some(item=>item.type==='AGENT_BLOCKED'),false);
+});
+test('expired runtime lease is unconfirmed, never manufactured as task BLOCKED by the frontend',()=>{
+ const task={id:'task',status:'RUNNING',title:'Lease fixture',simulated:false,result:null};
+ const event={id:1,workspace_id:workspace,agent_id:'agent',task_id:'task',event_type:'RUNTIME_ACKNOWLEDGED',
+  source_kind:'AGENT_EXECUTOR',evidence_status:'VERIFIED',occurred_at:'2026-11-04T11:59:50Z',
+  payload:{simulated:false,stage:'DIRECTOR',leaseUntil:'2026-11-04T12:00:10Z'}};
+ const raw={workspaceId:workspace,ownerId:owner,serverTime:'2026-11-04T12:00:00Z',tasks:[task],events:[event]};
+ const current=projectRuntime(raw,owner,workspace,0);
+ assert.equal(current.hq.tasks.task.status,'RUNNING');
+ assert.equal(current.hq.agents.agent.status,'RUNNING');
+ assert.deepEqual(current.hq.events.map(item=>item.type),['TASK_STARTED']);
+ const expired=projectRuntime(raw,owner,workspace,11000);
+ assert.equal(expired.hq.tasks.task.status,'UNCONFIRMED');
+ assert.equal(expired.hq.agents.agent.status,'IDLE');
+ assert.equal(expired.hq.events.some(item=>item.type==='AGENT_BLOCKED'),false);
+ assert.equal(expired.tasks[0].status,'RUNNING','Source task status remains unchanged');
+ const completed=projectRuntime({...raw,tasks:[{...task,status:'COMPLETED'}],
+  events:[{...event,event_type:'RUNTIME_RESULT_COMMITTED'}]},owner,workspace);
+ assert.deepEqual(completed.hq.events.map(item=>item.type),['TASK_COMPLETED']);
+ assert.equal(completed.hq.tasks.task.status,'COMPLETED');
+});
