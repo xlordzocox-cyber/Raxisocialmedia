@@ -16,10 +16,13 @@ export function projectRuntime(raw:unknown,owner:string,workspace:string,elapsed
   const task=s.tasks.find(t=>t.id===e.task_id);if(!task)throw Error('Orphan runtime event');
   if(task.simulated||e.source_kind!=='AGENT_EXECUTOR'||e.evidence_status!=='VERIFIED'||e.payload?.simulated!==false)continue;
   const stage=e.payload.stage;if(!['DIRECTOR','RESEARCHER'].includes(stage)||!e.agent_id)continue;
-  const running=e.event_type==='RUNTIME_ACKNOWLEDGED'&&task.status==='RUNNING'&&Date.parse(e.payload.leaseUntil)>now;
+  // Only these two durable transitions have an equivalent HQ visual event.
+  // OUTCOME_UNKNOWN, LEASE_UNKNOWN and future types must not be mislabeled AGENT_BLOCKED.
+  const type:HQEvent['type']|undefined=e.event_type==='RUNTIME_ACKNOWLEDGED'?'TASK_STARTED':e.event_type==='RUNTIME_RESULT_COMMITTED'?'TASK_COMPLETED':undefined;
+  if(!type)continue;
+  const running=type==='TASK_STARTED'&&task.status==='RUNNING'&&Date.parse(e.payload.leaseUntil)>now;
   hq.agents[e.agent_id]={id:e.agent_id,displayName:stage==='DIRECTOR'?'Director IA':'Investigador',role:stage,status:running?'RUNNING':task.status==='COMPLETED'?'COMPLETED':task.status==='BLOCKED'?'BLOCKED':'IDLE',zone:stage==='DIRECTOR'?'WAR_ROOM':'RESEARCH_LAB',currentTaskId:task.id,capabilities:['authorized-read-only-task'],securityState:'READ_ONLY',lastEventAt:e.occurred_at};
-  hq.tasks[task.id]={id:task.id,title:task.title,status:task.status==='RUNNING'&&!running?'BLOCKED':task.status,ownerAgentId:e.agent_id};
-  const type:HQEvent['type']=e.event_type==='RUNTIME_ACKNOWLEDGED'?'TASK_STARTED':e.event_type==='RUNTIME_RESULT_COMMITTED'?'TASK_COMPLETED':'AGENT_BLOCKED';
+  hq.tasks[task.id]={id:task.id,title:task.title,status:task.status==='RUNNING'&&!running?'UNCONFIRMED':task.status,ownerAgentId:e.agent_id};
   hq.events.push({id:'RUNTIME-'+e.id,timestamp:e.occurred_at,type,label:e.event_type,actorId:e.agent_id,taskId:e.task_id,source:'runtime',verified:true});
  }
  hq.sourceHealth={...hq.sourceHealth,connection:'CONNECTED',lastSuccessfulRead:s.serverTime,agentsLoaded:Object.keys(hq.agents).length,eventsLoaded:hq.events.length,tasksLoaded:s.tasks.filter(t=>!t.simulated).length};
