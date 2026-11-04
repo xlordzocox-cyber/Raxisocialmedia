@@ -2,7 +2,7 @@
 // NEVER import into a restore runner or a canonical catalog equality gate.
 // No Docker, SQL, network, provider access, or waiver authority.
 import {createHash} from 'node:crypto';
-import {readFileSync} from 'node:fs';
+import {constants,closeSync,fstatSync,lstatSync,openSync,readSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {inspectPg17SlugCandidate} from './pr39-pg17-conbin-extractor.mjs';
@@ -164,10 +164,37 @@ export function inspectPr39PinnedEvidenceBytes(bytes){
  let object;try{object=JSON.parse(bytes.toString('utf8'))}catch{fail()}
  return inspectPr39PinnedRegrouping(object);
 }
+// Read no more than MAX_BYTES + 1 from an ordinary file. A path check alone
+// is insufficient (it may change before open), so check the opened descriptor
+// too. Never use readFileSync on an untrusted CLI/environment path.
+const MAX_BYTES=150000;
+export function readPr39BoundedEvidenceFile(path){
+ if(typeof path!=='string'||!path.length)fail();
+ const full=resolve(path);
+ const before=lstatSync(full);
+ if(!before.isFile()||before.size<1||before.size>MAX_BYTES)fail();
+ // O_NONBLOCK avoids FIFO open hangs if a path was swapped on POSIX;
+ // O_NOFOLLOW prevents symlink redirects after lstat when supported.
+ const flags=constants.O_RDONLY|(process.platform==='win32'?0:
+  ((constants.O_NONBLOCK??0)|(constants.O_NOFOLLOW??0)));
+ const fd=openSync(full,flags);
+ try{
+  const opened=fstatSync(fd);
+  if(!opened.isFile()||opened.size<1||opened.size>MAX_BYTES)fail();
+  const bytes=Buffer.alloc(MAX_BYTES+1);let offset=0;
+  while(offset<bytes.length){
+   const n=readSync(fd,bytes,offset,bytes.length-offset,null);
+   if(n===0)break;
+   offset+=n;
+  }
+  if(offset<1||offset>MAX_BYTES)fail();
+  return bytes.subarray(0,offset);
+ }finally{closeSync(fd)}
+}
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url)){
  try{
   if(process.argv.length!==4||process.argv[2]!=='--evidence')fail();
-  const result=inspectPr39PinnedEvidenceBytes(readFileSync(resolve(process.argv[3])));
+  const result=inspectPr39PinnedEvidenceBytes(readPr39BoundedEvidenceFile(process.argv[3]));
   console.log('PR39 STRUCTURAL OBSERVATION: '+result.structuralObservation);
   console.log('PR39 OID OCCURRENCES: '+result.comparedOccurrences+'; matched atom subtrees: '+result.identicalOperandSubtrees);
   console.log('PR39 DECISION: BLOCKED / NOT_VERIFIED; allowCatalogPass=false; NO_GO_HOSTED_MIGRATION');
