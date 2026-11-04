@@ -76,3 +76,9 @@ El correctivo introduce `readPr39BoundedEvidenceFile`, utilizado tanto por `--ev
 Se añadieron pruebas de proceso hijo con tiempo máximo para rechazar archivo regular de 150001 bytes, directorio y JSON pequeño con huella incorrecta. En POSIX también se rechaza symlink; en Linux, `/dev/zero`, sin permitir bloqueos ni lectura sin límite. La batería original de 44 mutaciones adversariales y 3 rechazos de buffers se conserva.
 
 Las pruebas de este correctivo se ejecutaron localmente con Node 22 en entorno Linux, incluyendo el JSON nativo suministrado por el usuario, y permanecieron `BLOCKED / NOT_VERIFIED`. **Se requiere todavía ejecutar este nuevo SHA en Windows y obtener nueva revisión independiente Codex antes de considerar resuelto el P2.** La prueba no ejecuta Docker, SQL, ni modifica el comparador original o `NO_GO_HOSTED_MIGRATION`.
+
+## Actualización de evidencia posterior — 2026-11-04
+
+Las frases previas «Windows pendiente» y «Codex pendiente» corresponden a un estado histórico. Posteriormente, **el usuario ejecutó en Windows** las suites de atestación y regresión del commit `5e5766a76f7ade59ff4eda4fa83aae800fe516fe`, incluidas las pruebas contra la copia local privada del JSON original, con resultados PASS. La revisión de Codex de ese SHA fue completada sin nuevos hallazgos. El hallazgo P2 sobre `readFileSync` ya quedó corregido mediante lectura acotada y su hilo cerró después de comprobación independiente. Ninguno de estos PASS ha sido interpretado como equivalencia PG17 o permiso de restauración.
+
+La siguiente fase de integración contra el `main` actualizado y el nuevo control de daemon Docker constituyen cambios adicionales, por lo que el conjunto combinado deberá volver a probarse. Las 35 identidades por posición continúan como evidencia **de una única captura sintética pinneada por bytes**; no sirven como atestación general para otros catálogos o versiones.
