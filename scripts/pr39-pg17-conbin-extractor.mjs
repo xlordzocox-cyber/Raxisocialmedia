@@ -166,7 +166,7 @@ function inspectAtom(atom,path){
    collationOid:right.fields.constcollid,length:right.fields.constlen,
    byValue:right.fields.constbyval,isNull:right.fields.constisnull,
    completeRawValueSha256:sha(right.fields.constvalue)}
- }; 
+ };
 }
 
 export function inspectPg17SlugCandidate(source,restored){
