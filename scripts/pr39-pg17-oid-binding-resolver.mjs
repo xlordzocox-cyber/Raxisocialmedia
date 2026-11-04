@@ -2,7 +2,7 @@
 // No postgres, Docker, SQL execution, equivalence or catalog PASS authority.
 import {createHash} from 'node:crypto';
 
-export const PR39_OID_BINDING_REVISION='PR39_PG17_POSITIONAL_OID_BINDINGS_V2';
+export const PR39_OID_BINDING_REVISION='PR39_PG17_POSITIONAL_OID_BINDINGS_V3';
 export const PR39_CAPTURE_REQUIREMENTS=Object.freeze({
  major:17,expectedDatumBytes:8,provenance:'SYNTHETIC_OFFLINE',
  status:'NOT_NATIVE_VERIFIED'
@@ -104,6 +104,8 @@ const DIRECT_VARIABLE_SLOTS=Object.freeze([['.0','vartype','type'],['.0','varcol
 const CONSTANT_SLOTS=Object.freeze([['.1','consttype','type'],['.1','constcollid','collation']]);
 const POSITIVE_DECIMAL=/^(?:0|[1-9][0-9]*)$/;
 const SIGNED_DECIMAL=/^(?:0|-?[1-9][0-9]*)$/;
+// Optional OID slots are explicitly named. Class alone does not make OID 0 valid.
+const ZERO_REFERENCE_FIELDS=new Set(['opfuncid','opcollid','inputcollid','funccollid','varcollid','constcollid']);
 const digitsText=x=>typeof x==='string'&&SIGNED_DECIMAL.test(x)&&Number.isSafeInteger(Number(x));
 function expectedReferences(side,kind){
  const paths=kind==='source'?['0.0','0.1','1']:['0','1','2'];
@@ -124,7 +126,8 @@ function expectedReferences(side,kind){
   if(variable.path!==varPath||constant.path!==path+'.1'||
      ![variable.varno,variable.varattno,variable.varnosyn,variable.varattnosyn]
        .every(x=>typeof x==='string'&&POSITIVE_DECIMAL.test(x)&&Number(x)>0)||
-     variable.varlevelsup!=='0'||!digitsText(variable.vartypmod)||
+     variable.varlevelsup!=='0'||variable.varnosyn!==variable.varno||
+     variable.varattnosyn!==variable.varattno||!digitsText(variable.vartypmod)||
      !Array.isArray(variable.nullingRelations)||variable.nullingRelations.length!==0||
      !validOid(variable.vartypeOid)||variable.vartypeOid==='0'||
      !validOid(variable.varcollidOid)||
@@ -144,7 +147,7 @@ function expectedReferences(side,kind){
    const ref=atom.references[k],[suffix,field,refKind]=slots[k];
    if(!exact(ref,['path','field','kind','oid'])||
       ref.path!==path+suffix||ref.field!==field||ref.kind!==refKind||
-      !validOid(ref.oid))fail();
+      !validOid(ref.oid)||(ref.oid==='0'&&!ZERO_REFERENCE_FIELDS.has(ref.field)))fail();
    byField.set(ref.path+'\0'+ref.field,ref.oid);
    references.push(ref);
   }
@@ -154,6 +157,49 @@ function expectedReferences(side,kind){
      byField.get(constant.path+'\0constcollid')!==constant.collationOid)fail();
  }
  return references;
+}
+// Synthetic catalog consistency: verify the declared objects actually link
+// to the same typed operator/function/argument/result signatures per atom.
+// A matching name on both sides is not proof of a valid local catalog.
+function validateTypedCatalogLinks(side,catalog){
+ const records=new Map(catalog.rows.map(r=>[r.path+'\0'+r.field,r]));
+ const get=(path,field,kind)=>{
+  const row=records.get(path+'\0'+field);
+  if(!row||row.kind!==kind)fail();
+  return row;
+ };
+ const qualifiedType=(row)=>{
+  if(row.oid==='0'||row.kind!=='type')fail();
+  return row.identity.schema+'.'+row.identity.name;
+ };
+ const procSignature=(row)=>{
+  if(row.oid==='0'||row.kind!=='function')fail();
+  return row.identity.schema+'.'+row.identity.name+'('+row.identity.arguments+')';
+ };
+ for(let i=0;i<side.positions.length;i++){
+  const atom=side.positions[i],path=atom.path;
+  const op=get(path,'opno','operator');
+  const implementer=get(path,'opfuncid','function');
+  const result=qualifiedType(get(path,'opresulttype','type'));
+  const rhs=qualifiedType(get(path+'.1','consttype','type'));
+  let lhs;
+  if(i<2){
+   const fn=get(path+'.0','funcid','function');
+   const fnResult=qualifiedType(get(path+'.0','funcresulttype','type'));
+   const arg=qualifiedType(get(path+'.0.0','vartype','type'));
+   if(fn.oid==='0'||fn.identity.arguments!==arg||fn.identity.resultType!==fnResult)fail();
+   lhs=fnResult;
+  }else lhs=qualifiedType(get(path+'.0','vartype','type'));
+  if(implementer.oid==='0'||op.identity.leftType!==lhs||
+     op.identity.rightType!==rhs||op.identity.resultType!==result||
+     op.identity.procedure!==procSignature(implementer)||
+     implementer.identity.arguments!==lhs+','+rhs||
+     implementer.identity.resultType!==result)fail();
+  const typeRow=get(path+'.1','consttype','type');
+  const constant=atom.constant;
+  if((constant.byValue==='true')!==typeRow.identity.byValue)fail();
+  if(typeRow.identity.byValue&&Number(constant.length)!==typeRow.identity.length)fail();
+ }
 }
 function relativePaths(side,catalog){
  const result=[];
@@ -185,6 +231,8 @@ export function checkPr39OfflineOidBindings(candidate,sourceCatalog,restoredCata
  const left=expectedReferences(candidate.source,'source'),right=expectedReferences(candidate.restored,'restored');
  validateCatalog(sourceCatalog,left,'source');
  validateCatalog(restoredCatalog,right,'restored');
+ validateTypedCatalogLinks(candidate.source,sourceCatalog);
+ validateTypedCatalogLinks(candidate.restored,restoredCatalog);
  if(JSON.stringify(sourceCatalog.build)!==JSON.stringify(restoredCatalog.build))fail();
  const source=relativePaths(candidate.source,sourceCatalog);
  const restored=relativePaths(candidate.restored,restoredCatalog);
