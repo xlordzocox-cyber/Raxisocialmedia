@@ -18,8 +18,16 @@ async function scan(dir) {
     const data = await readFile(path); if (data.includes(0)) continue;
     const source=data.toString('utf8'); scanned++;
     if (!path.endsWith('security-scan.mjs')) modelReferences += [...source.matchAll(/gpt-5\.5/g)].length;
+    const file=relative('.',path).replaceAll('\\','/');
     for (const [rule,pattern] of rules) {
-      for (const match of source.matchAll(pattern)) findings.push({file:relative('.',path).replaceAll('\\','/'),line:source.slice(0,match.index).split('\n').length,rule});
+      for (const match of source.matchAll(pattern)) {
+        // The bundled OAuth parameter name is a public constant, not a credential.
+        // Exempt only the exact self-named literal in generated JS; never skip
+        // non-identical values, any other rule or any source/configuration file.
+        if (rule==='assigned-credential' && file.startsWith('dist/assets/') && file.endsWith('.js') &&
+            /^access_token\s*[:=]\s*(["'])access_token\1$/.test(match[0])) continue;
+        findings.push({file,line:source.slice(0,match.index).split('\n').length,rule});
+      }
     }
   }
 }
