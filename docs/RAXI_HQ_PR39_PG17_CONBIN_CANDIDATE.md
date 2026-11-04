@@ -11,13 +11,13 @@ Base revisada: PR #39 `2fefe4c6a4d05ad58b0d0460e85048f58a2a8e79`. No altera el r
 - Distingue el patrón candidato fuente `AND(AND(L,U),R)` con rutas `0.0`, `0.1`, `1` frente al de restauración `AND(L,U,R)` con rutas `0`, `1`, `2`. **No aplana otros AND ni reordena argumentos.**
 - Conserva el registro por posición del OID declarado de operadores, funciones, tipos y collations; el `varno`, `varattno`, `varnosyn`, `varattnosyn`, `varlevelsup`, `vartype`, `vartypmod`, `varcollid`, bitmap nulo, y la huella SHA-256 completa del valor bruto `Const`. Los datos del árbol se mantienen en memoria; el informe no imprime bytes ni SQL.
 - `PR39_LOCAL_CAPTURE_SELECT` es solo una **definición de consulta SELECT preparada**, sin conexión ni ejecución. Su única relación objetivo es `public.raxi_workspaces` y su CHECK `raxi_workspaces_slug_check`. **No ejecutar sobre staging/producción.**
-- `scripts/test-pr39-pg17-conbin-extractor.mjs` verifica el parser y 47 casos adversariales exclusivamente sintéticos, incluyendo errores de formato, nodos desconocidos, cambios en argumentos y falsas autorizaciones.
+- `scripts/test-pr39-pg17-conbin-extractor.mjs` verifica el parser y 55 casos adversariales exclusivamente sintéticos, incluyendo errores de formato, nodos desconocidos, cambios en argumentos y falsas autorizaciones.
 
 ### Contrato de salida obligatorio
 
 ```json
 {
-  "revision": "PG17_CLOSED_GRAMMAR_CANDIDATE_V1",
+  "revision": "PG17_CLOSED_GRAMMAR_CANDIDATE_V2",
   "decision": "BLOCKED",
   "nativeValidated": false,
   "semanticEquivalence": "NOT_VERIFIED",
@@ -67,3 +67,16 @@ Estos últimos comandos **no** llevan `--run-local`. Ningún servicio, Docker ni
 - Source PG17 `src/backend/nodes/outfuncs.c`, `src/backend/nodes/read.c`, `src/include/nodes/primnodes.h`: fijar commit exacto de la versión presente antes de cualquier promoción a captura nativa.
 
 **Gates inalterados:** NO merge; NO Docker/`--run-local`; NO proveedores; NO SQL alojado; NO instalación de extensiones; NO cambios RLS/Auth; NO activación de B2. Cualquier ejecución nativa futura requiere aprobación específica adicional.
+
+## Revisión P2 Codex: formato de Datum y funcformat (2026-11-04)
+
+La revisión independiente encontró dos defectos del **candidato offline**, no un bypass del comparador:
+
+1. **Constantes `by-value`**: PostgreSQL serializa un prefijo de longitud lógica (`constlen=4` en `int4`) pero emite **`sizeof(Datum)` bytes físicos**. V2 usa explícitamente `PG17_ASSUMED_DATUM_BYTES=8` y exige 8 bytes para `constbyval=true`, mientras conserva el prefijo lógico, todos los bytes y sus hashes. Rechaza truncamientos, exceso de bytes y `constlen` incompatible. Los valores by-reference deben tener un recuento físico igual al prefijo de datos. Esta arquitectura está **SUPUESTA, no comprobada para la build PG17 nativa**; la salida añade `assumedDatumBytes:8` y `architectureValidated:false`.
+2. **`FuncExpr.funcformat`**: únicamente se admite `0` (`COERCE_EXPLICIT_CALL`). Los valores `1` y `2` (cast explícito/implícito), `3` (sintaxis SQL) y `4` (fuera del enum PG17) se rechazan. No se eliminan ni normalizan casts.
+
+La batería adversarial sintética creció de 47 a **55** y ahora comprueba que las mutaciones realmente cambian el fixture: un reemplazo sin efecto no puede contarse como prueba negativa. Se reitera que todas las coincidencias permanecen `decision:'BLOCKED'`, `nativeValidated:false`, `semanticEquivalence:'NOT_VERIFIED'` y `allowCatalogPass:false`.
+
+Este incremento **NO** modifica el runner, el gate de catálogo, las siete fuentes SQL, Auth, RLS, las autorizaciones, la operación alojada o `--run-local`. Requiere tests en Windows y una nueva revisión Codex del HEAD exacto. La autorización de un ensayo nativo sigue siendo separada.
+
+**Fuentes primarias para fijar por commit antes de uso nativo:** [PostgreSQL PG17 `outfuncs.c`](https://github.com/postgres/postgres/blob/REL_17_STABLE/src/backend/nodes/outfuncs.c), [`primnodes.h` / CoercionForm](https://github.com/postgres/postgres/blob/REL_17_STABLE/src/include/nodes/primnodes.h). La rama `REL_17_STABLE` puede cambiar; no se debe considerar una prueba de equivalencia ni de arquitectura.
