@@ -3,7 +3,9 @@
 // Do not import from recovery runner/catalog equality gate.
 import {createHash} from 'node:crypto';
 
-export const PR39_CONBIN_EXTRACTOR_REVISION='PG17_CLOSED_GRAMMAR_CANDIDATE_V1';
+export const PR39_CONBIN_EXTRACTOR_REVISION='PG17_CLOSED_GRAMMAR_CANDIDATE_V2';
+// Offline only: 64-bit Datum layout is assumed, not independently verified.
+const PG17_ASSUMED_DATUM_BYTES=8;
 // Query definition only. Never executed/imported by the PR39 recovery runner.
 // In future, execute only in explicitly authorized, isolated synthetic PG17.
 export const PR39_LOCAL_CAPTURE_SELECT = `select
@@ -92,7 +94,13 @@ export function decodePg17Conbin(source){
      if(at>=tokens.length||bytes.length>8192)fail();
      const x=atom();if(!checkInt(x,-128,255))fail();bytes.push(Number(x));
     }
-    expect(']');if(bytes.length!==Number(declared))fail();fields[key]={length:Number(declared),bytes};
+    // outDatum writes the logical prefix, but sizeof(Datum) physical bytes
+    // for by-value data. V2 supports only the unverified 64-bit assumption.
+    const logicalLength=Number(declared);
+    if(fields.constbyval==='true'&&(![1,2,4,8].includes(Number(fields.constlen))||
+       logicalLength!==Number(fields.constlen)))fail();
+    const physicalLength=fields.constbyval==='true'?PG17_ASSUMED_DATUM_BYTES:logicalLength;
+    expect(']');if(bytes.length!==physicalLength)fail();fields[key]={length:logicalLength,bytes};
    }else fields[key]=atom();
   }
   expect('}');
@@ -105,7 +113,8 @@ export function decodePg17Conbin(source){
   }
   if(tag==='FUNCEXPR'){
    if(fields.args.length!==1||!checkInt(fields.funcid,1)||!checkInt(fields.funcresulttype,1)||
-      !checkInt(fields.funcformat,0,4)||!checkInt(fields.funccollid,0)||!checkInt(fields.inputcollid,0)||
+      fields.funcformat!=='0'|| // COERCE_EXPLICIT_CALL only: casts/unknown forms stop.
+      !checkInt(fields.funccollid,0)||!checkInt(fields.inputcollid,0)||
       fields.funcretset!=='false'||fields.funcvariadic!=='false')fail();
   }
   if(tag==='VAR'){
@@ -180,7 +189,8 @@ export function inspectPg17SlugCandidate(source,restored){
     a.atoms[2].fields.args[0].tag!=='VAR')fail();
  if(b.atoms[0].fields.args[0].tag!=='FUNCEXPR'||b.atoms[1].fields.args[0].tag!=='FUNCEXPR'||
     b.atoms[2].fields.args[0].tag!=='VAR')fail();
- return Object.freeze({revision:PR39_CONBIN_EXTRACTOR_REVISION,decision:'BLOCKED',
+ return Object.freeze({revision:PR39_CONBIN_EXTRACTOR_REVISION,assumedDatumBytes:PG17_ASSUMED_DATUM_BYTES,
+  architectureValidated:false,decision:'BLOCKED',
   nativeValidated:false,semanticEquivalence:'NOT_VERIFIED',allowCatalogPass:false,
   provenance:'OFFLINE_UNTRUSTED_NODE_TEXT',
   shape:'AND(AND(L,U),R)->AND(L,U,R)',
