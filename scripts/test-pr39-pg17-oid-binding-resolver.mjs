@@ -8,7 +8,7 @@ const varSlug=()=>node('VAR',{varno:'1',varattno:'3',vartype:'25',vartypmod:'-1'
 const cInt=n=>node('CONST',{consttype:'23',consttypmod:'-1',constcollid:'0',constlen:'4',constbyval:'true',constisnull:'false',location:'-1',constvalue:`4 [ ${n} 0 0 0 0 0 0 0 ]`});
 const cText=()=>node('CONST',{consttype:'25',consttypmod:'-1',constcollid:'100',constlen:'-1',constbyval:'false',constisnull:'false',location:'-1',constvalue:'3 [ 83 89 78 ]'});
 const length=()=>node('FUNCEXPR',{funcid:'1317',funcresulttype:'23',funcretset:'false',funcvariadic:'false',funcformat:'0',funccollid:'0',inputcollid:'100',args:`(${varSlug()})`,location:'-1'});
-const op=(id,ls,rc,coll='0')=>node('OPEXPR',{opno:String(id),opfuncid:'65',opresulttype:'16',opretset:'false',opcollid:'0',inputcollid:coll,args:`(${ls} ${rc})`,location:'-1'});
+const op=(id,ls,rc,coll='0')=>node('OPEXPR',{opno:String(id),opfuncid:id===641?'67':'65',opresulttype:'16',opretset:'false',opcollid:'0',inputcollid:coll,args:`(${ls} ${rc})`,location:'-1'});
 const low=()=>op(525,length(),cInt(2)),upper=()=>op(523,length(),cInt(64)),regex=()=>op(641,varSlug(),cText(),'100');
 const and=x=>node('BOOLEXPR',{boolop:'and',args:`(${x.join(' ')})`,location:'-1'});
 const candidate=inspectPg17SlugCandidate(and([and([low(),upper()]),regex()]),and([low(),upper(),regex()]));
@@ -17,12 +17,45 @@ const build=()=>({serverVersionNum:170008,imageDigest:'sha256:'+H,imagePlatform:
  postgresBinarySha256:C,datumBytes:8,databaseEncoding:'UTF8',databaseCollationSha256:D});
 function identity(r){
  if(r.oid==='0')return {zeroOid:true};
- // The same local (kind, OID) must always resolve to the same identity.
- const name=r.kind+'_'+r.oid;
- if(r.kind==='type')return {schema:'pg_catalog',name,kind:'b',category:'N',length:4,byValue:true,alignment:'i',storage:'p',defined:true,elementType:'none',defaultCollation:'none'};
- if(r.kind==='operator')return {schema:'pg_catalog',name,kind:'b',leftType:'pg_catalog.int4',rightType:'pg_catalog.int4',resultType:'pg_catalog.bool',procedure:'pg_catalog.opfunc(int4,int4)',canMerge:false,canHash:false};
- if(r.kind==='function')return {schema:'pg_catalog',name,arguments:'pg_catalog.text',resultType:'pg_catalog.int4',language:'internal',volatility:'i',parallel:'s',strict:true,leakproof:false,securityDefiner:false,implementationSha256:H};
- if(r.kind==='collation')return {schema:'pg_catalog',name,provider:'c',deterministic:true,encoding:-1,collate:'C',ctype:'C',locale:null,rules:null,version:null};
+ if(r.kind==='type'){
+  const types={
+   '16':{name:'bool',category:'B',length:1,byValue:true,alignment:'c',storage:'p'},
+   '23':{name:'int4',category:'N',length:4,byValue:true,alignment:'i',storage:'p'},
+   '25':{name:'text',category:'S',length:-1,byValue:false,alignment:'i',storage:'x'}
+  };
+  const t=types[r.oid];
+  if(!t)throw Error('unknown synthetic type');
+  return {schema:'pg_catalog',name:t.name,kind:'b',category:t.category,
+   length:t.length,byValue:t.byValue,alignment:t.alignment,storage:t.storage,
+   defined:true,elementType:'none',defaultCollation:'none'};
+ }
+ if(r.kind==='operator'){
+  const ops={
+   '525':{name:'int4_ge',leftType:'pg_catalog.int4',rightType:'pg_catalog.int4',
+          resultType:'pg_catalog.bool',procedure:'pg_catalog.int4_cmp(pg_catalog.int4,pg_catalog.int4)'},
+   '523':{name:'int4_le',leftType:'pg_catalog.int4',rightType:'pg_catalog.int4',
+          resultType:'pg_catalog.bool',procedure:'pg_catalog.int4_cmp(pg_catalog.int4,pg_catalog.int4)'},
+   '641':{name:'text_regex',leftType:'pg_catalog.text',rightType:'pg_catalog.text',
+          resultType:'pg_catalog.bool',procedure:'pg_catalog.text_regex(pg_catalog.text,pg_catalog.text)'}
+  };
+  const o=ops[r.oid];
+  if(!o)throw Error('unknown synthetic operator');
+  return {schema:'pg_catalog',...o,kind:'b',canMerge:false,canHash:false};
+ }
+ if(r.kind==='function'){
+  const functions={
+   '65':{name:'int4_cmp',arguments:'pg_catalog.int4,pg_catalog.int4',resultType:'pg_catalog.bool'},
+   '67':{name:'text_regex',arguments:'pg_catalog.text,pg_catalog.text',resultType:'pg_catalog.bool'},
+   '1317':{name:'text_length',arguments:'pg_catalog.text',resultType:'pg_catalog.int4'}
+  };
+  const fn=functions[r.oid];
+  if(!fn)throw Error('unknown synthetic function');
+  return {schema:'pg_catalog',...fn,language:'internal',volatility:'i',
+   parallel:'s',strict:true,leakproof:false,securityDefiner:false,implementationSha256:H};
+ }
+ if(r.kind==='collation')return {schema:'pg_catalog',name:'collation_'+r.oid,
+  provider:'c',deterministic:true,encoding:-1,collate:'C',ctype:'C',
+  locale:null,rules:null,version:null};
  throw Error('bad fixture');
 }
 const catalog=(side,tag)=>({provenance:'SYNTHETIC_OFFLINE',side:tag,build:build(),rows:side.positions.flatMap(p=>p.references).map((r,i)=>({ordinal:i,...r,identity:identity(r)}))});
@@ -136,6 +169,57 @@ const cases=[
   for(const rows of [s.rows,r.rows]){
    const one=rows.find(x=>x.field==='inputcollid'&&x.oid==='100');
    one.identity.name='forged_same_collation_oid';
+  }
+ }],
+ ['funcid zero jointly forged',(a,s,r)=>{
+  for(const candidateSide of [a.source,a.restored]){
+   candidateSide.positions[0].references.find(x=>x.field==='funcid').oid='0';
+  }
+  for(const rows of [s.rows,r.rows]){
+   const row=rows.find(x=>x.field==='funcid');
+   row.oid='0';row.identity={zeroOid:true};
+  }
+ }],
+ ['Var alias varnosyn jointly forged',(a)=>{
+  a.source.positions[0].varBinding.varnosyn='2';
+  a.restored.positions[0].varBinding.varnosyn='2';
+ }],
+ ['Var alias varattnosyn jointly forged',(a)=>{
+  a.source.positions[0].varBinding.varattnosyn='99';
+  a.restored.positions[0].varBinding.varattnosyn='99';
+ }],
+ ['operator procedure contradicts implementer on both sides',(a,s,r)=>{
+  for(const rows of [s.rows,r.rows])
+   for(const row of rows.filter(x=>x.kind==='operator'))
+    row.identity.procedure='pg_catalog.forged(pg_catalog.int4,pg_catalog.int4)';
+ }],
+ ['operator left type contradictory on both sides',(a,s,r)=>{
+  for(const rows of [s.rows,r.rows])
+   for(const row of rows.filter(x=>x.kind==='operator'))
+    row.identity.leftType='pg_catalog.forged';
+ }],
+ ['operator result type contradictory on both sides',(a,s,r)=>{
+  for(const rows of [s.rows,r.rows])
+   for(const row of rows.filter(x=>x.kind==='operator'))
+    row.identity.resultType='pg_catalog.text';
+ }],
+ ['function arguments contradict call on both sides',(a,s,r)=>{
+  for(const rows of [s.rows,r.rows])
+   for(const row of rows.filter(x=>x.kind==='function'&&x.oid==='65'))
+    row.identity.arguments='pg_catalog.text,pg_catalog.text';
+ }],
+ ['function result type contradicts catalog on both sides',(a,s,r)=>{
+  for(const rows of [s.rows,r.rows])
+   for(const row of rows.filter(x=>x.kind==='function'&&x.oid==='65'))
+    row.identity.resultType='pg_catalog.text';
+ }],
+ ['operator missing implementation on both sides',(a,s,r)=>{
+  for(const candidateSide of [a.source,a.restored]){
+   candidateSide.positions[0].references.find(x=>x.field==='opfuncid').oid='0';
+  }
+  for(const rows of [s.rows,r.rows]){
+   const row=rows.find(x=>x.field==='opfuncid');
+   row.oid='0';row.identity={zeroOid:true};
   }
  }],
  ];
