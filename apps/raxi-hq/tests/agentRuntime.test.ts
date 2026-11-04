@@ -266,7 +266,7 @@ test('revocation after adapter entry preserves the started call receipt/cost and
  }finally{await f.db.close();}
 });
 
-for(const live of [false,true])for(const acknowledged of [false,true])test(`expired ${live?'REAL':'SIMULATED'} ${acknowledged?'acknowledged':'claimed'} run preserves provenance, audit and mounted Office/Pixi projection`,async()=>{
+for(const live of [false,true])for(const acknowledged of [false,true])test(`expired ${live?'REAL':'SIMULATED'} ${acknowledged?'acknowledged':'claimed'} run preserves provenance, audit and conservative Office/Pixi projection`,async()=>{
  const f=await fixture(live);let view:ReactTestRenderer|undefined;try{
   const id=await f.create(),claim=(await f.repository.claim(id,'expiry-fixture'))!,run=claim.run;
   if(acknowledged){await f.repository.step(run.id,run.lease_token,'dispatch');await f.repository.step(run.id,run.lease_token,'ack',undefined,'LOCAL-FIXTURE-RECEIPT');}
@@ -287,13 +287,21 @@ for(const live of [false,true])for(const acknowledged of [false,true])test(`expi
   await f.db.exec('reset role');await f.db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:owner})]);await f.db.exec('set role authenticated');
   const snapshot=(await f.db.query<{v:unknown}>('select public.raxi_runtime_office($1) v',[workspace])).rows[0].v;
   const projected=projectRuntime(snapshot,owner,workspace);assert.ok(Object.values(projected.hq.agents).every(a=>a.status!=='RUNNING'));
-  if(live){assert.equal(Object.keys(projected.hq.agents).length,1);assert.equal(Object.values(projected.hq.agents)[0].status,'BLOCKED');}
-  else {assert.deepEqual(projected.hq.agents,{});assert.deepEqual(projected.hq.events,[]);assert.deepEqual(projected.hq.tasks,{});}
+  // An acknowledged live run has a supported TASK_STARTED event; a claimed-only
+  // run has only RUNTIME_LEASE_UNKNOWN and must not manufacture AGENT_BLOCKED.
+  const hasAcknowledgedLiveEvent=live&&acknowledged;
+  if(hasAcknowledgedLiveEvent){
+   assert.equal(Object.keys(projected.hq.agents).length,1);
+   assert.equal(Object.values(projected.hq.agents)[0].status,'BLOCKED');
+   assert.deepEqual(projected.hq.events.map(e=>e.type),['TASK_STARTED']);
+  }else{assert.deepEqual(projected.hq.agents,{});assert.deepEqual(projected.hq.events,[]);assert.deepEqual(projected.hq.tasks,{});}
+  assert.equal(projected.hq.events.some(e=>e.type==='AGENT_BLOCKED'),false);
+  if(live)assert.equal(projected.tasks.find(t=>t.id===id)?.status,'BLOCKED','Server task remains blocked without a synthetic HQ event');
   Object.defineProperty(globalThis,'IS_REACT_ACT_ENVIRONMENT',{value:true,configurable:true});
   const client={rpc:async()=>({data:snapshot,error:null})} as unknown as SupabaseClient;
   await act(async()=>{view=create(createElement(StrictMode,null,createElement(RuntimeOfficePanel,{client,owner,workspace})));});
-  assert.match(JSON.stringify(view!.toJSON()),live?/1 agentes con eventos reales confirmados/:/0 agentes con eventos reales confirmados/);
-  assert.equal(view!.root.findAll(n=>n.props.className==='canvas-host').length,live?1:0);
+  assert.match(JSON.stringify(view!.toJSON()),hasAcknowledgedLiveEvent?/1 agentes con eventos reales confirmados/:/0 agentes con eventos reales confirmados/);
+  assert.equal(view!.root.findAll(n=>n.props.className==='canvas-host').length,hasAcknowledgedLiveEvent?1:0);
   if(!live)assert.match(JSON.stringify(view!.toJSON()),/SIMULACIÓN · no acredita IA real/);
   assert.ok(view!.root.findAllByType('button').every(b=>b.props.disabled));
  }finally{if(view)await act(async()=>view!.unmount());await f.db.close();}
