@@ -66,3 +66,13 @@ No se lee Docker, PostgreSQL, Supabase, la red, credenciales ni proveedores. Los
 3. Continuar `NO_GO_HOSTED_MIGRATION`; no merge, despliegue, SQL alojado, proveedores ni modificación de las siete fuentes SQL fijadas.
 
 El reconocimiento de una forma concreta de árboles `AND` no verifica genéricamente que toda restauración, todos los datos de Auth/Storage ni el catálogo completo sean semánticamente equivalentes.
+
+## Endurecimiento CLI: lectura acotada antes de reservar memoria
+
+Codex encontró un hallazgo P2 en el SHA `adbbe05954851b698e438cff561b90c4034122a2`: la CLI aceptaba rutas arbitrarias y ejecutaba `readFileSync` **antes** del límite de 150000 bytes aplicado al Buffer. Esto permitía leer archivos grandes o dispositivos especiales sin una cota de memoria efectiva.
+
+El correctivo introduce `readPr39BoundedEvidenceFile`, utilizado tanto por `--evidence` como por `PR39_NATIVE_EVIDENCE_FILE` en las pruebas. Se valida con `lstatSync` que la ruta sea un archivo regular de 1 a 150000 bytes, luego se abre con banderas de lectura y, en POSIX, `O_NONBLOCK` y `O_NOFOLLOW` donde estén disponibles. Se comprueba de nuevo el descriptor con `fstatSync`; la lectura usa exclusivamente `readSync` sobre un Buffer fijo de **150001 bytes**, rechaza exceso antes de parsear y cierra siempre el descriptor con `finally`. La huella SHA-256 de bytes completos y el resto del verificador permanecen sin cambios. El control no atribuye procedencia ni autenticidad nativa al archivo.
+
+Se añadieron pruebas de proceso hijo con tiempo máximo para rechazar archivo regular de 150001 bytes, directorio y JSON pequeño con huella incorrecta. En POSIX también se rechaza symlink; en Linux, `/dev/zero`, sin permitir bloqueos ni lectura sin límite. La batería original de 44 mutaciones adversariales y 3 rechazos de buffers se conserva.
+
+Las pruebas de este correctivo se ejecutaron localmente con Node 22 en entorno Linux, incluyendo el JSON nativo suministrado por el usuario, y permanecieron `BLOCKED / NOT_VERIFIED`. **Se requiere todavía ejecutar este nuevo SHA en Windows y obtener nueva revisión independiente Codex antes de considerar resuelto el P2.** La prueba no ejecuta Docker, SQL, ni modifica el comparador original o `NO_GO_HOSTED_MIGRATION`.
