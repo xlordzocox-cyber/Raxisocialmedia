@@ -12,6 +12,13 @@ const fail=()=>{throw Error(STOP);};
 const OID=/^(?:0|[1-9][0-9]{0,9})$/;
 const SHA=/^[a-f0-9]{64}$/;
 const ID=/^[A-Za-z_][A-Za-z0-9_]{0,127}$/;
+// PostgreSQL 17 SQL lexer allows operator punctuation, not ordinary identifiers.
+// This remains a closed CHECK-specific verifier; operator names are validated
+// lexically here and checked against the exact expected position later.
+const PG_OPERATOR=/^[+*\\/<>\-=~!@#%^&|`?]{1,63}$/;
+const validOperatorName=name=>typeof name==='string'&&PG_OPERATOR.test(name)&&
+ !name.includes('--')&&!name.includes('/*')&&
+ (name.length===1||!/[+-]$/.test(name)||/[~!@#%^&|`?]/.test(name));
 const string=x=>typeof x==='string'&&x.length>0&&x.length<1024&&![...x].some(c=>c.charCodeAt(0)<32);
 const object=x=>x!==null&&typeof x==='object'&&!Array.isArray(x)&&Object.getPrototypeOf(x)===Object.prototype;
 const exact=(o,keys)=>object(o)&&Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
@@ -31,7 +38,7 @@ function validateIdentity(kind,oid,value){
   return;
  }
  if(!Object.hasOwn(IDENTITY_KEYS,kind)||!exact(value,IDENTITY_KEYS[kind])||
-    !ID.test(value.schema)||!ID.test(value.name))fail();
+    !ID.test(value.schema)||!(kind==='operator'?validOperatorName(value.name):ID.test(value.name)))fail();
  if(kind==='type'){
   if(!['b','c','d','e','p','r','m'].includes(value.kind)||!ID.test(value.category)||
       !Number.isInteger(value.length)||value.length< -1||value.length>1024*1024||
@@ -179,6 +186,9 @@ function validateTypedCatalogLinks(side,catalog){
  for(let i=0;i<side.positions.length;i++){
   const atom=side.positions[i],path=atom.path;
   const op=get(path,'opno','operator');
+  // Exactly the three operators of the observed slug CHECK, not arbitrary
+  // lexically valid operators (and never a SQL-string rewrite).
+  if(op.identity.name!==['>=','<=','~'][i])fail();
   const implementer=get(path,'opfuncid','function');
   const result=qualifiedType(get(path,'opresulttype','type'));
   const rhs=qualifiedType(get(path+'.1','consttype','type'));
