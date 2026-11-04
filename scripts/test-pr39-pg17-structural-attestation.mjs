@@ -2,9 +2,13 @@
 // The user's raw native JSON file is NOT in this repository or these fixtures.
 import {strict as assert} from 'node:assert';
 import {createHash,randomBytes} from 'node:crypto';
-import {readFileSync} from 'node:fs';
+import {mkdtempSync,rmSync,symlinkSync,writeFileSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {inspectPg17SlugCandidate} from './pr39-pg17-conbin-extractor.mjs';
-import {inspectPr39PinnedRegrouping,inspectPr39PinnedEvidenceBytes,
+import {inspectPr39PinnedRegrouping,inspectPr39PinnedEvidenceBytes,readPr39BoundedEvidenceFile,
  PR39_ATTESTATION_REVISION,PR39_PINNED_EVIDENCE_SHA256} from './pr39-pg17-structural-attestation.mjs';
 assert.equal(process.argv.length,2,'No flags; optional PR39_NATIVE_EVIDENCE_FILE environment variable only');
 const sha=s=>createHash('sha256').update(s).digest('hex');
@@ -110,8 +114,38 @@ for(const [name,mutate] of mutations)rejected(name,mutate);
 assert.throws(()=>inspectPr39PinnedEvidenceBytes(Buffer.from('{}')),/PR39 ATTESTATION STOP/);
 assert.throws(()=>inspectPr39PinnedEvidenceBytes(randomBytes(200)),/PR39 ATTESTATION STOP/);
 assert.throws(()=>inspectPr39PinnedEvidenceBytes(Buffer.alloc(150001)),/PR39 ATTESTATION STOP/);
+// CLI must reject file-system inputs *before* unbounded allocation. Native
+// evidence is never copied into GitHub, fixtures or temporary test files.
+const cli=fileURLToPath(new URL('./pr39-pg17-structural-attestation.mjs',import.meta.url));
+const temp=mkdtempSync(join(tmpdir(),'pr39-evidence-path-'));
+let invalidPathCases=0;
+function rejectCliPath(label,path){
+ const out=spawnSync(process.execPath,[cli,'--evidence',path],{
+  encoding:'utf8',timeout:5000,maxBuffer:262144
+ });
+ assert.equal(out.error,undefined,label+': cannot hang or allocate unbounded memory');
+ assert.equal(out.status,1,label+': CLI must reject');
+ assert.match(out.stderr,/PR39 ATTESTATION STOP/,label);
+ invalidPathCases++;
+}
+try{
+ const over=join(temp,'too-big.json');
+ writeFileSync(over,Buffer.alloc(150001));
+ rejectCliPath('oversized regular file',over);
+ rejectCliPath('directory not regular file',temp);
+ const small=join(temp,'small.json');
+ writeFileSync(small,'{}');
+ rejectCliPath('small JSON with wrong byte-pin',small);
+ if(process.platform!=='win32'){
+  const link=join(temp,'symlink.json');
+  symlinkSync(small,link);
+  rejectCliPath('symlink not regular file',link);
+  if(process.platform==='linux')rejectCliPath('character device must be rejected','/dev/zero');
+ }
+}finally{rmSync(temp,{recursive:true,force:true})}
+console.log('PASS: bounded CLI path guard ('+invalidPathCases+' negatives; no oversized read or device hang)');
 if(process.env.PR39_NATIVE_EVIDENCE_FILE){
- const bytes=readFileSync(process.env.PR39_NATIVE_EVIDENCE_FILE);
+ const bytes=readPr39BoundedEvidenceFile(process.env.PR39_NATIVE_EVIDENCE_FILE);
  assert.equal(sha(bytes),PR39_PINNED_EVIDENCE_SHA256);
  const actual=inspectPr39PinnedEvidenceBytes(bytes);
  assert.equal(actual.decision,'BLOCKED');
