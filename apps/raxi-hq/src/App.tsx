@@ -5,6 +5,7 @@ import { AgentDock } from './office/ui/AgentDock';
 import { AgentInspector } from './office/ui/AgentInspector';
 import { AgentTaskBoard } from './office/ui/AgentTaskBoard';
 import { HandoffTimeline } from './office/ui/HandoffTimeline';
+import { AgentSignalsPanel } from './office/ui/AgentSignalsPanel';
 import { officeAgentView } from './office/ui/agentViewSelectors';
 import { getOwnAgent } from './domain/agents';
 import { CampusOverview } from './campus/CampusOverview';
@@ -75,6 +76,7 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
       <AgentInspector view={agentView} /></div>
     <AgentTaskBoard state={state} view={agentView} scope={user?.id ?? ''}/>
     <HandoffTimeline state={state} view={agentView}/>
+    <AgentSignalsPanel state={state} scope={user?.id ?? ''} getState={hqStore.getSnapshot} onInspect={selectAndFocus}/>
     <section className="source-health" aria-label="Estado de la fuente"><h2>Estado de la fuente</h2><dl><dt>Fuente</dt><dd>{state.sourceHealth.source === 'mock' ? 'DEMO · MOCK' : state.sourceHealth.source === 'codex' ? 'Codex · archivo histórico' : 'Munder Difflin'}</dd><dt>Modo</dt><dd>{state.mode}</dd><dt>Conexión</dt><dd>{state.sourceHealth.connection} · {connectionLabel}</dd><dt>Última lectura correcta</dt><dd>{state.mode === 'MOCK' ? 'No aplica · MOCK' : state.sourceHealth.lastSuccessfulRead ?? 'Sin lectura correcta'}</dd><dt>Último evento de fuente</dt><dd>{state.sourceHealth.lastSourceEvent ?? '—'}</dd><dt>Eventos cargados</dt><dd>{state.sourceHealth.eventsLoaded}</dd><dt>Agentes cargados</dt><dd>{state.sourceHealth.agentsLoaded}</dd><dt>Tareas cargadas</dt><dd>{state.sourceHealth.tasksLoaded}</dd></dl>{state.sourceHealth.message && <p role="status">{state.sourceHealth.message} {campusMode === 'DEMO' ? 'Puedes cambiar manualmente a MOCK.' : 'La demostración está separada en Campus DEMO.'}</p>}</section>
     <section className="events"><h2>{state.mode === 'MOCK' ? 'DEMO · simulación' : state.mode === 'HISTORICAL_REPLAY' ? 'HISTORICAL_REPLAY · eventos pasados' : 'Actividad LIVE'} · {state.events.length} eventos</h2>{state.mode === 'MOCK' ? <p>Aria, GitHub, Munder Difflin y Supermemory: stubs sin conexión ni escrituras.</p> : <p>Solo eventos recibidos de una fuente verificada. Sin conexión no se muestra actividad inventada.</p>}<div>{state.events.map((event) => <button key={event.id} aria-pressed={event.id === state.selectedEventId} onClick={() => hqStore.selectEvent(event.id)}>{state.mode === 'MOCK' ? <><b>{event.type}</b> {event.label.replaceAll('read-only','solo lectura')}</> : <><time dateTime={event.timestamp}>{event.timestamp}</time> · {getOwnAgent(state.agents,event.actorId)?.displayName ?? event.actorId ?? '—'} · <b>{event.type}</b> · {event.label} · {event.taskId ?? 'Tarea no observada'} · {event.source}</>}</button>)}</div></section>
   </main>;

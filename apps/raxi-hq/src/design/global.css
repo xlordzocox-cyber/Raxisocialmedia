@@ -80,3 +80,9 @@ dl { font-size: 12px; } dt { color: var(--muted); margin-top: 10px; } dd { margi
 .human-attention dt,.human-attention>p{color:#aebfd1}.human-attention button{min-height:44px;cursor:pointer}
 .human-attention button:focus-visible,.operations-proposal:focus-visible,.campaign-workspace:focus-visible{outline:3px solid #83e4f6;outline-offset:3px}
 @media(max-width:600px){.human-attention{padding:12px}.human-attention dl{display:block}.human-attention dd{margin-bottom:12px}.human-attention button{width:100%}}
+/* P3B: source declarations, never an incident or authorization system. */
+.agent-signals{margin:20px 0;padding:18px;background:#101827;border:1px solid #394c68;border-radius:14px}
+.agent-signals h2{color:#8ce4f2}.agent-signals h3{color:#c7b0ff}.agent-signals article{margin:12px 0;padding:14px;border:1px solid #37455e;border-radius:10px}
+.agent-signals h4{margin:0 0 10px;color:#e3d8ff}.agent-signals dl{display:flex;flex-wrap:wrap;gap:12px 24px}.agent-signals dt{color:#aebfd1}.agent-signals dd{margin:4px 0;overflow-wrap:anywhere}
+.agent-signals code,.agent-signals li{overflow-wrap:anywhere}.agent-signals button{min-height:44px}.agent-signals button:focus-visible{outline:3px solid #83e4f6;outline-offset:3px}
+@media(max-width:600px){.agent-signals{padding:12px}.agent-signals dl{display:block}.agent-signals dd{margin-bottom:12px}.agent-signals button{width:100%;overflow-wrap:anywhere}}
