@@ -148,6 +148,7 @@ assert.equal(sourceOid,restoredOid);
 const changed=clone(candidate);
 const indices=changed.restored.positions.flatMap((atom)=>atom.references.filter(r=>r.field==='vartype'));
 indices.forEach(ref=>{ref.oid='4321'});
+for(const atom of changed.restored.positions)atom.varBinding.vartypeOid='4321';
 const mismatchedCatalog=catalog(changed.restored,'restored');
 // Deliberately preserve the original type identity even when a synthetic
 // local OID differs, and keep repeated occurrences internally consistent.
