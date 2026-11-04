@@ -2,7 +2,7 @@
 // No postgres, Docker, SQL execution, equivalence or catalog PASS authority.
 import {createHash} from 'node:crypto';
 
-export const PR39_OID_BINDING_REVISION='PR39_PG17_POSITIONAL_OID_BINDINGS_V1';
+export const PR39_OID_BINDING_REVISION='PR39_PG17_POSITIONAL_OID_BINDINGS_V2';
 export const PR39_CAPTURE_REQUIREMENTS=Object.freeze({
  major:17,expectedDatumBytes:8,provenance:'SYNTHETIC_OFFLINE',
  status:'NOT_NATIVE_VERIFIED'
@@ -69,6 +69,7 @@ function validateCatalog(c, expectedRefs, expectedSide){
     c.rows.length>256)fail();
  validateBuild(c.build);
  const occurrences=new Set();
+ const identitiesByLocalOid=new Map();
  for(let i=0;i<c.rows.length;i++){
   const row=c.rows[i],ref=expectedRefs[i];
   if(!exact(row,['ordinal','path','field','kind','oid','identity'])||row.ordinal!==i||
@@ -79,25 +80,78 @@ function validateCatalog(c, expectedRefs, expectedSide){
   if(occurrences.has(key))fail();
   occurrences.add(key);
   validateIdentity(row.kind,row.oid,row.identity);
+  // A local catalog cannot assign two identities to one (class, OID).
+  // Keep every occurrence; this is a consistency check, not a deduplication.
+  const localKey=row.kind+'\0'+row.oid;
+  const signature=JSON.stringify(row.identity);
+  if(identitiesByLocalOid.has(localKey)&&identitiesByLocalOid.get(localKey)!==signature)fail();
+  identitiesByLocalOid.set(localKey,signature);
  }
 }
+// V2 admits exactly the ordered fields emitted by inspectAtom in the V2
+// closed-grammar extractor. Neither the candidate nor a catalog can invent
+// required slots by altering both sides in tandem.
+const OPERATOR_SLOTS=Object.freeze([
+ ['','opno','operator'],['','opfuncid','function'],['','opresulttype','type'],
+ ['','opcollid','collation'],['','inputcollid','collation']
+]);
+const FUNCTION_SLOTS=Object.freeze([
+ ['.0','funcid','function'],['.0','funcresulttype','type'],
+ ['.0','funccollid','collation'],['.0','inputcollid','collation']
+]);
+const VARIABLE_SLOTS=Object.freeze([['.0.0','vartype','type'],['.0.0','varcollid','collation']]);
+const DIRECT_VARIABLE_SLOTS=Object.freeze([['.0','vartype','type'],['.0','varcollid','collation']]);
+const CONSTANT_SLOTS=Object.freeze([['.1','consttype','type'],['.1','constcollid','collation']]);
+const POSITIVE_DECIMAL=/^(?:0|[1-9][0-9]*)$/;
+const SIGNED_DECIMAL=/^(?:0|-?[1-9][0-9]*)$/;
+const digitsText=x=>typeof x==='string'&&SIGNED_DECIMAL.test(x)&&Number.isSafeInteger(Number(x));
 function expectedReferences(side,kind){
  const paths=kind==='source'?['0.0','0.1','1']:['0','1','2'];
- if(!object(side)||!Array.isArray(side.positions)||side.positions.length!==3)fail();
+ if(!exact(side,['digest','positions'])||!SHA.test(side.digest)||
+    !Array.isArray(side.positions)||side.positions.length!==3)fail();
  const references=[];
  for(let i=0;i<3;i++){
-  const atom=side.positions[i];
-  if(!object(atom)||atom.path!==paths[i]||!Array.isArray(atom.references)||
-      !object(atom.constant)||!object(atom.varBinding)||!SHA.test(atom.rawDigest)||
-      !SHA.test(atom.constant.completeRawValueSha256))fail();
-  if(!['true','false'].includes(atom.constant.byValue)||!['true','false'].includes(atom.constant.isNull)||
-      !Number.isSafeInteger(Number(atom.constant.length))||!validOid(atom.constant.typeOid))fail();
-  for(const r of atom.references){
-   if(!exact(r,['path','field','kind','oid'])||!string(r.path)||
-       !r.path.startsWith(atom.path+'.')&&r.path!==atom.path||
-       !ID.test(r.field)||!Object.hasOwn(IDENTITY_KEYS,r.kind)||!validOid(r.oid))fail();
-   references.push(r);
+  const atom=side.positions[i],path=paths[i],hasFunction=i<2;
+  if(!exact(atom,['path','rawDigest','references','varBinding','constant'])||
+     atom.path!==path||!SHA.test(atom.rawDigest)||
+     !Array.isArray(atom.references)||
+     !exact(atom.varBinding,['path','varno','varattno','varnosyn','varattnosyn',
+       'varlevelsup','vartypeOid','vartypmod','varcollidOid','nullingRelations'])||
+     !exact(atom.constant,['path','typeOid','typmod','collationOid','length',
+       'byValue','isNull','completeRawValueSha256']))fail();
+  const variable=atom.varBinding,constant=atom.constant;
+  const varPath=path+(hasFunction?'.0.0':'.0');
+  if(variable.path!==varPath||constant.path!==path+'.1'||
+     ![variable.varno,variable.varattno,variable.varnosyn,variable.varattnosyn]
+       .every(x=>typeof x==='string'&&POSITIVE_DECIMAL.test(x)&&Number(x)>0)||
+     variable.varlevelsup!=='0'||!digitsText(variable.vartypmod)||
+     !Array.isArray(variable.nullingRelations)||variable.nullingRelations.length!==0||
+     !validOid(variable.vartypeOid)||variable.vartypeOid==='0'||
+     !validOid(variable.varcollidOid)||
+     !digitsText(constant.typmod)||!digitsText(String(constant.length))||
+     !['true','false'].includes(constant.byValue)||
+     !['true','false'].includes(constant.isNull)||
+     !validOid(constant.typeOid)||constant.typeOid==='0'||
+     !validOid(constant.collationOid)||!SHA.test(constant.completeRawValueSha256))fail();
+  const slots=[...OPERATOR_SLOTS,
+    ...(hasFunction?FUNCTION_SLOTS:[]),
+    ...(hasFunction?[]:DIRECT_VARIABLE_SLOTS),
+    ...CONSTANT_SLOTS,
+    ...(hasFunction?VARIABLE_SLOTS:[])];
+  if(atom.references.length!==slots.length)fail();
+  const byField=new Map();
+  for(let k=0;k<slots.length;k++){
+   const ref=atom.references[k],[suffix,field,refKind]=slots[k];
+   if(!exact(ref,['path','field','kind','oid'])||
+      ref.path!==path+suffix||ref.field!==field||ref.kind!==refKind||
+      !validOid(ref.oid))fail();
+   byField.set(ref.path+'\0'+ref.field,ref.oid);
+   references.push(ref);
   }
+  if(byField.get(variable.path+'\0vartype')!==variable.vartypeOid||
+     byField.get(variable.path+'\0varcollid')!==variable.varcollidOid||
+     byField.get(constant.path+'\0consttype')!==constant.typeOid||
+     byField.get(constant.path+'\0constcollid')!==constant.collationOid)fail();
  }
  return references;
 }
@@ -113,7 +167,8 @@ function relativePaths(side,catalog){
    varnosyn:varRef.varnosyn,varattnosyn:varRef.varattnosyn,
    varlevelsup:varRef.varlevelsup, vartypmod:varRef.vartypmod,
    nullingRelations:varRef.nullingRelations,
-   constant:{length:constant.length,byValue:constant.byValue,isNull:constant.isNull,
+   constant:{length:constant.length,typmod:constant.typmod,
+    byValue:constant.byValue,isNull:constant.isNull,
     rawSha256:constant.completeRawValueSha256},
    bindings:rows.map(r=>({relativePath:r.path.slice(atom.path.length),field:r.field,
     kind:r.kind,identity:r.identity}))
