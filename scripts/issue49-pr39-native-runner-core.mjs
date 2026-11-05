@@ -118,13 +118,22 @@ export async function runNativeTrialWithDriver({
     stop('wrong T0/T1 fingerprints');
  validateConsent(consent,trial);
  validateDriver(driver);
- const ids=[],volumes=new Set(),created=[];
+ const ids=[],volumes=new Set(),volumesPerId=new Map(),created=[];
+ let baseline=new Set();
  let failure=null,cleanupFailed=false,unknownCreatedIdentity=false,finding='INCONCLUSIVE';
  try{
   const daemon=await driver.attestLocal({host:trial.host});
-  if(!onlyKeys(daemon,['host','local','verified'])||
-     daemon.host!==trial.host||daemon.local!==true||daemon.verified!==true)
-     stop('local daemon not attested');
+  if(!onlyKeys(daemon,['host','local','verified','daemonId','preexistingVolumes'])||
+     daemon.host!==trial.host||daemon.local!==true||daemon.verified!==true||
+     typeof daemon.daemonId!=='string'||daemon.daemonId.length<4||
+     !Array.isArray(daemon.preexistingVolumes)||
+     Reflect.ownKeys(daemon.preexistingVolumes).length!==daemon.preexistingVolumes.length+1||
+     daemon.preexistingVolumes.length>10000||
+     daemon.preexistingVolumes.some(x=>typeof x!=='string'||x.length===0))
+     stop('local daemon or volume baseline not attested');
+  baseline=new Set(daemon.preexistingVolumes);
+  if(baseline.size!==daemon.preexistingVolumes.length)
+     stop('duplicate baseline volume names');
   const image=await driver.attestImage({imageId:trial.imageId});
   if(!onlyKeys(image,['id','version','os','architecture','verified'])||
      image.id!==trial.imageId||image.version!=='17.11'||
@@ -143,9 +152,11 @@ export async function runNativeTrialWithDriver({
    validIdentity(observed,spec,names[i]);
    if(observed.id!==id)stop('changed container identity');
    for(const v of observed.anonymousVolumes){
-    if(volumes.has(v))stop('shared anonymous volume');
+    if(volumes.has(v)||baseline.has(v))
+      stop('shared or preexisting volume');
     volumes.add(v);
    }
+   volumesPerId.set(id,[...observed.anonymousVolumes]);
   }
   for(const resource of created)await driver.start({id:resource.id,spec:resource.spec});
   // SQL generation and verification belong to a reviewed transport. The driver
@@ -176,7 +187,9 @@ export async function runNativeTrialWithDriver({
    try{
     const before=await driver.inspect({id:resource.id,spec:resource.spec});
     validIdentity(before,resource.spec,resource.spec.role);
-    if(before.id!==resource.id)stop('cleanup identity changed');
+    if(before.id!==resource.id||
+       !sameStructure(before.anonymousVolumes,volumesPerId.get(resource.id)))
+       stop('cleanup identity or storage changed');
     await driver.remove({id:resource.id,spec:resource.spec,
       anonymousVolumes:before.anonymousVolumes});
     const confirmation=await driver.confirmRemoved({id:resource.id,spec:resource.spec,
