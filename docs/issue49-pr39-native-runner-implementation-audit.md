@@ -6,8 +6,8 @@
 
 - `scripts/issue49-pr39-native-runner-core.mjs`: orquestación con preflight del manifiesto y migración fijados, cotejo estructural del plan, consentimiento separado limitado a sesión/imagen/cuatro recursos sintéticos, controlador inyectable, hashes de catálogo, informe cerrado y limpieza en `finally`.
 - `scripts/issue49-pr39-native-docker-driver.mjs`: fábrica de transporte Docker con ruta absoluta conocida del cliente; sin punto de entrada automático. Acepta un transporte sustituible para pruebas *mock*, y solo utiliza el transporte nativo predeterminado cuando una llamada externa solicita y proporciona explícitamente la instancia. No contiene invocación al importar el módulo.
-- `scripts/test-issue49-pr39-native-runner-core.mjs`: prueba de orquestación con driver íntegramente falso y **23 casos negativos**; ningún acceso a Docker.
-- `scripts/test-issue49-pr39-native-docker-driver.mjs`: prueba end-to-end de la interfaz por transporte CLI interceptado en memoria y **4 casos negativos**; no se crea proceso ni contenedor.
+- `scripts/test-issue49-pr39-native-runner-core.mjs`: prueba de orquestación con driver íntegramente falso y **24 casos negativos**; ningún acceso a Docker.
+- `scripts/test-issue49-pr39-native-docker-driver.mjs`: prueba end-to-end de la interfaz por transporte CLI interceptado en memoria y **9 casos negativos**; no se crea proceso ni contenedor.
 
 ## Alcance preciso del ensayo futuro
 
@@ -35,3 +35,21 @@ El ensayo solo prepararía dos microtablas con `slug` y el `CHECK` predeterminad
 - Solicitar **otra autorización específica** antes de cualquier invocación del runner con Docker real. Nunca interpretar la preparación, el PASS mock o el review como autorización tácita.
 
 **Aún pendientes:** QA Node/Windows de estas dos baterías nuevas, revisión Codex del código nuevo y evaluación de la ejecución real. No se ha ejecutado Docker, PostgreSQL, SQL, limpieza, staging, despliegue o merge durante este incremento.
+
+## Endurecimiento anterior a la primera revisión independiente
+
+La inspección del transporte se endureció posteriormente para requerir: una identidad de daemon Linux observada antes de crear; un ID de imagen previamente inspeccionado; contexto local y binario Docker de ruta cerrada; inventario inicial de volúmenes; una sola identidad de volumen anónimo de datos PG17 por contenedor; asociación privada de cada ID creado a su nombre, rol, etiqueta, imagen y volumen; comprobación de esos vínculos antes de iniciar, usar SQL, volcar, restaurar, inspeccionar o eliminar; repetición de la comprobación de identidad del daemon antes de las operaciones; y comprobación positiva de los inventarios tras la eliminación, sin interpretar errores de inspección como éxito.
+
+Los negativos del núcleo abarcan, entre otros: consentimiento ausente/manipulado, daemon incorrecto, digest y build PG alterados, identidades malformadas, buffer de archivo excesivo, fallo de catálogos, eliminación no confirmada, red distinta de `none`, volumen preexistente o faltante y huecos en identidades. Los del transporte simulado abarcan imagen/versión incorrecta, etiqueta extraña, volumen persistente, contexto remoto, red inesperada y montaje preexistente o faltante. **Previstos: 24 negativos del núcleo y 9 del transporte = 33**, sin procesos Docker durante las pruebas.
+
+### Verificación obtenida antes del QA de operador
+
+- Cuatro archivos nuevos revisados por sintaxis mediante parser V8 aislado: **PASS**. Esta comprobación no reemplaza `node --check` ni el suite Node real.
+- No se ha probado este transporte con Docker de verdad.
+- No hay todavía validación del digest confiable de imagen en el equipo Windows del operador, ni comprobación de firma/autoría OCI.
+- El consentimiento representado como objeto estructural es una **barrera lógica**, no un mecanismo criptográfico de aprobación. Nunca conectar el transporte real ni realizar operaciones locales sin instrucción posterior explícita del operador.
+- **NO** integrar PR #50, habilitar endpoints, ejecutar migraciones alojadas ni convertir el resultado de microesquema en equivalencia integral.
+
+### Estado de auditoría
+
+`PENDING_OPERATOR_NODE_QA` y `PENDING_INDEPENDENT_CODE_REVIEW`. Un PASS de mock no concede permiso de ejecución local. Si surge una divergencia o riesgo P1/P2, corregirlo en la rama y repetir ambas validaciones antes de solicitar consentimiento del ensayo.
