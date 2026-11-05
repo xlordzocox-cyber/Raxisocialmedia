@@ -24,8 +24,40 @@ const original="slug text not null check(length(slug) between 2 and 64 and slug 
 if(source.split(original).length!==2)fail('original CHECK must occur exactly once');
 const explicit="slug text not null check(length(slug) >= 2 and length(slug) <= 64 and slug ~ '^[a-z0-9-]+$')";
 if(source.includes(explicit))fail('candidate already unexpectedly present');
-const variant=source.replace(original,explicit);
-if(variant===source||variant.replace(explicit,original)!==source)fail('variant diff is not the one reviewed change');
+// Function replacers preserve the literal '
+const preexisting='NO_GO_HOSTED_MIGRATION';
+console.log('PASS PR39 DDL SOURCE: pinned migration hash matches manifest; authorizations disabled');
+console.log('PR39 T0: baseline BETWEEN grammar fingerprint '+hash(original).slice(0,16));
+console.log('PR39 T1: explicit-comparisons grammar fingerprint '+hash(explicit).slice(0,16));
+console.log('PR39 DIFF SCOPE: one in-memory CHECK rewrite only; no migration modified or saved');
+console.log('PR39 EXPECTATION: T1 is a hypothesis, NOT a verified catalog-equality result');
+console.log('PR39 DECISION: BLOCKED / NOT_VERIFIED; '+preexisting);
+ anchor followed by a quote.
+// A replacement STRING would interpret "
+const preexisting='NO_GO_HOSTED_MIGRATION';
+console.log('PASS PR39 DDL SOURCE: pinned migration hash matches manifest; authorizations disabled');
+console.log('PR39 T0: baseline BETWEEN grammar fingerprint '+hash(original).slice(0,16));
+console.log('PR39 T1: explicit-comparisons grammar fingerprint '+hash(explicit).slice(0,16));
+console.log('PR39 DIFF SCOPE: one in-memory CHECK rewrite only; no migration modified or saved');
+console.log('PR39 EXPECTATION: T1 is a hypothesis, NOT a verified catalog-equality result');
+console.log('PR39 DECISION: BLOCKED / NOT_VERIFIED; '+preexisting);
+" as the suffix of the match.
+const variant=source.replace(original,()=>explicit);
+if(variant===source||variant.replace(explicit,()=>original)!==source)
+ fail('variant diff is not the one reviewed change');
+// Regression: neither direction may change the regex anchor or trailing quote.
+const anchor="slug ~ '^[a-z0-9-]+
+const preexisting='NO_GO_HOSTED_MIGRATION';
+console.log('PASS PR39 DDL SOURCE: pinned migration hash matches manifest; authorizations disabled');
+console.log('PR39 T0: baseline BETWEEN grammar fingerprint '+hash(original).slice(0,16));
+console.log('PR39 T1: explicit-comparisons grammar fingerprint '+hash(explicit).slice(0,16));
+console.log('PR39 DIFF SCOPE: one in-memory CHECK rewrite only; no migration modified or saved');
+console.log('PR39 EXPECTATION: T1 is a hypothesis, NOT a verified catalog-equality result');
+console.log('PR39 DECISION: BLOCKED / NOT_VERIFIED; '+preexisting);
+";
+if(!variant.includes(anchor)||variant.split(anchor).length!==2||
+   !source.includes(anchor)||source.split(anchor).length!==2)
+ fail('regex anchor was modified in the in-memory candidate');
 const preexisting='NO_GO_HOSTED_MIGRATION';
 console.log('PASS PR39 DDL SOURCE: pinned migration hash matches manifest; authorizations disabled');
 console.log('PR39 T0: baseline BETWEEN grammar fingerprint '+hash(original).slice(0,16));
