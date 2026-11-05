@@ -2,7 +2,7 @@
 // No Docker invocation, SQL connection, subprocess, file writes, or network calls.
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {join} from 'node:path';
+import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
 export const T0T1_REVISION='ISSUE49_PG17_T0T1_OFFLINE_PLAN_V1';
@@ -19,7 +19,7 @@ const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x)&&Object.getProto
 const keys=(obj,list)=>plain(obj)&&Object.keys(obj).length===list.length&&list.every(k=>Object.hasOwn(obj,k));
 export function assertOfflineOnly({argv,environment}){
  if(!Array.isArray(argv)||argv.length!==2||argv.some(x=>typeof x!=='string'))fail('CLI options and native execution forbidden');
- if(!plain(environment))fail('environment required');
+ if(environment===null||typeof environment!=='object'||Array.isArray(environment))fail('environment required');
  for(const key of DANGER_ENV)if(Object.hasOwn(environment,key))fail('unexpected external endpoint or credential environment');
 }
 export function makeT0T1Plan({source,manifest,environment={},argv=['node','offline']}){
@@ -93,8 +93,7 @@ function main(){
  console.log('ISSUE49 NATIVE EXECUTION: UNAVAILABLE; 4 ephemeral containers require separate authorization and reviewed implementation');
  console.log('ISSUE49 DECISION: BLOCKED / NOT_VERIFIED; allowCatalogPass=false; '+T0T1_NO_GO);
 }
-if(process.argv[1]&&import.meta.url===new URL('file:'+process.argv[1].replaceAll('\\','/')).href){
+if(process.argv[1]&&process.argv[1]!=='-'&&resolve(fileURLToPath(import.meta.url))===resolve(process.argv[1])){
  try{main()}catch(error){console.error(String(error));process.exitCode=1;}
 }
-// The entrypoint comparison intentionally does not attempt to infer the real
-// PostgreSQL or Docker environment, which is outside this offline module.
+// No native execution path exists in this offline module.
