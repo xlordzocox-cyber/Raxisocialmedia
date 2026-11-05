@@ -1,6 +1,7 @@
 // Issue49 / PR39: pure, fail-closed specification for a FUTURE PG17 native T0/T1 trial.
 // No Docker subprocess, SQL, network, filesystem or mutation. This module cannot run a trial.
 import {selectPr39LocalDockerHost} from './pr39-local-docker-guard.mjs';
+import {assertPlanIsBlocked} from './issue49-pr39-t0t1-offline-executor.mjs';
 
 const error=code=>{throw Error('ISSUE49 NATIVE DESIGN STOP: '+code);};
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x)&&Object.getPrototypeOf(x)===Object.prototype;
@@ -26,7 +27,8 @@ export function verifyNativeTrialPrerequisites({platform,environment,contextName
   provenance:'CALLER_SUPPLIED_NOT_ATTESTED',nativeVerified:false});
 }
 
-export function makeNativeTrialBlueprint({plan,prerequisites,sessionId}){
+export function makeNativeTrialBlueprint({plan,source,prerequisites,sessionId}){
+ assertPlanIsBlocked(plan,source);
  if(!exact(plan,['revision','scope','variants','pinnedMigrationSha256','inMemoryCandidateSha256',
    'stages','nativeExecutionAvailable','dockerInvoked','sqlExecuted','writePerformed',
    'allowCatalogPass','semanticEquivalence','decision','hostedMigration'])||
