@@ -75,6 +75,15 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
   stop('unsupported host/platform');
  const binary=dockerPath[platform];
  let pinnedDaemonId=null;
+ const created=new Map(),inspected=new Map(),removalRequested=new Set();
+ const registered=(id,spec)=>{
+  if(!SHA.test(id)||!created.has(id)||!inspected.has(id))stop('unknown or uninspected container');
+  const expected=created.get(id);
+  if(spec&&(spec.name!==expected.name||spec.ownerLabel!==expected.ownerLabel||
+    spec.role!==expected.role||spec.imageId!==expected.imageId))
+    stop('container ownership binding changed');
+  return expected;
+ };
  const run=(args,input,permitFailure=false)=>transport({binary,host,args,input,permitFailure});
  const inspectContainer=async id=>{
   const out=await run(['container','inspect',id]);
@@ -124,16 +133,22 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
     '--pull','never','--restart','no',
     '--env','POSTGRES_HOST_AUTH_METHOD=trust',spec.imageId]);
    const id=x.bytes.toString('utf8').trim();
-   if(!SHA.test(id))stop('invalid created ID');
+   if(!SHA.test(id)||created.has(id))stop('invalid or duplicated created ID');
+   created.set(id,Object.freeze({...spec}));
    return id;
   },
   async inspect({id,spec}){
-   if(!SHA.test(id))stop('bad inspect ID');
+   if(!SHA.test(id)||!created.has(id))stop('inspect foreign resource denied');
+   const expected=created.get(id);
+   if(!spec||spec.name!==expected.name||spec.ownerLabel!==expected.ownerLabel||
+      spec.imageId!==expected.imageId||spec.role!==expected.role)
+      stop('inspect specification changed');
    const x=await inspectContainer(id);
    if(x.Id!==id||owner(x)!==spec.ownerLabel)stop('foreign resource');
    const mounts=x.Mounts||[];
    if(!Array.isArray(mounts)||mounts.some(m=>m.Type!=='volume'||!SHA.test(m.Name)||
      m.Destination!=='/var/lib/postgresql/data'))stop('unexpected storage mount');
+   inspected.set(id,mounts.map(m=>m.Name));
    const mappings=x.HostConfig?.PortBindings||{};
    const ports=Object.values(mappings).some(v=>Array.isArray(v)&&v.length>0);
    return {id:x.Id,name:String(x.Name||'').replace(/^\//,''),
@@ -142,8 +157,8 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
     bindMounts:Boolean(x.HostConfig?.Binds?.length),
     anonymousVolumes:mounts.map(m=>m.Name),existing:false};
   },
-  async start({id}){
-   if(!SHA.test(id))stop('bad start ID');
+  async start({id,spec}){
+   registered(id,spec);
    await run(['container','start',id]);
    for(let i=0;i<25;i++){
     const r=await run(['container','exec',id,'pg_isready','-U','postgres'],undefined,true);
@@ -153,27 +168,28 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
    stop('postgres did not become ready');
   },
   async initialize({id,spec}){
-   if(!SHA.test(id))stop('bad SQL container identity');
+   registered(id,spec);
    const sql=sqlFor(spec.role);
    if(hash(sql)!==spec.ddlSha256)stop('DDL differs from pinned micro-schema');
    await run(['container','exec','-i',id,'psql','-U','postgres','-d','postgres',
      '-v','ON_ERROR_STOP=1','--single-transaction'],sql);
   },
-  async dump({id}){
-   if(!SHA.test(id))stop('bad dump ID');
+  async dump({id,spec}){
+   registered(id,spec);
    const r=await run(['container','exec',id,'pg_dump','-U','postgres','-d','postgres',
       '-Fc','--schema=public','--no-owner','--no-acl']);
    if(r.bytes.length===0)stop('empty dump');
    return r.bytes;
   },
-  async restore({id,archive}){
-   if(!SHA.test(id)||!(archive instanceof Uint8Array)||
+  async restore({id,spec,archive}){
+   registered(id,spec);
+   if(!(archive instanceof Uint8Array)||
       archive.length===0||archive.length>MAX)stop('bad restore input');
    await run(['container','exec','-i',id,'pg_restore','-U','postgres','-d','postgres',
       '--single-transaction','--exit-on-error','--no-owner','--no-acl'],archive);
   },
-  async catalog({id}){
-   if(!SHA.test(id))stop('bad catalog ID');
+  async catalog({id,spec}){
+   registered(id,spec);
    const result=await run(['container','exec',id,'psql','-U','postgres','-d','postgres',
     '-tA','-v','ON_ERROR_STOP=1','-c',catalogSql]);
    const row=parseJson(result.bytes);
@@ -190,14 +206,21 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
    return {conbinSha256:hash(String(row.conbin)),
     catalogSha256:hash(actual),buildSha256:hash(JSON.stringify(build))};
   },
-  async remove({id}){
-   if(!SHA.test(id))stop('bad cleanup ID');
+  async remove({id,spec,anonymousVolumes}){
+   registered(id,spec);
+   const known=inspected.get(id);
+   if(!Array.isArray(anonymousVolumes)||anonymousVolumes.length!==known.length||
+      anonymousVolumes.some((v,i)=>v!==known[i]))
+     stop('cleanup volumes not bound to inspection');
    await run(['container','rm','-f','-v',id]);
+   removalRequested.add(id);
   },
-  async confirmRemoved({id,anonymousVolumes}){
-   if(!SHA.test(id)||!Array.isArray(anonymousVolumes)||
-     anonymousVolumes.length>1||anonymousVolumes.some(v=>!SHA.test(v))||
-     pinnedDaemonId===null)
+  async confirmRemoved({id,spec,anonymousVolumes}){
+   registered(id,spec);
+   const known=inspected.get(id);
+   if(!removalRequested.has(id)||!Array.isArray(anonymousVolumes)||
+     anonymousVolumes.length!==known.length||
+     anonymousVolumes.some((v,i)=>v!==known[i])||pinnedDaemonId===null)
      stop('bad removal evidence');
    const info=parseJson((await run(['info','--format','{{json .}}'])).bytes);
    if(info.ID!==pinnedDaemonId||info.OSType!=='linux')
@@ -207,8 +230,12 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
      '--format','{{.ID}}'])).bytes.toString('utf8').split(/\r?\n/).filter(Boolean);
    const volumes=(await run(['volume','ls','--format',
      '{{.Name}}'])).bytes.toString('utf8').split(/\r?\n/).filter(Boolean);
-   return {containerGone:!containers.includes(id),
-     volumesGone:anonymousVolumes.every(v=>!volumes.includes(v))};
+   const containerGone=!containers.includes(id);
+   const volumesGone=anonymousVolumes.every(v=>!volumes.includes(v));
+   if(containerGone&&volumesGone){
+     created.delete(id);inspected.delete(id);removalRequested.delete(id);
+   }
+   return {containerGone,volumesGone};
   }
  });
 }
