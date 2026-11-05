@@ -106,6 +106,7 @@ export function inspectSyntheticContainerSet({blueprint,observations,plan,source
     blueprint.specs[0].ddlSha256===blueprint.specs[2].ddlSha256)error('role consistency invalid');
  if(!Array.isArray(observations)||observations.length!==4)error('incomplete observed set');
  const ids=new Set();
+ const volumeIds=new Set();
  for(let i=0;i<4;i++){
    const s=blueprint.specs[i],o=observations[i];
    if(!exact(o,['id','name','role','imageId','network','publishPorts','privileged',
@@ -118,6 +119,10 @@ export function inspectSyntheticContainerSet({blueprint,observations,plan,source
       !Array.isArray(o.anonymousVolumes)||o.anonymousVolumes.length>1||
       o.anonymousVolumes.some(v=>typeof v!=='string'||!/^[a-f0-9]{64}$/.test(v)))error('isolation or ownership mismatch');
    ids.add(o.id);
+   for(const volume of o.anonymousVolumes){
+     if(volumeIds.has(volume))error('shared anonymous volume between roles');
+     volumeIds.add(volume);
+   }
  }
  return Object.freeze({
    observedSyntheticCount:4,
