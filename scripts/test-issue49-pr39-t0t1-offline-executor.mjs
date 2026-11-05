@@ -58,6 +58,11 @@ negative('PG status suddenly READY',v=>{v.manifest.schemaCompatibility.status='R
 negative('wrong PG target',v=>{v.manifest.schemaCompatibility.targetPostgresMajor=18;});
 negative('wrong source path',v=>{v.manifest.applicationPlan.steps[0].path='supabase/migrations/different.sql';});
 negative('wrong source SHA',v=>{v.manifest.applicationPlan.steps[0].sha256Lf='0'.repeat(64);});
+negative('other pinned source corrupted',v=>{v.manifest.applicationPlan.steps[4].sha256Lf='f'.repeat(64);});
+negative('staging source order altered',v=>{v.manifest.applicationPlan.steps.reverse();});
+negative('candidate executable',v=>{v.manifest.candidate.executionAuthorized=true;});
+negative('candidate unexpectedly available',v=>{v.manifest.candidate.pg17Status='READY';});
+negative('project PG18',v=>{v.manifest.project.postgresMajor=18;});
 negative('wrong migration kind',v=>{v.manifest.applicationPlan.steps[0].kind='RUNTIME_PROPOSAL';});
 negative('duplicate source step',v=>{v.manifest.applicationPlan.steps.push(clone(v.manifest.applicationPlan.steps[0]));});
 negative('missing source step',v=>{v.manifest.applicationPlan.steps.shift();});
