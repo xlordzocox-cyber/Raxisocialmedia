@@ -28,6 +28,13 @@ const trial=prepareNativeTrial(cfg);
 const consent={scope:'ISSUE49_LOCAL_T0T1_PG17_11',sessionId,imageId,
  localOnly:true,syntheticOnly:true,maxContainers:4,separateOperatorConsent:true};
 
+function requireWinDockerCliPath(){
+ const local=process.env.LOCALAPPDATA;
+ assert.ok(typeof local==='string'&&/^[A-Za-z]:\\/.test(local),
+  'Windows per-user install root must be absolute');
+ return join(local,'Programs','DockerDesktop','resources','bin','docker.exe');
+}
+
 function fakeCli({wrongImageVersion=false,wrongImageId=false,foreignLabel=false,
  leaveVolume=false,remoteContext=false,unsafeNetwork=false,preexistingVolume=false,
  missingDataVolume=false,bootstrapTransition=false,incompleteCatalog=false,
@@ -38,8 +45,11 @@ function fakeCli({wrongImageVersion=false,wrongImageId=false,foreignLabel=false,
  const readyCounts=new Map();
  const out=(value,code=0)=>({code,bytes:Buffer.isBuffer(value)?value:
   Buffer.from(typeof value==='string'?value:JSON.stringify(value))});
- const transport=async ({host:used,args,input})=>{
+ const transport=async ({binary,host:used,args,input})=>{
   assert.equal(used,host,'no alternate Docker host');
+  const expectedCli=process.platform==='win32'
+   ?requireWinDockerCliPath(): '/usr/bin/docker';
+  assert.equal(binary,expectedCli,'must use the closed installed Docker CLI path');
   assert.ok(!args.includes('system'),'no global Docker system operations');
   assert.ok(!args.includes('prune'),'no global prune');
   calls.push([...args]);
