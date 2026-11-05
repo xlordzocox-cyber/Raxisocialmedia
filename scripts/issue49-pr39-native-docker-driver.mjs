@@ -234,7 +234,7 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
       Reflect.ownKeys(row).length!==required.length||
       required.some(k=>!Object.hasOwn(row,k))||
       row.constraint_name!=='raxi_workspaces_slug_check'||row.type!=='c'||
-      row.validated!==true||row.local!==true||row.noinherit!==true||
+      row.validated!==true||row.local!==true||row.noinherit!==false||
       row.inhcount!==0||row.slug_notnull!==true||row.slug_type!=='text'||
       typeof row.conbin!=='string'||!row.conbin||
       typeof row.definition!=='string'||!row.definition||
