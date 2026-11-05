@@ -157,7 +157,7 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
       Object.values(x.HostConfig?.PortBindings||{}).some(v=>Array.isArray(v)&&v.length>0))
       stop('foreign, privileged, networked or exposed resource');
    const mounts=x.Mounts||[];
-   if(!Array.isArray(mounts)||mounts.length>1||
+   if(!Array.isArray(mounts)||mounts.length!==1||
       mounts.some(m=>m.Type!=='volume'||!SHA.test(m.Name)||
         m.Destination!=='/var/lib/postgresql/data'||
         baselineVolumes.has(m.Name)||
