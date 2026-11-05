@@ -104,6 +104,9 @@ for(const [label,change] of [
  ['existing container',(_p,o)=>o[0].existing=true],
  ['different image',(_p,o)=>o[2].imageId='sha256:'+'f'.repeat(64)],
  ['bad anonymous volume',(_p,o)=>o[0].anonymousVolumes=['someone-elses-volume']],
+ ['sparse anonymous volume identity',(_p,o)=>o[0].anonymousVolumes=new Array(1)],
+ ['deleted anonymous volume identity',(_p,o)=>{o[0].anonymousVolumes=['f'.repeat(64)];delete o[0].anonymousVolumes[0];}],
+ ['extra anonymous volume property',(_p,o)=>{o[0].anonymousVolumes=['f'.repeat(64)];o[0].anonymousVolumes.hidden=true;}],
  ['same anonymous volume in source and restored',(_p,o)=>{
   o[0].anonymousVolumes=['f'.repeat(64)];
   o[1].anonymousVolumes=['f'.repeat(64)];
@@ -117,6 +120,9 @@ for(const [label,change] of [
  ['changed blueprint name',(p,_o)=>p.specs[0].name='other-pretend-owned'],
  ['all blueprint DDL hashes forged',(p,_o)=>p.specs.forEach(s=>s.ddlSha256='f'.repeat(64))],
  ['changed blueprint order',(p,_o)=>p.stageNames.reverse()],
+ ['sparse blueprint stages',(p,_o)=>p.stageNames=new Array(8)],
+ ['deleted blueprint stage',(p,_o)=>delete p.stageNames[3]],
+ ['extra blueprint stage key',(p,_o)=>p.stageNames.runNative=true],
  ['changed blueprint auth',(p,_o)=>p.executionAuthorized=true],
  ['wrong blueprint digest',(p,_o)=>p.specs[0].ddlSha256='0'.repeat(64)],
  ['added privileged blueprint',(p,_o)=>p.specs[0].privileged=true]
