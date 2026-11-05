@@ -72,7 +72,7 @@ function validIdentity(v,expected,role){
    v.ownerLabel!==expected.ownerLabel||v.imageId!==expected.imageId||
    v.network!=='none'||v.ports!==false||v.privileged!==false||
    v.bindMounts!==false||v.existing!==false||
-   !Array.isArray(v.anonymousVolumes)||v.anonymousVolumes.length>1||
+   !Array.isArray(v.anonymousVolumes)||v.anonymousVolumes.length!==1||
    Reflect.ownKeys(v.anonymousVolumes).length!==v.anonymousVolumes.length+1||
    Array.from({length:v.anonymousVolumes.length},(_,i)=>i).some(i=>
       !Object.hasOwn(v.anonymousVolumes,i)||!sha.test(v.anonymousVolumes[i])))
