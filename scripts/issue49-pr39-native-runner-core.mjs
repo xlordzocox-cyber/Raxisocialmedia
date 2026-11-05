@@ -12,7 +12,17 @@ const names=['T0_SOURCE','T0_RESTORED','T1_SOURCE','T1_RESTORED'];
 const driverKeys=['attestLocal','attestImage','create','inspect','start','initialize',
   'dump','restore','catalog','remove','confirmRemoved'];
 const own=(x,k)=>x!==null&&typeof x==='object'&&Object.hasOwn(x,k);
-const eq=(a,b)=>a===b;
+const HOSTS=['npipe:////./pipe/docker_engine','npipe:////./pipe/dockerDesktopLinuxEngine','unix:///var/run/docker.sock'];
+const sameStructure=(a,b)=>{
+ if(Array.isArray(b))return Array.isArray(a)&&a.length===b.length&&
+   Reflect.ownKeys(a).length===b.length+1&&
+   b.every((v,i)=>Object.hasOwn(a,i)&&sameStructure(a[i],v));
+ if(b!==null&&typeof b==='object')return a!==null&&typeof a==='object'&&
+   Object.getPrototypeOf(a)===Object.prototype&&
+   Reflect.ownKeys(a).length===Reflect.ownKeys(b).length&&
+   Reflect.ownKeys(b).every(k=>Object.hasOwn(a,k)&&sameStructure(a[k],b[k]));
+ return a===b;
+};
 const onlyKeys=(obj,fields)=>obj!==null&&typeof obj==='object'&&
  !Array.isArray(obj)&&Object.getPrototypeOf(obj)===Object.prototype&&
  Reflect.ownKeys(obj).length===fields.length&&fields.every(k=>Object.hasOwn(obj,k));
@@ -79,11 +89,16 @@ function compare(a,b){
 }
 // An abstract orchestration: deliberately contains no subprocess, SQL client or Docker SDK.
 // The supplied driver must undergo an independent code review before any real invocation.
-export async function runNativeTrialWithDriver({trial,consent,driver}){
+export async function runNativeTrialWithDriver({
+ trial,consent,driver,plan,source,prerequisites,expectedImageId,sessionId
+}){
+ // Bind every native action to the original source-attested offline plan.
+ const expected=prepareNativeTrial({plan,source,prerequisites,expectedImageId,sessionId});
+ if(!sameStructure(trial,expected))stop('trial not bound to pinned source and image');
  if(!onlyKeys(trial,['version','sessionId','host','imageId','specs','driverAttached',
     'executionAuthorized','consentReceived','evidence','decision','allowCatalogPass','hostedMigration'])||
     trial.version!=='ISSUE49_NATIVE_TRIAL_PREPARED_V1'||
-    !img.test(trial.imageId)||typeof trial.host!=='string'||
+    !img.test(trial.imageId)||!HOSTS.includes(trial.host)||
     !Array.isArray(trial.specs)||trial.specs.length!==4||
     trial.driverAttached!==false||trial.executionAuthorized!==false||
     trial.consentReceived!==false||trial.decision!=='BLOCKED'||
@@ -104,7 +119,7 @@ export async function runNativeTrialWithDriver({trial,consent,driver}){
  validateConsent(consent,trial);
  validateDriver(driver);
  const ids=[],volumes=new Set(),created=[];
- let failure=null,cleanupFailed=false,finding='INCONCLUSIVE';
+ let failure=null,cleanupFailed=false,unknownCreatedIdentity=false,finding='INCONCLUSIVE';
  try{
   const daemon=await driver.attestLocal({host:trial.host});
   if(!onlyKeys(daemon,['host','local','verified'])||
@@ -117,9 +132,12 @@ export async function runNativeTrialWithDriver({trial,consent,driver}){
      stop('immutable PG17.11 image not attested');
   for(let i=0;i<4;i++){
    const spec=trial.specs[i];
-   const id=await driver.create({spec,host:trial.host});
-   if(typeof id!=='string'||!sha.test(id)||ids.includes(id))
-     stop('missing or repeated created container ID');
+   let id;
+   try{id=await driver.create({spec,host:trial.host});}
+   catch(e){unknownCreatedIdentity=true;throw e;}
+   if(typeof id!=='string'||!sha.test(id)||ids.includes(id)){
+     unknownCreatedIdentity=true;stop('missing or repeated created container ID');
+   }
    created.push({id,spec});ids.push(id);
    const observed=await driver.inspect({id,spec});
    validIdentity(observed,spec,names[i]);
@@ -159,16 +177,21 @@ export async function runNativeTrialWithDriver({trial,consent,driver}){
     const before=await driver.inspect({id:resource.id,spec:resource.spec});
     validIdentity(before,resource.spec,resource.spec.role);
     if(before.id!==resource.id)stop('cleanup identity changed');
-    await driver.remove({id:resource.id,spec:resource.spec});
-    const confirmation=await driver.confirmRemoved({id:resource.id,spec:resource.spec});
-    if(confirmation!==true)stop('removal unconfirmed');
+    await driver.remove({id:resource.id,spec:resource.spec,
+      anonymousVolumes:before.anonymousVolumes});
+    const confirmation=await driver.confirmRemoved({id:resource.id,spec:resource.spec,
+      anonymousVolumes:before.anonymousVolumes});
+    if(!onlyKeys(confirmation,['containerGone','volumesGone'])||
+       confirmation.containerGone!==true||confirmation.volumesGone!==true)
+       stop('container or anonymous volume removal unconfirmed');
    }catch(_e){cleanupFailed=true;}
   }
  }
- if(cleanupFailed)finding='INCONCLUSIVE';
+ if(cleanupFailed||unknownCreatedIdentity)finding='INCONCLUSIVE';
  return Object.freeze({
   finding,source:'NATIVE_DRIVER_REPORTED_NOT_INDEPENDENTLY_ATTESTED',
-  cleanup:cleanupFailed?'RESOURCE_REMAINS':'ALL_TRACKED_IDS_REMOVED',
+  cleanup:unknownCreatedIdentity?'UNKNOWN_CREATED_IDENTITY':
+    cleanupFailed?'RESOURCE_REMAINS':'ALL_TRACKED_IDS_AND_VOLUMES_REMOVED',
   createdCount:created.length,reportableError:failure,
   decision:'BLOCKED',semanticEquivalence:'NOT_VERIFIED',
   allowCatalogPass:false,hostedMigration:'NO_GO_HOSTED_MIGRATION'
