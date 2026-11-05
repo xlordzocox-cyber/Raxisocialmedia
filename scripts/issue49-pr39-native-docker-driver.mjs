@@ -71,6 +71,7 @@ export function createIssue49LocalDockerDriver({host}){
  if(!hosts[platform]?.includes(host)||!dockerPath[platform])
   stop('unsupported host/platform');
  const binary=dockerPath[platform];
+ let pinnedDaemonId=null;
  const run=(args,input,permitFailure=false)=>command({binary,host,args,input,permitFailure});
  const inspectContainer=async id=>{
   const out=await run(['container','inspect',id]);
@@ -92,6 +93,9 @@ export function createIssue49LocalDockerDriver({host}){
    const x=parseJson((await run(['info','--format','{{json .}}'])).bytes);
    if(x.OSType!=='linux'||typeof x.ID!=='string'||x.ID.length<4)
       stop('not Linux daemon');
+   if(pinnedDaemonId!==null&&x.ID!==pinnedDaemonId)
+      stop('daemon identity changed');
+   pinnedDaemonId=x.ID;
    const inventory=await run(['volume','ls','--format','{{.Name}}']);
    const preexistingVolumes=inventory.bytes.toString('utf8').split(/\r?\n/).filter(Boolean);
    if(preexistingVolumes.length>10000||new Set(preexistingVolumes).size!==preexistingVolumes.length)
@@ -189,12 +193,19 @@ export function createIssue49LocalDockerDriver({host}){
   },
   async confirmRemoved({id,anonymousVolumes}){
    if(!SHA.test(id)||!Array.isArray(anonymousVolumes)||
-     anonymousVolumes.length>1||anonymousVolumes.some(v=>!SHA.test(v)))
+     anonymousVolumes.length>1||anonymousVolumes.some(v=>!SHA.test(v))||
+     pinnedDaemonId===null)
      stop('bad removal evidence');
-   const x=await run(['container','inspect',id],undefined,true);
-   const checks=await Promise.all(anonymousVolumes.map(v=>
-     run(['volume','inspect',v],undefined,true)));
-   return {containerGone:x.code!==0,volumesGone:checks.every(v=>v.code!==0)};
+   const info=parseJson((await run(['info','--format','{{json .}}'])).bytes);
+   if(info.ID!==pinnedDaemonId||info.OSType!=='linux')
+     stop('daemon changed during cleanup');
+   // Query successful inventories; a failed inspect is NOT proof of deletion.
+   const containers=(await run(['container','ls','-a','--no-trunc',
+     '--format','{{.ID}}'])).bytes.toString('utf8').split(/\r?\n/).filter(Boolean);
+   const volumes=(await run(['volume','ls','--format',
+     '{{.Name}}'])).bytes.toString('utf8').split(/\r?\n/).filter(Boolean);
+   return {containerGone:!containers.includes(id),
+     volumesGone:anonymousVolumes.every(v=>!volumes.includes(v))};
   }
  });
 }
