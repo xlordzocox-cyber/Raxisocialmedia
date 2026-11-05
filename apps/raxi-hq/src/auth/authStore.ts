@@ -2,14 +2,15 @@ import type { SupabaseClient, User } from '@supabase/supabase-js';
 import type { RealIdeaStore } from '../persistence/realIdeaStore';
 import type { RealCampaignStore } from '../persistence/realCampaignStore';
 
-type AuthApi = Pick<SupabaseClient['auth'], 'getUser' | 'onAuthStateChange' | 'signInWithPassword' | 'signOut'>;
-export type AuthState = { status: 'loading' | 'signedOut' | 'signedIn' | 'unconfigured'; user: User | null; error: string | null };
+type AuthApi = Pick<SupabaseClient['auth'], 'getUser' | 'onAuthStateChange' | 'signInWithPassword' | 'signOut' | 'resetPasswordForEmail' | 'updateUser'>;
+export type AuthState = { status: 'loading' | 'signedOut' | 'signedIn' | 'unconfigured'; user: User | null; error: string | null; recovery?: boolean };
 
 export class AuthStore {
   private state: AuthState;
   private listeners = new Set<() => void>();
   private revision = 0;
   private loggingOut = false;
+  private recoveryActive = false;
   private realIdeas: RealIdeaStore | null = null;
   private realCampaigns: { workspace: string; store: RealCampaignStore } | null = null;
 
@@ -25,7 +26,7 @@ export class AuthStore {
       this.realIdeas = null;
       this.realCampaigns?.store.dispose(); this.realCampaigns = null;
     }
-    this.state = state; this.listeners.forEach(listener => listener());
+    this.state = { ...state, recovery: this.recoveryActive && state.status !== 'signedOut' }; this.listeners.forEach(listener => listener());
   }
   getRealIdeaStore = (create: (ownerId: string) => RealIdeaStore): RealIdeaStore => {
     if (this.state.status !== 'signedIn' || !this.state.user) throw new Error('Se requiere una sesión verificada.');
@@ -63,6 +64,8 @@ export class AuthStore {
       if (event === 'SIGNED_OUT' || this.state.status !== 'signedIn' || session?.user.id !== this.state.user?.id) {
         this.set({ status: event === 'SIGNED_OUT' ? 'signedOut' : 'loading', user: null, error: null });
       }
+      if (event === 'PASSWORD_RECOVERY') this.recoveryActive = true;
+      if (event === 'SIGNED_OUT') this.recoveryActive = false;
       // Supabase Auth callbacks must not await another Auth method under its lock.
       if (event !== 'SIGNED_OUT') timer = setTimeout(() => { void this.validate(); }, 0);
     });
@@ -74,13 +77,32 @@ export class AuthStore {
 
   async signIn(email: string, password: string) {
     if (!this.auth) throw new Error('El acceso aún no está configurado.');
+    this.recoveryActive = false;
     const { error } = await this.auth.signInWithPassword({ email: email.trim(), password });
     if (error) throw new Error('No se pudo iniciar sesión. Revisa tus datos y que el correo esté confirmado.');
     await this.validate();
   }
 
+  async requestPasswordRecovery(email: string, redirectTo: string) {
+    if (!this.auth) throw new Error('El acceso aún no está configurado.');
+    const { error } = await this.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+    if (error) throw new Error(error.message.toLowerCase().includes('rate limit') ? 'Límite temporal de correos alcanzado. Intenta más tarde.' : 'No se pudo enviar el correo de recuperación. Intenta más tarde.');
+  }
+
+  async completePasswordRecovery(password: string) {
+    if (!this.auth || !this.recoveryActive || this.state.status !== 'signedIn' || !this.state.user) throw new Error('El enlace de recuperación no es válido o ha caducado.');
+    // A recovery event alone is insufficient: validate the active session with Auth first.
+    const { data, error: sessionError } = await this.auth.getUser();
+    if (sessionError || !data.user || data.user.is_anonymous || data.user.id !== this.state.user.id) throw new Error('No se pudo verificar la sesión de recuperación.');
+    const { error } = await this.auth.updateUser({ password });
+    if (error) throw new Error('No se pudo actualizar la contraseña. Intenta de nuevo.');
+    this.recoveryActive = false;
+    await this.signOut();
+  }
+
   async signOut() {
     if (!this.auth) return;
+    this.recoveryActive = false;
     this.loggingOut = true;
     ++this.revision;
     this.set({ status: 'loading', user: null, error: null });
