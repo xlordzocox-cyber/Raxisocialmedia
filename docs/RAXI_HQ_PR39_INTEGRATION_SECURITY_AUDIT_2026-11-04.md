@@ -47,3 +47,20 @@ Los siete P2 históricos pendientes correspondían a: `consttypmod`, coherencia 
 - [ ] Aprobación humana independiente para merge; ninguna para SQL alojado, restauración, proveedores, despliegues o B2.
 
 **Política inalterada:** `decision:BLOCKED`, `nativeValidated:false`, `semanticEquivalence:NOT_VERIFIED`, `allowCatalogPass:false`, `NO_GO_HOSTED_MIGRATION`.
+
+## Ejecutor reproducible del QA combinado
+
+Se añadió `scripts/pr39-main-integration-qa.ps1`, exclusivo de PowerShell 5.1/Windows, para construir y probar de forma aislada el árbol combinado. **Este archivo también es parte de la revisión**: actualmente el PR contiene 21 archivos nuevos (11 scripts originales, 2 scripts de guard, 1 script de integración, 7 docs). El script se invoca desde un checkout limpio del PR con el SHA final aprobado:
+
+```powershell
+Set-Location "$HOME\source\RaxiHQ-PR39-CONBIN-20261104"
+& .\scripts\pr39-main-integration-qa.ps1 -ExpectedPrSha "<SHA-exacto-de-PR39>"
+```
+
+El script fija `main=e0bea6bb296f2f1aec0439648e9e60ddc186f3e8`; obtiene y verifica ambos SHAs remotos, crea un worktree nuevo por GUID en `$HOME\source`, hace un merge **solo en ese worktree DETACHED** con `--no-commit --no-ff` y comprueba que se añaden exactamente 21 archivos sin modificar ningún archivo existente de `main`. Nunca se crea un commit, nunca se modifica una rama local, no se hace push. Ejecuta suites offline de PR39, después intenta `npm ci --offline --ignore-scripts --no-audit --no-fund` en la copia temporal y requiere tests, typecheck, build y security scan completos. Si el caché npm está incompleto o un comando falla, **no** declara PASS. `finally` elimina exclusivamente el worktree creado, aunque hubo un error. Requiere prueba en Windows; no se puede ejecutar desde el conector GitHub.
+
+No se permite un bypass de dependencias no instaladas, ni descargar paquetes automáticamente, ni ejecutar Docker `--run-local` como parte de este QA. El valor `<SHA-exacto-de-PR39>` debe sustituirse solo por el SHA publicado y revisado en el momento de ejecución.
+
+## Conciliación administrativa de siete P2
+
+El usuario autorizó conciliar los siete hilos históricos, y el asistente verificó el código y los tests vinculados al HEAD `602efa5c6bed5a3eb8ff3fda566d736d04812016`. La relación exacta y evidencia de cada caso quedó registrada en el comentario GitHub PR #39 `6645641722`; los siete hilos se cerraron individualmente con `is_resolved:true`. Este cierre cubre **solo los defectos históricos**, no implica que el daemon guard ni la integración combinada sean PASS. La nueva revisión Codex del SHA posterior sigue pendiente.
