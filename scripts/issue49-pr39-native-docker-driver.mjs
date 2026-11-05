@@ -84,7 +84,14 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
     stop('container ownership binding changed');
   return expected;
  };
- const run=(args,input,permitFailure=false)=>transport({binary,host,args,input,permitFailure});
+ const run=async(args,input,permitFailure=false)=>{
+  const response=await transport({binary,host,args,input,permitFailure});
+  if(!response||!Number.isInteger(response.code)||
+     response.code<0||!(response.bytes instanceof Uint8Array)||
+     response.bytes.byteLength>MAX||
+     (!permitFailure&&response.code!==0))stop('invalid or failed Docker transport response');
+  return {code:response.code,bytes:Buffer.from(response.bytes)};
+ };
  const requireSameDaemon=async()=>{
   if(pinnedDaemonId===null)stop('daemon has not been attested');
   const info=parseJson((await run(['info','--format','{{json .}}'])).bytes);
@@ -184,7 +191,7 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
    await requireSameDaemon();
    await run(['container','start',id]);
    for(let i=0;i<25;i++){
-    const r=await run(['container','exec',id,'pg_isready','-U','postgres'],undefined,true);
+    const r=await run(['container','exec',id,'pg_isready','-h','127.0.0.1','-p','5432','-U','postgres'],undefined,true);
     if(r.code===0)return;
     await new Promise(resolve=>setTimeout(resolve,400));
    }
@@ -220,16 +227,29 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
    const result=await run(['container','exec',id,'psql','-U','postgres','-d','postgres',
     '-tA','-v','ON_ERROR_STOP=1','-c',catalogSql]);
    const row=parseJson(result.bytes);
+   const required=['constraint_name','type','validated','local','noinherit','inhcount',
+     'conbin','definition','slug_notnull','slug_type','slug_collation',
+     'tablecount','constraintcount'];
+   if(!row||typeof row!=='object'||Array.isArray(row)||
+      Reflect.ownKeys(row).length!==required.length||
+      required.some(k=>!Object.hasOwn(row,k))||
+      row.constraint_name!=='raxi_workspaces_slug_check'||row.type!=='c'||
+      row.validated!==true||row.local!==true||row.noinherit!==true||
+      row.inhcount!==0||row.slug_notnull!==true||row.slug_type!=='text'||
+      typeof row.conbin!=='string'||!row.conbin||
+      typeof row.definition!=='string'||!row.definition||
+      typeof row.slug_collation!=='string'||!row.slug_collation||
+      row.tablecount!==1||row.constraintcount!==1)
+      stop('incomplete or unexpected microcatalog');
    const actual=JSON.stringify(row);
-   if(row?.constraint_name!=='raxi_workspaces_slug_check'||row.type!=='c'||
-      row.validated!==true||row.slug_notnull!==true||
-      row.tablecount!=='1'&&row.tablecount!==1||
-      row.constraintcount!=='1'&&row.constraintcount!==1)
-      stop('unexpected microcatalog');
    const build=parseJson((await run(['container','exec',id,'psql','-U','postgres',
      '-d','postgres','-tA','-v','ON_ERROR_STOP=1','-c',
-     "SELECT json_build_array(current_setting('server_version'), current_setting('server_encoding'), current_setting('lc_collate'), current_setting('lc_ctype'))"])).bytes);
-   if(!Array.isArray(build)||build[0]!=='17.11')stop('unexpected database build');
+     "SELECT json_build_array(current_setting('server_version_num'), current_setting('server_version'), current_setting('server_encoding'), current_setting('lc_collate'), current_setting('lc_ctype'))"])).bytes);
+   if(!Array.isArray(build)||build.length!==5||
+      Reflect.ownKeys(build).length!==6||
+      build.some(x=>typeof x!=='string'||x.length===0)||
+      build[0]!=='170011'||!/^17\\.11(?:\\s|$)/.test(build[1]))
+      stop('unexpected database build');
    return {conbinSha256:hash(String(row.conbin)),
     catalogSha256:hash(actual),buildSha256:hash(JSON.stringify(build))};
   },
