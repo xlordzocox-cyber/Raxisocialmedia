@@ -87,18 +87,32 @@ export function makeT0T1Plan({source,manifest,environment={},argv=['node','offli
  });
 }
 export function assertPlanIsBlocked(plan){
- if(!plain(plan)||plan.revision!==T0T1_REVISION||
+ const planFields=['revision','scope','variants','pinnedMigrationSha256',
+   'inMemoryCandidateSha256','stages','nativeExecutionAvailable',
+   'dockerInvoked','sqlExecuted','writePerformed','allowCatalogPass',
+   'semanticEquivalence','decision','hostedMigration'];
+ const variantFields=['id','ddlSha256','sourcePredicateSha256'];
+ const stages=['PINNED_PREFLIGHT','LOCAL_DAEMON_ATTESTATION_REQUIRED',
+   'PINNED_IMAGE_REQUIRED','FOUR_EPHEMERAL_CONTAINERS_SEPARATE_AUTHORIZATION',
+   'SOURCE_DUMP_RESTORE_TARGET_PER_VARIANT','STRICT_CATALOG_COMPARISON',
+   'EXACT_ID_CLEANUP','HUMAN_EVIDENCE_REVIEW'];
+ if(!keys(plan,planFields)||plan.revision!==T0T1_REVISION||
    plan.scope!=='SYNTHETIC_MICROSCHEMA_PLAN_ONLY'||
    plan.nativeExecutionAvailable!==false||plan.dockerInvoked!==false||
    plan.sqlExecuted!==false||plan.writePerformed!==false||
    plan.decision!=='BLOCKED'||plan.semanticEquivalence!=='NOT_VERIFIED'||
    plan.allowCatalogPass!==false||plan.hostedMigration!==T0T1_NO_GO||
    plan.pinnedMigrationSha256!==T0T1_SOURCE_SHA||
-   typeof plan.inMemoryCandidateSha256!=='string'||!(/^[a-f0-9]{64}$/.test(plan.inMemoryCandidateSha256))||
+   typeof plan.inMemoryCandidateSha256!=='string'||
+   !(/^[a-f0-9]{64}$/.test(plan.inMemoryCandidateSha256))||
    !Array.isArray(plan.variants)||plan.variants.length!==2||
-   plan.variants[0]?.id!=='T0'||plan.variants[1]?.id!=='T1'||
+   !keys(plan.variants[0],variantFields)||!keys(plan.variants[1],variantFields)||
+   plan.variants[0].id!=='T0'||plan.variants[1].id!=='T1'||
+   plan.variants[0].sourcePredicateSha256!==hash(T0T1_ORIGINAL)||
+   plan.variants[1].sourcePredicateSha256!==hash(T0T1_EXPLICIT)||
    plan.variants.some(v=>!(/^[a-f0-9]{64}$/.test(v.ddlSha256)))||
-   !Array.isArray(plan.stages)||plan.stages.length!==8)fail('unsafe or incomplete plan');
+   !Array.isArray(plan.stages)||plan.stages.length!==stages.length||
+   plan.stages.some((stage,i)=>stage!==stages[i]))fail('unsafe or incomplete plan');
  return true;
 }
 function main(){
