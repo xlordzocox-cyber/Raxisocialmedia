@@ -248,7 +248,7 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
    if(!Array.isArray(build)||build.length!==5||
       Reflect.ownKeys(build).length!==6||
       build.some(x=>typeof x!=='string'||x.length===0)||
-      build[0]!=='170011'||!/^17\\.11(?:\\s|$)/.test(build[1]))
+      build[0]!=='170011'||!/^17\.11(?:\s|$)/.test(build[1]))
       stop('unexpected database build');
    return {conbinSha256:hash(String(row.conbin)),
     catalogSha256:hash(actual),buildSha256:hash(JSON.stringify(build))};
