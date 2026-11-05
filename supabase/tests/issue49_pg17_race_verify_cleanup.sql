@@ -2,7 +2,7 @@
 BEGIN;
 SELECT set_config('request.jwt.claim.sub','77770000-0000-4000-8000-000000000001',true);
 SELECT set_config('request.jwt.claims','{"sub":"77770000-0000-4000-8000-000000000001","is_anonymous":false}',true);
-DO $
+DO $$
 DECLARE v bigint; audits int; receipts int; s text;
 BEGIN
  IF current_database()<>'raxi_campaign_qa' THEN RAISE EXCEPTION 'LAB_ONLY database mismatch'; END IF;
