@@ -23,6 +23,11 @@ const EXPECTED_SOURCE_STEPS=Object.freeze([
 const DANGER_ENV=['DOCKER_HOST','DOCKER_CONTEXT','DOCKER_CONFIG','DOCKER_TLS','DOCKER_TLS_VERIFY','DOCKER_CERT_PATH',
   'PGHOST','PGHOSTADDR','PGSERVICE','PGPASSWORD','PGDATABASE','DATABASE_URL','SUPABASE_DB_URL'];
 const hash=s=>createHash('sha256').update(s,'utf8').digest('hex');
+const microSql=predicate=>'CREATE TABLE public.raxi_workspaces (\n'+
+  '  slug text NOT NULL CHECK ('+predicate+')\n);\n';
+const microT0="length(slug) BETWEEN 2 AND 64 AND slug ~ '^[a-z0-9-]+$'";
+const microT1="length(slug) >= 2 AND length(slug) <= 64 AND slug ~ '^[a-z0-9-]+$'";
+
 const fail=message=>{throw Error('ISSUE49 T0T1 OFFLINE STOP: '+message);};
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x)&&Object.getPrototypeOf(x)===Object.prototype;
 const keys=(obj,list)=>plain(obj)&&Object.keys(obj).length===list.length&&list.every(k=>Object.hasOwn(obj,k));
@@ -35,7 +40,7 @@ export function makeT0T1Plan({source,manifest,environment={},argv=['node','offli
  assertOfflineOnly({environment,argv});
  if(typeof source!=='string'||source.length<100||source.length>1000000||source.includes('\r'))fail('source not LF canonical');
  if(!keys(manifest,['kind','formatVersion','baseCommit','project','baseline','executionReady','schemaCompatibility','authorizations','applicationPlan','expectedReadyMigrationVersions','expectedSchemaPath','expectedSchemaSha256','candidate']))fail('manifest shape changed');
- if(manifest.kind!=='RAXI_STAGING_PREPARATION'||manifest.executionReady!==false||
+ if(manifest.kind!=='RAXI_STAGING_PREPARATION'||manifest.formatVersion!==1||manifest.executionReady!==false||
    manifest.schemaCompatibility?.status!=='PENDING_PG17_REVIEW'||manifest.schemaCompatibility?.targetPostgresMajor!==17||
    !plain(manifest.authorizations)||
    !keys(manifest.authorizations,['applySql','runB2','deploy','createUsers','realProviders','additionalSpend'])||
@@ -60,10 +65,8 @@ export function makeT0T1Plan({source,manifest,environment={},argv=['node','offli
  if(t1===source||t1.replace(T0T1_EXPLICIT,()=>T0T1_ORIGINAL)!==source)fail('T0/T1 transformation not reversible');
  const anchor="slug ~ '^[a-z0-9-]+$'";
  if(t1.split(anchor).length!==2||source.split(anchor).length!==2)fail('regex anchor changed');
- const mk=(predicate)=>'CREATE TABLE public.raxi_workspaces (\n'+
-   '  slug text NOT NULL CHECK ('+predicate+')\n);\n';
- const t0=mk("length(slug) BETWEEN 2 AND 64 AND slug ~ '^[a-z0-9-]+$'");
- const t1Micro=mk("length(slug) >= 2 AND length(slug) <= 64 AND slug ~ '^[a-z0-9-]+$'");
+ const t0=microSql(microT0);
+ const t1Micro=microSql(microT1);
  // The micro-schema SQL is NEVER returned or executed by this executable;
  // fingerprints provide planning traceability without authorizing SQL.
  if(t0===t1Micro||t0.includes(';')!==true||t1Micro.includes(';')!==true)fail('micro-schema plan invalid');
@@ -86,7 +89,13 @@ export function makeT0T1Plan({source,manifest,environment={},argv=['node','offli
   decision:'BLOCKED',hostedMigration:T0T1_NO_GO
  });
 }
-export function assertPlanIsBlocked(plan){
+export function assertPlanIsBlocked(plan,source){
+ if(typeof source!=='string'||source.includes('\r')||hash(source)!==T0T1_SOURCE_SHA||
+   source.split(T0T1_ORIGINAL).length!==2||source.includes(T0T1_EXPLICIT))
+   fail('pinned source required for plan attestation');
+ const candidate=source.replace(T0T1_ORIGINAL,()=>T0T1_EXPLICIT);
+ if(candidate.replace(T0T1_EXPLICIT,()=>T0T1_ORIGINAL)!==source)
+   fail('candidate not reversible');
  const planFields=['revision','scope','variants','pinnedMigrationSha256',
    'inMemoryCandidateSha256','stages','nativeExecutionAvailable',
    'dockerInvoked','sqlExecuted','writePerformed','allowCatalogPass',
@@ -103,11 +112,12 @@ export function assertPlanIsBlocked(plan){
    plan.decision!=='BLOCKED'||plan.semanticEquivalence!=='NOT_VERIFIED'||
    plan.allowCatalogPass!==false||plan.hostedMigration!==T0T1_NO_GO||
    plan.pinnedMigrationSha256!==T0T1_SOURCE_SHA||
-   typeof plan.inMemoryCandidateSha256!=='string'||
-   !(/^[a-f0-9]{64}$/.test(plan.inMemoryCandidateSha256))||
+   plan.inMemoryCandidateSha256!==hash(candidate)||
    !Array.isArray(plan.variants)||plan.variants.length!==2||
    !keys(plan.variants[0],variantFields)||!keys(plan.variants[1],variantFields)||
    plan.variants[0].id!=='T0'||plan.variants[1].id!=='T1'||
+   plan.variants[0].ddlSha256!==hash(microSql(microT0))||
+   plan.variants[1].ddlSha256!==hash(microSql(microT1))||
    plan.variants[0].sourcePredicateSha256!==hash(T0T1_ORIGINAL)||
    plan.variants[1].sourcePredicateSha256!==hash(T0T1_EXPLICIT)||
    plan.variants.some(v=>!(/^[a-f0-9]{64}$/.test(v.ddlSha256)))||
@@ -121,7 +131,7 @@ function main(){
  const source=readFileSync(join(root,T0T1_SOURCE_PATH),'utf8').replace(/\r\n/g,'\n');
  const manifest=JSON.parse(readFileSync(join(root,'supabase/staging/raxi-hq-staging.manifest.json'),'utf8'));
  const plan=makeT0T1Plan({source,manifest,environment:process.env,argv:process.argv});
- assertPlanIsBlocked(plan);
+ assertPlanIsBlocked(plan,source);
  console.log('PASS ISSUE49 T0T1 OFFLINE PREFLIGHT: pinned migration, staged authorizations and exact reversible predicates');
  console.log('ISSUE49 T0 SHA256: '+plan.variants[0].ddlSha256);
  console.log('ISSUE49 T1 SHA256: '+plan.variants[1].ddlSha256);
