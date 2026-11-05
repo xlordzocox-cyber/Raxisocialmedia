@@ -11,6 +11,10 @@ const steps=['PRECHECK','ATTEST_LOCAL','ATTEST_IMAGE','DEFINE_RESOURCES',
 const exact=(o,keys)=>o!==null&&typeof o==='object'&&!Array.isArray(o)&&
  Object.getPrototypeOf(o)===Object.prototype&&
  Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
+const exactArray=(actual,expected)=>Array.isArray(actual)&&
+ actual.length===expected.length&&
+ Array.from({length:expected.length},(_,i)=>i).every(i=>
+   Object.hasOwn(actual,i)&&typeof actual[i]==='string'&&actual[i]===expected[i]);
 
 export function prepareOfflineNativeAdapter({plan,source,prerequisites,sessionId,expectedImageId}){
  assertPlanIsBlocked(plan,source);
@@ -42,11 +46,9 @@ export function prepareOfflineNativeAdapter({plan,source,prerequisites,sessionId
 export function validateOfflineNativeAdapter({adapter,plan,source,prerequisites,sessionId,expectedImageId}){
  const expected=prepareOfflineNativeAdapter({plan,source,prerequisites,sessionId,expectedImageId});
  const fields=Object.keys(expected);
- if(!exact(adapter,fields)||!Array.isArray(adapter.roles)||
-    !Array.isArray(adapter.stages)||!Array.isArray(adapter.resourceNames)||
+ if(!exact(adapter,fields)||
     fields.some(key=>Array.isArray(expected[key])
-      ?(adapter[key].length!==expected[key].length||
-       adapter[key].some((v,i)=>v!==expected[key][i]))
+      ?!exactArray(adapter[key],expected[key])
       :adapter[key]!==expected[key]))fail('modified adapter');
  return Object.freeze({
   validatedOffline:true,actualInfrastructureVerified:false,
