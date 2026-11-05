@@ -23,17 +23,19 @@ const prerequisites=verifyNativeTrialPrerequisites({
  image:{id:imageId,version:'PostgreSQL 17.11',os:'linux',
  architecture:'amd64',rootless:false,source:'LOCALLY_INSPECTED'}
 });
-const cfg={plan,source,prerequisites,expectedImageId:imageId,sessionId};
+const cfg={plan,source,manifest,prerequisites,expectedImageId:imageId,sessionId};
 const trial=prepareNativeTrial(cfg);
 const consent={scope:'ISSUE49_LOCAL_T0T1_PG17_11',sessionId,imageId,
  localOnly:true,syntheticOnly:true,maxContainers:4,separateOperatorConsent:true};
 
 function fakeCli({wrongImageVersion=false,wrongImageId=false,foreignLabel=false,
  leaveVolume=false,remoteContext=false,unsafeNetwork=false,preexistingVolume=false,
- missingDataVolume=false}={}){
+ missingDataVolume=false,bootstrapTransition=false,incompleteCatalog=false,
+ failedInventory=false,failedRestore=false,failedInfo=false}={}){
  const calls=[],containers=new Map(),volumes=new Set();
  if(preexistingVolume)volumes.add('6'.repeat(64));
- let index=0;
+ let index=0,removed=0;
+ const readyCounts=new Map();
  const out=(value,code=0)=>({code,bytes:Buffer.isBuffer(value)?value:
   Buffer.from(typeof value==='string'?value:JSON.stringify(value))});
  const transport=async ({host:used,args,input})=>{
@@ -45,13 +47,13 @@ function fakeCli({wrongImageVersion=false,wrongImageId=false,foreignLabel=false,
   if(args[0]==='context'&&args[1]==='inspect')return out([{
    Name:name,Endpoints:{docker:{Host:remoteContext?'tcp://127.0.0.1:2375':host,
    SkipTLSVerify:false}}}]);
-  if(args[0]==='info')return out({OSType:'linux',ID:'mock-docker-daemon'});
+  if(args[0]==='info')return out({OSType:'linux',ID:'mock-docker-daemon'},failedInfo?1:0);
   if(args[0]==='image'&&args[1]==='inspect')return out([{
    Id:wrongImageId?'sha256:'+'f'.repeat(64):imageId,
    Os:'linux',Architecture:'amd64',Config:{
     Env:['PG_VERSION='+(wrongImageVersion?'17.10-1':'17.11-1.pgdg13+1')]}}]);
-  if(args[0]==='volume'&&args[1]==='ls')return out([...volumes].join('\n'));
-  if(args[0]==='container'&&args[1]==='ls')return out([...containers.keys()].join('\n'));
+  if(args[0]==='volume'&&args[1]==='ls')return out([...volumes].join('\n'),failedInventory&&removed>0?1:0);
+  if(args[0]==='container'&&args[1]==='ls')return out([...containers.keys()].join('\n'),failedInventory&&removed>0?1:0);
   if(args[0]==='container'&&args[1]==='create'){
    assert.equal(args[args.indexOf('--network')+1],'none');
    assert.equal(args[args.indexOf('--pull')+1],'never');
@@ -79,40 +81,47 @@ function fakeCli({wrongImageVersion=false,wrongImageId=false,foreignLabel=false,
    assert.equal(args[2],'-f');assert.equal(args[3],'-v');
    const id=args[4],r=containers.get(id);
    assert.ok(r,'remove only created exact IDs');
-   containers.delete(id);
+   containers.delete(id);removed++;
    if(!leaveVolume)volumes.delete(r.volume);
    return out(id);
   }
   if(args[0]==='container'&&args[1]==='exec'){
    const id=args.includes('-i')?args[3]:args[2];
    assert.ok(containers.has(id),'run only inside trial container');
-   if(a.includes('pg_isready'))return out('');
+   if(a.includes('pg_isready')){
+    assert.equal(args[args.indexOf('-h')+1],'127.0.0.1',
+      'do not accept bootstrap Unix-socket-only server');
+    const count=readyCounts.get(id)||0;readyCounts.set(id,count+1);
+    return out('',bootstrapTransition&&count===0?1:0);
+   }
    if(a.includes('pg_dump'))return out(Buffer.from([80,71,68,77,80,1]));
    if(a.includes('pg_restore')){
     assert.ok(input instanceof Uint8Array&&input.length>0);
-    return out('');
+    return out('',failedRestore?1:0);
    }
    if(a.includes('psql')&&a.includes('--single-transaction')){
     assert.equal(typeof input,'string');assert.ok(input.includes('CHECK'));
     return out('');
    }
-   if(a.includes('json_build_array'))return out(['17.11','UTF8','C','C']);
+   if(a.includes('json_build_array'))return out(['170011','17.11 (Debian 17.11-1.pgdg13+2)','UTF8','C','C']);
    if(a.includes('json_build_object')){
     const r=containers.get(id);
     const t0=r.name.includes('t0-');
     const sourceRole=r.name.endsWith('-source');
     const conbin=t0?(sourceRole?'a':'b'):'c';
-    return out({constraint_name:'raxi_workspaces_slug_check',type:'c',
+    const row={constraint_name:'raxi_workspaces_slug_check',type:'c',
       validated:true,slug_notnull:true,tablecount:1,constraintcount:1,
       conbin,definition:'mock constraint',local:true,noinherit:true,
-      inhcount:0,slug_type:'text',slug_collation:'default'});
+      inhcount:0,slug_type:'text',slug_collation:'default'};
+    if(incompleteCatalog)delete row.conbin;
+    return out(row);
    }
   }
   throw Error('UNEXPECTED_MOCK_COMMAND '+args.join(' '));
  };
  return {calls,containers,volumes,transport};
 }
-const sim=fakeCli();
+const sim=fakeCli({bootstrapTransition:true});
 const driver=createIssue49LocalDockerDriver({host,transport:sim.transport});
 const result=await runNativeTrialWithDriver({...cfg,trial,consent,driver});
 assert.equal(result.finding,'T1_MICROSCHEMA_CANDIDATE_ONLY');
@@ -131,7 +140,11 @@ for(const [label,config,cleanupExpected] of [
  ['wrong immutable image ID',{wrongImageId:true},'NOT_REQUIRED_NO_RESOURCES'],
  ['network escape on inspection',{unsafeNetwork:true},'RESOURCE_REMAINS'],
  ['preexisting volume attached',{preexistingVolume:true},'RESOURCE_REMAINS'],
- ['required data volume missing',{missingDataVolume:true},'RESOURCE_REMAINS']
+ ['required data volume missing',{missingDataVolume:true},'RESOURCE_REMAINS'],
+ ['incomplete microcatalog',{incompleteCatalog:true},'ALL_TRACKED_IDS_AND_VOLUMES_REMOVED'],
+ ['transport inventory error code',{failedInventory:true},'RESOURCE_REMAINS'],
+ ['transport restore error code',{failedRestore:true},'ALL_TRACKED_IDS_AND_VOLUMES_REMOVED'],
+ ['transport daemon info error code',{failedInfo:true},'NOT_REQUIRED_NO_RESOURCES']
 ]){
  const fake=fakeCli(config);
  const d=createIssue49LocalDockerDriver({host,transport:fake.transport});
