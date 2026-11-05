@@ -68,13 +68,14 @@ async function command({binary,host,args,input,permitFailure=false}){
  });
 }
 const parseJson=bytes=>{try{return JSON.parse(bytes.toString('utf8'));}catch{stop('invalid JSON attestation');}};
-export function createIssue49LocalDockerDriver({host}){
+export function createIssue49LocalDockerDriver({host,transport=command}){
  const platform=osPlatform();
+ if(typeof transport!=='function')stop('transport must be callable');
  if(!hosts[platform]?.includes(host)||!dockerPath[platform])
   stop('unsupported host/platform');
  const binary=dockerPath[platform];
  let pinnedDaemonId=null;
- const run=(args,input,permitFailure=false)=>command({binary,host,args,input,permitFailure});
+ const run=(args,input,permitFailure=false)=>transport({binary,host,args,input,permitFailure});
  const inspectContainer=async id=>{
   const out=await run(['container','inspect',id]);
   const list=parseJson(out.bytes);
