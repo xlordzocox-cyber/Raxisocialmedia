@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { renderToString } from 'react-dom/server';
+import { act,create,type ReactTestRenderer } from 'react-test-renderer';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { AuthStore } from '../src/auth/authStore';
@@ -9,30 +10,44 @@ import { ProtectedRoute, AuthRoutes, safeReturnPath } from '../src/auth/AuthRout
 import { readAuthConfig } from '../src/auth/config';
 
 const user = { id: 'test-user', email: 'team@example.test' } as User;
+// Intentionally unsigned synthetic tokens: session_id correlation fixtures only.
+// Fake getUser supplies server verification; these never reach Supabase.
+const sessionFor=(u=user,id='synthetic-session',expires=Date.now()/1000+3600)=>({user:u,expires_at:expires,access_token:`synthetic.${btoa(JSON.stringify({sub:u.id,session_id:id}))}.unsigned`});
 const tick = () => new Promise(resolve => setTimeout(resolve, 5));
 function fixture() {
-  let callback: (event: string, session?: { user: User }) => void = () => {};
+  let callback: (event: string, session?: { user: User; expires_at?: number; access_token?:string }) => void = () => {};
   let unsubscribed = false;
   let result: { data: { user: User | null }; error: { name: string } | null } = { data: { user }, error: null };
   let resolveUser = async () => result;
   let signInError: object | null = null;
+  let signOutError: object | null = null;
+  let signOutEventOnError=false,updateEvent=false,signOutThrows=false;
+  let currentSession='synthetic-session',sessionNumber=0;
+  let finishUpdate:(()=>Promise<void>)|undefined;
   let recoveryRequests: Array<{ email: string; redirectTo: string }> = [];
   let updatedPasswords: string[] = [];
   const api = {
     getUser: () => resolveUser(),
     onAuthStateChange: (cb: typeof callback) => { callback = cb; return { data: { subscription: { unsubscribe: () => { unsubscribed = true; } } } }; },
     signInWithPassword: async () => ({ error: signInError }),
-    signOut: async () => { callback('SIGNED_OUT'); return { error: null }; },
+    signOut: async () => { if(signOutThrows)throw Error('synthetic network failure');if(!signOutError||signOutEventOnError)callback('SIGNED_OUT');return { error: signOutError }; },
     resetPasswordForEmail: async (email: string, options: { redirectTo: string }) => { recoveryRequests.push({ email, redirectTo: options.redirectTo }); return { error: null }; },
-    updateUser: async (value: { password: string }) => { updatedPasswords.push(value.password); return { error: null }; },
+    updateUser: async (value: { password: string }) => { updatedPasswords.push(value.password);if(updateEvent)callback('USER_UPDATED',sessionFor(result.data.user!,currentSession));await finishUpdate?.();return { error: null }; },
   };
   return {
     store: new AuthStore(api as unknown as SupabaseClient['auth']),
-    emit: (event: string) => callback(event),
-    refresh: () => callback('TOKEN_REFRESHED', { user }),
+    emit: (event: string, session = event==='PASSWORD_RECOVERY'?sessionFor(result.data.user??user,currentSession):undefined) => callback(event,session),
+    changeUser: (next: User) => {currentSession=`synthetic-session-${++sessionNumber}`;result={data:{user:next},error:null};resolveUser=async()=>result;callback('SIGNED_IN',sessionFor(next,currentSession)); },
+    refocus:()=>callback('SIGNED_IN',sessionFor(result.data.user??user,currentSession)),
+    failSignOut: (emitBeforeError=false) => { signOutError={name:'AuthRetryableFetchError'};signOutEventOnError=emitBeforeError; },
+    throwSignOut: () => {signOutThrows=true;},
+    emitUpdate: () => {updateEvent=true;},
+    deferUpdate:()=>{let resolve!:()=>void;const pending=new Promise<void>(r=>{resolve=r;});finishUpdate=()=>pending;return resolve;},
+    allowSignOut: () => { signOutError=null; },
+    refresh: () => callback('TOKEN_REFRESHED', sessionFor(result.data.user??user,currentSession)),
     missing: () => { result = { data: { user: null }, error: { name: 'AuthSessionMissingError' } }; },
     rejectLogin: () => { signInError = {}; },
-    defer: () => { let resolve!: (value: typeof result) => void; const promise = new Promise<typeof result>(r => { resolve = r; }); resolveUser = () => promise; return () => resolve({ data: { user }, error: null }); },
+    defer: () => { let resolve!: (value: typeof result) => void; const promise = new Promise<typeof result>(r => { resolve = r; }); resolveUser = () => promise; return (next=user) => resolve({ data: { user:next }, error: null }); },
     offline: () => { resolveUser = async () => { throw new Error('offline'); }; },
     unsubscribed: () => unsubscribed,
     recoveryRequests: () => recoveryRequests,
@@ -149,4 +164,106 @@ test('login exposes recovery request; reset route does not expose a password for
   assert.ok(html.includes('Olvidaste tu contraseña'));
   const reset = renderToString(<AuthProvider store={f.store}><MemoryRouter initialEntries={['/reset-password']}><AuthRoutes /></MemoryRouter></AuthProvider>);
   assert.ok(!reset.includes('new-password'));
+});
+
+test('logout failure after a confirmed password update must reject completion, not claim signedOut',async()=>{
+  const previous=Object.getOwnPropertyDescriptor(globalThis,'window');Object.defineProperty(globalThis,'window',{configurable:true,value:new EventTarget()});
+  try{const f=fixture(),stop=f.store.start();f.emit('PASSWORD_RECOVERY');await tick();f.failSignOut();
+    await assert.rejects(f.store.completePasswordRecovery('long-test-password'));
+    assert.equal(f.updatedPasswords().length,1);assert.notEqual(f.store.getSnapshot().status,'signedOut');assert.equal(f.store.getSnapshot().recovery,false);assert.ok(!protectedMarkup(f.store).includes('Private office content'));stop();
+  }finally{if(previous)Object.defineProperty(globalThis,'window',previous);else Reflect.deleteProperty(globalThis,'window');}
+});
+test('failed validation followed by ordinary login cannot revive a prior recovery permission',async()=>{
+  const previous=Object.getOwnPropertyDescriptor(globalThis,'window');Object.defineProperty(globalThis,'window',{configurable:true,value:new EventTarget()});
+  try{const f=fixture(),stop=f.store.start();f.emit('PASSWORD_RECOVERY');await tick();assert.equal(f.store.getSnapshot().recovery,true);
+    f.missing();await f.store.validate();f.changeUser({...user,id:'other-user'});await tick();assert.equal(f.store.getSnapshot().recovery,false);
+    await assert.rejects(f.store.completePasswordRecovery('long-test-password'));assert.equal(f.updatedPasswords().length,0);stop();
+  }finally{if(previous)Object.defineProperty(globalThis,'window',previous);else Reflect.deleteProperty(globalThis,'window');}
+});
+
+async function recoveryCase(run:(f:ReturnType<typeof fixture>)=>Promise<void>){
+  const previous=Object.getOwnPropertyDescriptor(globalThis,'window');Object.defineProperty(globalThis,'window',{configurable:true,value:new EventTarget()});
+  const f=fixture(),stop=f.store.start();
+  try{f.emit('PASSWORD_RECOVERY');await tick();await run(f);}finally{stop();if(previous)Object.defineProperty(globalThis,'window',previous);else Reflect.deleteProperty(globalThis,'window');}
+}
+test('signOut returns false on SDK error or throw, fences revalidation/login, and permits explicit cleanup retry',async()=>{
+  for(const failure of ['error','throw'] as const){const f=fixture();await f.store.validate();if(failure==='error')f.failSignOut();else f.throwSignOut();
+    assert.equal(await f.store.signOut(),false);assert.equal(f.store.getSnapshot().status,'signOutError');assert.equal(f.store.getSnapshot().user,null);
+    await f.store.validate();assert.equal(f.store.getSnapshot().status,'signOutError');await assert.rejects(f.store.signIn('team@example.test','synthetic'));
+    if(failure==='error'){f.allowSignOut();assert.equal(await f.store.signOut(),true);assert.equal(f.store.getSnapshot().status,'signedOut');}
+  }
+});
+test('an SDK SIGNED_OUT callback before a returned logout error does not confirm success',async()=>{
+  await recoveryCase(async f=>{f.failSignOut(true);await assert.rejects(f.store.completePasswordRecovery('long-test-password'));assert.equal(f.store.getSnapshot().status,'signOutError');
+    f.emit('SIGNED_IN',{user,expires_at:Date.now()/1000+3600});await tick();assert.equal(f.store.getSnapshot().status,'signOutError');
+    await assert.rejects(f.store.completePasswordRecovery('another-password'));assert.equal(f.updatedPasswords().length,1);
+  });
+});
+for(const invalid of ['expired','missing','anonymous'] as const)test(`PASSWORD_RECOVERY ${invalid} session cannot arm a recovery grant`,async()=>{
+  await recoveryCase(async f=>{
+    if(invalid==='expired')f.emit('PASSWORD_RECOVERY',sessionFor(user,'synthetic-session',Date.now()/1000-1));
+    if(invalid==='missing')f.emit('PASSWORD_RECOVERY',{} as any);
+    if(invalid==='anonymous')f.emit('PASSWORD_RECOVERY',sessionFor({...user,is_anonymous:true}));
+    await tick();assert.equal(f.store.getSnapshot().recovery,false);await assert.rejects(f.store.completePasswordRecovery('long-test-password'));assert.equal(f.updatedPasswords().length,0);
+  });
+});
+test('expiry timer removes recovery permission even if no subsequent auth event arrives',async t=>{
+  const previous=Object.getOwnPropertyDescriptor(globalThis,'window');Object.defineProperty(globalThis,'window',{configurable:true,value:new EventTarget()});
+  t.mock.timers.enable({apis:['Date','setTimeout'],now:100000});const f=fixture(),stop=f.store.start();
+  try{await Promise.resolve();f.emit('PASSWORD_RECOVERY',sessionFor(user,'synthetic-session',101));t.mock.timers.tick(0);await Promise.resolve();assert.equal(f.store.getSnapshot().recovery,true);
+    t.mock.timers.tick(1000);assert.equal(f.store.getSnapshot().recovery,false);await assert.rejects(f.store.completePasswordRecovery('long-test-password'));assert.equal(f.updatedPasswords().length,0);
+  }finally{stop();t.mock.timers.reset();if(previous)Object.defineProperty(globalThis,'window',previous);else Reflect.deleteProperty(globalThis,'window');}
+});
+test('Auth expiry during submit consumes permission; a normal same-user session cannot revive it',async()=>{
+  await recoveryCase(async f=>{f.missing();await assert.rejects(f.store.completePasswordRecovery('long-test-password'));assert.equal(f.store.getSnapshot().recovery,false);
+    f.changeUser(user);await tick();await assert.rejects(f.store.completePasswordRecovery('another-password'));assert.equal(f.updatedPasswords().length,0);
+  });
+});
+test('network validation failure consumes permission before an ordinary session returns',async()=>{
+  await recoveryCase(async f=>{f.offline();await f.store.validate();f.changeUser(user);await tick();assert.equal(f.store.getSnapshot().recovery,false);await assert.rejects(f.store.completePasswordRecovery('long-test-password'));assert.equal(f.updatedPasswords().length,0);});
+});
+test('identity switch and explicit same-user login remove the old recovery grant',async()=>{
+  for(const next of [user,{...user,id:'other-user'}])await recoveryCase(async f=>{f.changeUser(next);await tick();assert.equal(f.store.getSnapshot().recovery,false);await assert.rejects(f.store.completePasswordRecovery('long-test-password'));assert.equal(f.updatedPasswords().length,0);});
+  await recoveryCase(async f=>{await f.store.signIn('team@example.test','synthetic');assert.equal(f.store.getSnapshot().recovery,false);await assert.rejects(f.store.completePasswordRecovery('long-test-password'));});
+});
+test('same-owner token refresh and USER_UPDATED preserve a legitimate recovery completion',async()=>{
+  await recoveryCase(async f=>{f.refresh();await tick();assert.equal(f.store.getSnapshot().recovery,true);f.emitUpdate();await f.store.completePasswordRecovery('long-test-password');assert.equal(f.store.getSnapshot().status,'signedOut');assert.equal(f.updatedPasswords().length,1);});
+});
+test('account change during awaited recovery verification cannot update the new account',async()=>{
+  await recoveryCase(async f=>{const resolve=f.defer(),pending=f.store.completePasswordRecovery('long-test-password'),rejection=assert.rejects(pending);f.changeUser({...user,id:'other-user'});await tick();resolve({...user,id:'other-user'});await rejection;assert.equal(f.updatedPasswords().length,0);assert.equal(f.store.getSnapshot().user?.id,'other-user');});
+});
+test('logout during awaited verification prevents updateUser and does not dereference a missing user',async()=>{
+  await recoveryCase(async f=>{const resolve=f.defer(),pending=f.store.completePasswordRecovery('long-test-password'),rejection=assert.rejects(pending,/cambió|caducado/);await f.store.signOut();resolve();await rejection;assert.equal(f.updatedPasswords().length,0);assert.equal(f.store.getSnapshot().status,'signedOut');});
+});
+test('concurrent submissions cannot write two password updates',async()=>{
+  await recoveryCase(async f=>{const resolve=f.defer(),pending=f.store.completePasswordRecovery('long-test-password');await assert.rejects(f.store.completePasswordRecovery('another-password'));resolve();await pending;assert.equal(f.updatedPasswords().length,1);});
+});
+test('same-session SIGNED_IN on refocus preserves recovery without granting a new login permission',async()=>{
+  await recoveryCase(async f=>{f.refocus();await tick();assert.equal(f.store.getSnapshot().recovery,true);await f.store.completePasswordRecovery('long-test-password');assert.equal(f.updatedPasswords().length,1);});
+});
+test('expiry during a confirmed update still requires cleanup and exposes a logout error for retry',async t=>{
+  const previous=Object.getOwnPropertyDescriptor(globalThis,'window');Object.defineProperty(globalThis,'window',{configurable:true,value:new EventTarget()});
+  t.mock.timers.enable({apis:['Date','setTimeout'],now:100000});const f=fixture(),stop=f.store.start();
+  try{await Promise.resolve();f.emit('PASSWORD_RECOVERY',sessionFor(user,'synthetic-session',101));t.mock.timers.tick(0);await Promise.resolve();
+    const finish=f.deferUpdate();f.failSignOut();const pending=f.store.completePasswordRecovery('long-test-password'),rejected=assert.rejects(pending,/contraseña se actualizó/);await Promise.resolve();assert.equal(f.updatedPasswords().length,1);
+    t.mock.timers.tick(1000);finish();await rejected;assert.equal(f.store.getSnapshot().status,'signOutError');assert.equal(f.store.getSnapshot().recovery,false);
+    f.allowSignOut();assert.equal(await f.store.signOut(),true);
+  }finally{stop();t.mock.timers.reset();if(previous)Object.defineProperty(globalThis,'window',previous);else Reflect.deleteProperty(globalThis,'window');}
+});
+test('an already consumed recovery session cannot rearm from a repeated PASSWORD_RECOVERY notification',async()=>{
+  await recoveryCase(async f=>{await f.store.completePasswordRecovery('long-test-password');f.emit('PASSWORD_RECOVERY');await tick();assert.equal(f.store.getSnapshot().recovery,false);await assert.rejects(f.store.completePasswordRecovery('another-password'));assert.equal(f.updatedPasswords().length,1);});
+});
+test('late update acknowledgement cannot sign out a new same-user session',async()=>{
+  await recoveryCase(async f=>{const finish=f.deferUpdate(),pending=f.store.completePasswordRecovery('long-test-password'),rejected=assert.rejects(pending,/sesión cambió/);await Promise.resolve();f.changeUser(user);await tick();finish();await rejected;assert.equal(f.store.getSnapshot().status,'signedIn');assert.equal(f.store.getSnapshot().recovery,false);});
+});
+test('mounted reset screen never shows success when cleanup fails, exposes error and can retry cleanup only',async()=>{
+  Object.defineProperty(globalThis,'IS_REACT_ACT_ENVIRONMENT',{configurable:true,value:true});
+  await recoveryCase(async f=>{let view!:ReactTestRenderer;await act(async()=>{view=create(<AuthProvider store={f.store}><MemoryRouter initialEntries={['/reset-password']}><AuthRoutes/></MemoryRouter></AuthProvider>);});
+    const text=()=>JSON.stringify(view.toJSON());const inputs=view.root.findAllByType('input');
+    await act(async()=>{inputs[0].props.onChange({target:{value:'long-test-password'}});inputs[1].props.onChange({target:{value:'long-test-password'}});});
+    f.failSignOut();await act(async()=>view.root.findByType('form').props.onSubmit({preventDefault(){}}));
+    assert.equal(text().includes('Contraseña actualizada. Inicia sesión'),false);assert.ok(text().includes('La contraseña se actualizó, pero'));assert.equal(view.root.findAllByType('form').length,0);
+    f.allowSignOut();const retry=view.root.findAllByType('button').find(b=>b.children.join('')==='Reintentar cierre de sesión')!;await act(async()=>retry.props.onClick());
+    assert.ok(text().includes('Contraseña actualizada. Inicia sesión'));assert.equal(f.updatedPasswords().length,1);await act(async()=>view.unmount());
+  });
 });

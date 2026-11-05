@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState, type FormEvent } from 'react';
 import { Link, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom';
 import { useAuth } from './AuthProvider';
+import { PasswordRecoverySignOutError } from './authStore';
 
 const Office = lazy(() => import('../App'));
 export function safeReturnPath(value: unknown): string {
@@ -29,6 +30,7 @@ function Login() {
   if (auth.status === 'loading') return <Loading />;
   if (auth.recovery) return <Navigate to="/reset-password" replace />;
   if (auth.status === 'signedIn') return <Navigate to={safeReturnPath(location.state?.from)} replace />;
+  if(auth.status==='signOutError')return <main className="auth-shell"><section className="auth-card"><h1>Cierre de sesión sin confirmar</h1><p role="alert">{auth.error}</p><button type="button" onClick={()=>{void auth.signOut();}}>Reintentar cierre de sesión</button></section></main>;
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError(null);
     try { await auth.signIn(email, password); }
@@ -84,6 +86,7 @@ function ResetPassword() {
   const [confirmation, setConfirmation] = useState('');
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const [passwordChanged,setPasswordChanged]=useState(false);
   const [error, setError] = useState<string | null>(null);
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -91,7 +94,7 @@ function ResetPassword() {
     if (password !== confirmation) { setError('Las contraseñas no coinciden.'); return; }
     setBusy(true); setError(null);
     try { await auth.completePasswordRecovery(password); setDone(true); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'No se pudo cambiar la contraseña.'); }
+    catch (cause) { if(cause instanceof PasswordRecoverySignOutError)setPasswordChanged(true);setError(cause instanceof Error ? cause.message : 'No se pudo cambiar la contraseña.'); }
     finally { setBusy(false); setPassword(''); setConfirmation(''); }
   }
   return <main className="auth-shell"><section className="auth-card" aria-labelledby="reset-title">
@@ -103,9 +106,10 @@ function ResetPassword() {
         <input id="new-password" type="password" autoComplete="new-password" minLength={12} required value={password} onChange={event => setPassword(event.target.value)} disabled={busy} />
         <label htmlFor="confirm-password">Confirmar contraseña</label>
         <input id="confirm-password" type="password" autoComplete="new-password" minLength={12} required value={confirmation} onChange={event => setConfirmation(event.target.value)} disabled={busy} />
-        {error && <p role="alert">{error}</p>}
         <button type="submit" disabled={busy}>{busy ? 'Guardando…' : 'Guardar nueva contraseña'}</button>
-      </form> : <p role="alert">Este enlace de recuperación no es válido, ya se utilizó o ha caducado. Solicita uno nuevo.</p>}
+      </form> : auth.status==='signOutError'?<p role="status">El cierre de sesión está pendiente de confirmación.</p>:<p role="alert">Este enlace de recuperación no es válido, ya se utilizó o ha caducado. Solicita uno nuevo.</p>}
+    {!done && (error||auth.error) && <p role="alert">{error||auth.error}</p>}
+    {auth.status==='signOutError' && <button type="button" disabled={busy} onClick={async()=>{setBusy(true);try{if(await auth.signOut()){setError(null);if(passwordChanged)setDone(true);}}finally{setBusy(false);}}}>Reintentar cierre de sesión</button>}
     <Link to={done ? '/login' : '/forgot-password'}>{done ? 'Iniciar sesión' : 'Solicitar otro enlace'}</Link>
   </section></main>;
 }
