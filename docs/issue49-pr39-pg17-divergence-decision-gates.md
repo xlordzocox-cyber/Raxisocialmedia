@@ -11,6 +11,10 @@
 - Verificación realizada sobre archivos presentes en la máquina del usuario. No se transmitió el JSON privado a GitHub ni se ejecutaron Docker, SQL o Supabase en este paso.
 - El PR #39 consta en GitHub como **integrado en main** (merge `200aeee384edb137ea07620e2e20480b1b0d7df4`), pero integró **instrumentación diagnóstica**, no una política de equivalencia autorizada.
 
+## Prueba de asociatividad ejecutada en Windows
+
+El operador descargó el commit `3e829d2953298f77b48c1f1aef6998bf3827dec3` y ejecutó `node --check` y `node scripts/issue49-pr39-and-associativity.mjs` sobre su copia temporal en Windows, sin fallos. Salida: `PASS PR39 BOOLEAN ALGEBRA: 27 of 27 three-valued combinations; decision BLOCKED / NOT_VERIFIED`. Esto acredita la tabla lógica de tres valores (27 combinaciones) únicamente, y **no** establece pureza/identidad real de las funciones ni equivalencia de catálogo o restauración. El bloqueo original permanece.
+
 ## Distinción técnica obligatoria
 
 La diferencia observada es el agrupamiento de los mismos tres operandos en `AND(AND(L,U),R)` frente a `AND(L,U,R)` para una captura sintética pinneada. La identidad de los 35 bindings y de los operandos bajo condiciones cerradas es evidencia estructural; **no es automáticamente una prueba general de seguridad de restauración**. Incluso un argumento formal de asociatividad del operador booleano ternario (`TRUE`, `FALSE`, `UNKNOWN`) requeriría acreditar que los operandos PostgreSQL son efectivamente los mismos y puros, con funciones/operadores/locale/errores comparables, y que el resto del catálogo no ha cambiado.
