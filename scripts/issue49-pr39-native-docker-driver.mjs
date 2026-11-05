@@ -74,7 +74,7 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
  if(!hosts[platform]?.includes(host)||!dockerPath[platform])
   stop('unsupported host/platform');
  const binary=dockerPath[platform];
- let pinnedDaemonId=null;
+ let pinnedDaemonId=null,attestedImageId=null,baselineVolumes=new Set();
  const created=new Map(),inspected=new Map(),removalRequested=new Set();
  const registered=(id,spec)=>{
   if(!SHA.test(id)||!created.has(id)||!inspected.has(id))stop('unknown or uninspected container');
@@ -112,6 +112,7 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
    const preexistingVolumes=inventory.bytes.toString('utf8').split(/\r?\n/).filter(Boolean);
    if(preexistingVolumes.length>10000||new Set(preexistingVolumes).size!==preexistingVolumes.length)
       stop('unbounded or duplicate volume inventory');
+   baselineVolumes=new Set(preexistingVolumes);
    return {host,local:true,verified:true,daemonId:x.ID,preexistingVolumes};
   },
   async attestImage({imageId}){
@@ -121,12 +122,16 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
      x[0].Os!=='linux'||x[0].Architecture!=='amd64'||
      !x[0].Config?.Env?.some(v=>/^PG_VERSION=17\.11(?:-|$)/.test(v)))
      stop('image ID, OS, architecture or PostgreSQL version mismatch');
+   if(attestedImageId!==null&&attestedImageId!==imageId)
+     stop('attested image changed');
+   attestedImageId=imageId;
    return {id:imageId,version:'17.11',os:'linux',architecture:'amd64',verified:true};
   },
   async create({spec,host:required}){
-   if(required!==host||spec.imageId===undefined||!IMAGE.test(spec.imageId)||
+   if(required!==host||pinnedDaemonId===null||spec.imageId!==attestedImageId||
+     !IMAGE.test(spec.imageId)||
      !/^raxi-t0t1-[a-f0-9]{24}-(?:t0|t1)-(?:source|restored)$/.test(spec.name)||
-     !/^raxi\.issue49\.trial\.[a-f0-9]{24}$/.test(spec.ownerLabel))
+     spec.ownerLabel!=='raxi.issue49.trial.'+spec.name.slice(10,34))
      stop('unsafe container request');
    const x=await run(['container','create','--name',spec.name,
     '--label','raxi.issue49.owner='+spec.ownerLabel,'--network','none',
@@ -144,10 +149,20 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
       spec.imageId!==expected.imageId||spec.role!==expected.role)
       stop('inspect specification changed');
    const x=await inspectContainer(id);
-   if(x.Id!==id||owner(x)!==spec.ownerLabel)stop('foreign resource');
+   if(x.Id!==id||owner(x)!==spec.ownerLabel||
+      x.Image!==spec.imageId||x.Name!=='/'+spec.name||
+      x.HostConfig?.NetworkMode!=='none'||
+      x.HostConfig?.Privileged!==false||
+      Boolean(x.HostConfig?.Binds?.length)||
+      Object.values(x.HostConfig?.PortBindings||{}).some(v=>Array.isArray(v)&&v.length>0))
+      stop('foreign, privileged, networked or exposed resource');
    const mounts=x.Mounts||[];
-   if(!Array.isArray(mounts)||mounts.some(m=>m.Type!=='volume'||!SHA.test(m.Name)||
-     m.Destination!=='/var/lib/postgresql/data'))stop('unexpected storage mount');
+   if(!Array.isArray(mounts)||mounts.length>1||
+      mounts.some(m=>m.Type!=='volume'||!SHA.test(m.Name)||
+        m.Destination!=='/var/lib/postgresql/data'||
+        baselineVolumes.has(m.Name)||
+        [...inspected].some(([otherId,vols])=>otherId!==id&&vols.includes(m.Name))))
+      stop('unknown, preexisting or shared storage mount');
    inspected.set(id,mounts.map(m=>m.Name));
    const mappings=x.HostConfig?.PortBindings||{};
    const ports=Object.values(mappings).some(v=>Array.isArray(v)&&v.length>0);
