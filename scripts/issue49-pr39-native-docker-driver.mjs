@@ -82,16 +82,28 @@ export function createIssue49LocalDockerDriver({host}){
  return Object.freeze({
   async attestLocal({host:required}){
    if(required!==host)stop('changed local host');
+   const contextName=host===windows?'desktop-linux':'default';
+   const contexts=parseJson((await run(['context','inspect',contextName])).bytes);
+   if(!Array.isArray(contexts)||contexts.length!==1||
+      contexts[0].Name!==contextName||
+      contexts[0].Endpoints?.docker?.Host!==host||
+      contexts[0].Endpoints?.docker?.SkipTLSVerify!==false)
+      stop('Docker context no longer points to local socket');
    const x=parseJson((await run(['info','--format','{{json .}}'])).bytes);
-   if(x.OSType!=='linux'||typeof x.ID!=='string'||!x.ID)stop('not Linux daemon');
-   return {host,local:true,verified:true};
+   if(x.OSType!=='linux'||typeof x.ID!=='string'||x.ID.length<4)
+      stop('not Linux daemon');
+   const inventory=await run(['volume','ls','--format','{{.Name}}']);
+   const preexistingVolumes=inventory.bytes.toString('utf8').split(/\\r?\\n/).filter(Boolean);
+   if(preexistingVolumes.length>10000||new Set(preexistingVolumes).size!==preexistingVolumes.length)
+      stop('unbounded or duplicate volume inventory');
+   return {host,local:true,verified:true,daemonId:x.ID,preexistingVolumes};
   },
   async attestImage({imageId}){
    if(!IMAGE.test(imageId))stop('image ID required');
    const x=parseJson((await run(['image','inspect',imageId])).bytes);
    if(!Array.isArray(x)||x.length!==1||x[0].Id!==imageId||
      x[0].Os!=='linux'||x[0].Architecture!=='amd64'||
-     !x[0].Config?.Env?.includes('PG_VERSION=17.11'))
+     !x[0].Config?.Env?.some(v=>/^PG_VERSION=17\\.11(?:-|$)/.test(v)))
      stop('image ID, OS, architecture or PostgreSQL version mismatch');
    return {id:imageId,version:'17.11',os:'linux',architecture:'amd64',verified:true};
   },
