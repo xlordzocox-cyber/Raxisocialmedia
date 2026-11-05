@@ -2,7 +2,6 @@
 // The separate native runner core performs scope/consent checks before calling it.
 // NO remote hosts, auto-pull, published ports, bind mounts, or global prune.
 import {spawn} from 'node:child_process';
-import {readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {platform as osPlatform} from 'node:os';
@@ -13,7 +12,6 @@ const windows='npipe:////./pipe/dockerDesktopLinuxEngine';
 const hosts={win32:[windows,'npipe:////./pipe/docker_engine'],
  linux:['unix:///var/run/docker.sock']};
 // Windows installation is per-user; never accept PATH or arbitrary CLI binaries.
-const PINNED_WIN_DOCKER_SHA256='0f97bc1111f59d859766ba938691ee07ed4e58d5fdaeb6f4dfb10a5ef5394753';
 const configuredBinary=platform=>{
  if(platform==='linux')return '/usr/bin/docker';
  if(platform!=='win32')stop('unsupported Docker CLI platform');
