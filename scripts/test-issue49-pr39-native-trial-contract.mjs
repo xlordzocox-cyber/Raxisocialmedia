@@ -33,7 +33,7 @@ const observations=blueprint.specs.map((s,i)=>({
  network:'none',publishPorts:false,privileged:false,binds:[],mounts:[],
  ownerLabel:s.expectedOwnerLabel,anonymousVolumes:[],existing:false
 }));
-const inspected=inspectSyntheticContainerSet({blueprint,observations});
+const inspected=inspectSyntheticContainerSet({blueprint,observations,plan,source});
 assert.equal(inspected.cleanupStatus,'NOT_EXECUTED');
 assert.equal(inspected.decision,'BLOCKED');
 const capture=(cSource,cRestored,catSource,catRestored)=>({
@@ -107,6 +107,8 @@ for(const [label,change] of [
  ['extra observation property',(_p,o)=>o[0].allowCatalogPass=true],
  ['changed blueprint role',(p,_o)=>p.specs[0].role='ADMIN'],
  ['changed blueprint label',(p,_o)=>p.specs[1].expectedOwnerLabel='unsafe'],
+ ['changed blueprint name',(p,_o)=>p.specs[0].name='other-pretend-owned'],
+ ['all blueprint DDL hashes forged',(p,_o)=>p.specs.forEach(s=>s.ddlSha256='f'.repeat(64))],
  ['changed blueprint order',(p,_o)=>p.stageNames.reverse()],
  ['changed blueprint auth',(p,_o)=>p.executionAuthorized=true],
  ['wrong blueprint digest',(p,_o)=>p.specs[0].ddlSha256='0'.repeat(64)],
@@ -114,7 +116,7 @@ for(const [label,change] of [
 ]){
  negative(label,()=>{
   const p=structuredClone(blueprint),o=structuredClone(observations);
-  change(p,o);inspectSyntheticContainerSet({blueprint:p,observations:o});
+  change(p,o);inspectSyntheticContainerSet({blueprint:p,observations:o,plan,source});
  });
 }
 for(const [label,change] of [
