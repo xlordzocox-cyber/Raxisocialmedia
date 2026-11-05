@@ -2,9 +2,8 @@
 // The script DOES NOT execute SQL, start Docker, issue network requests, or modify files.
 import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
-import {resolve,dirname,join} from 'node:path';
-import {fileURLToPath} from 'node:url';
-const root=resolve(dirname(fileURLToPath(import.meta.url)),'..');
+import {join} from 'node:path';
+const root=process.cwd();
 const fail=reason=>{throw Error('ISSUE49 PR39 OFFLINE STOP: '+reason);};
 if(process.argv.length!==2)fail('no CLI options permitted');
 const manifest=JSON.parse(readFileSync(join(root,'supabase/staging/raxi-hq-staging.manifest.json'),'utf8'));
