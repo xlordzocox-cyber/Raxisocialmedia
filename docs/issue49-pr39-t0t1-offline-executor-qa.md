@@ -45,3 +45,10 @@ Si el checkout principal no contiene los scripts, copiarlos a **una carpeta temp
 - No tocar `raxi-pg17-campaign-qa`, `raxi-pg17-validation`, staging alojado, los siete SQL fijados, Auth real, proveedores ni deployments.
 
 **Política permanente:** `BLOCKED / NOT_VERIFIED; allowCatalogPass=false; NO_GO_HOSTED_MIGRATION`.
+
+
+## QA ejecutado por el operador (Windows, 2026-11-05)
+
+Sobre commit `1fb0f2cfb94da18c7be3fdadc61fa479a4086409`, el operador verificó los dos scripts con `node --check` sin errores y ejecutó la batería adversarial y el preflight. La batería produjo `PASS ISSUE49 T0T1 OFFLINE NEGATIVES (53 rejected cases; no Docker/SQL/filesystem writes)` y la verificación exacta de fingerprints/regex. El preflight devolvió `PASS ISSUE49 T0T1 OFFLINE PREFLIGHT`, con hashes de microesquema T0 `32eaece08637b7bfa23886b659b0b662fe0ee59ebf4f22b1e698c1bb2dc08f07` y T1 `999e0bb2f3d02847fdc2814f848362c87d34174a59260961387fd5dc2fdfd7b1`. Los comandos no retornaron error y la política final fue `BLOCKED / NOT_VERIFIED; allowCatalogPass=false; NO_GO_HOSTED_MIGRATION`.
+
+**Cierre acotado:** preflight offline y sus 53 rechazos PASS en Windows. La revisión Codex independiente, la construcción y revisión de cualquier runner nativo y el experimento PostgreSQL 17 siguen pendientes; el usuario no autorizó ejecutar Docker ni SQL con esta aprobación.
