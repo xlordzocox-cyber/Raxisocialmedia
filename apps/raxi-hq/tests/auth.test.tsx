@@ -16,11 +16,15 @@ function fixture() {
   let result: { data: { user: User | null }; error: { name: string } | null } = { data: { user }, error: null };
   let resolveUser = async () => result;
   let signInError: object | null = null;
+  let recoveryRequests: Array<{ email: string; redirectTo: string }> = [];
+  let updatedPasswords: string[] = [];
   const api = {
     getUser: () => resolveUser(),
     onAuthStateChange: (cb: typeof callback) => { callback = cb; return { data: { subscription: { unsubscribe: () => { unsubscribed = true; } } } }; },
     signInWithPassword: async () => ({ error: signInError }),
     signOut: async () => { callback('SIGNED_OUT'); return { error: null }; },
+    resetPasswordForEmail: async (email: string, options: { redirectTo: string }) => { recoveryRequests.push({ email, redirectTo: options.redirectTo }); return { error: null }; },
+    updateUser: async (value: { password: string }) => { updatedPasswords.push(value.password); return { error: null }; },
   };
   return {
     store: new AuthStore(api as unknown as SupabaseClient['auth']),
@@ -31,6 +35,8 @@ function fixture() {
     defer: () => { let resolve!: (value: typeof result) => void; const promise = new Promise<typeof result>(r => { resolve = r; }); resolveUser = () => promise; return () => resolve({ data: { user }, error: null }); },
     offline: () => { resolveUser = async () => { throw new Error('offline'); }; },
     unsubscribed: () => unsubscribed,
+    recoveryRequests: () => recoveryRequests,
+    updatedPasswords: () => updatedPasswords,
   };
 }
 
@@ -99,4 +105,47 @@ test('missing configuration renders a helpful login screen without a usable form
 test('return paths stay inside the app and avoid login loops', () => {
   for (const path of ['https://example.com', '//example.com', '/\\example.com', '/login', '/login?next=/', null, '/\nexample.com']) assert.equal(safeReturnPath(path), '/');
   assert.equal(safeReturnPath('/?view=office#agent'), '/?view=office#agent');
+});
+
+test('password recovery requests an explicit local callback and never exposes account existence', async () => {
+  const f = fixture();
+  await f.store.requestPasswordRecovery(' team@example.test ', 'http://127.0.0.1:5174/reset-password');
+  assert.deepEqual(f.recoveryRequests(), [{ email: 'team@example.test', redirectTo: 'http://127.0.0.1:5174/reset-password' }]);
+});
+
+test('password reset fails closed for ordinary signed-in users and invalid sessions', async () => {
+  const f = fixture(); await f.store.validate();
+  await assert.rejects(f.store.completePasswordRecovery('long-test-password'));
+  assert.equal(f.updatedPasswords().length, 0);
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: new EventTarget() });
+  try {
+    const stop = f.store.start(); f.emit('PASSWORD_RECOVERY'); await tick();
+    f.missing(); await assert.rejects(f.store.completePasswordRecovery('long-test-password'));
+    assert.equal(f.updatedPasswords().length, 0);
+    stop();
+  } finally { if (previous) Object.defineProperty(globalThis, 'window', previous); else Reflect.deleteProperty(globalThis, 'window'); }
+});
+
+test('verified recovery updates password once, signs out, and cannot be reused', async () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: new EventTarget() });
+  try {
+    const f = fixture(); const stop = f.store.start(); f.emit('PASSWORD_RECOVERY'); await tick();
+    assert.equal(f.store.getSnapshot().recovery, true);
+    assert.equal(f.store.getSnapshot().status, 'signedIn');
+    await f.store.completePasswordRecovery('long-test-password');
+    assert.equal(f.store.getSnapshot().status, 'signedOut');
+    assert.deepEqual(f.updatedPasswords(), ['long-test-password']);
+    await assert.rejects(f.store.completePasswordRecovery('another-password'));
+    stop();
+  } finally { if (previous) Object.defineProperty(globalThis, 'window', previous); else Reflect.deleteProperty(globalThis, 'window'); }
+});
+
+test('login exposes recovery request; reset route does not expose a password form without recovery', () => {
+  const f = fixture();
+  const html = renderToString(<AuthProvider store={f.store}><MemoryRouter initialEntries={['/login']}><AuthRoutes /></MemoryRouter></AuthProvider>);
+  assert.ok(html.includes('Olvidaste tu contraseña'));
+  const reset = renderToString(<AuthProvider store={f.store}><MemoryRouter initialEntries={['/reset-password']}><AuthRoutes /></MemoryRouter></AuthProvider>);
+  assert.ok(!reset.includes('new-password'));
 });
