@@ -3,6 +3,7 @@
 $ErrorActionPreference='Stop'
 $container='raxi-pg17-campaign-qa'
 $db='raxi_campaign_qa'
+$workingDir=(& git rev-parse --show-toplevel).Trim()
 $revision=(& git rev-parse FETCH_HEAD).Trim()
 if($LASTEXITCODE -ne 0 -or $revision -notmatch '^[0-9a-f]{40}$'){throw 'Fetch PR50 branch first'}
 $network=(& docker inspect $container --format '{{.HostConfig.NetworkMode}}').Trim()
@@ -25,22 +26,23 @@ $counts=Read-Lab "SELECT (SELECT count(*) FROM auth.users), (SELECT count(*) FRO
 if($counts -ne '0|0|0|0'){throw "LAB not empty: $counts"}
 $jobA=$null;$jobB=$null;$seeded=$false;$complete=$false
 $worker={
- param($revision,$path,$container,$db)
+ param($revision,$path,$container,$db,$workingDir)
  $ErrorActionPreference='Continue'
+ Set-Location $workingDir
  $out=& git show "$($revision):$path" | & docker exec -i $container psql -X -v ON_ERROR_STOP=1 -U postgres -d $db -f - 2>&1
  [pscustomobject]@{Code=$LASTEXITCODE;Log=($out -join [Environment]::NewLine)}
 }
 try {
  Run-Lab 'supabase/tests/issue49_pg17_race_seed.sql'
  $seeded=$true
- $jobA=Start-Job -ScriptBlock $worker -ArgumentList $revision,'supabase/tests/issue49_pg17_race_winner.sql',$container,$db
+ $jobA=Start-Job -ScriptBlock $worker -ArgumentList $revision,'supabase/tests/issue49_pg17_race_winner.sql',$container,$db,$workingDir
  $seen=$false
  for($i=0;$i -lt 50;$i++){
    if((Read-Lab "SELECT count(*) FROM pg_locks WHERE locktype='advisory' AND objid=773451 AND granted") -eq '1'){$seen=$true;break}
    Start-Sleep -Milliseconds 100
  }
  if(-not $seen){throw 'A never acquired advisory lock: NOT_VERIFIED'}
- $jobB=Start-Job -ScriptBlock $worker -ArgumentList $revision,'supabase/tests/issue49_pg17_race_loser.sql',$container,$db
+ $jobB=Start-Job -ScriptBlock $worker -ArgumentList $revision,'supabase/tests/issue49_pg17_race_loser.sql',$container,$db,$workingDir
  if(-not (Wait-Job $jobA -Timeout 35)){throw 'A timed out'}
  if(-not (Wait-Job $jobB -Timeout 35)){throw 'B timed out'}
  $a=Receive-Job $jobA;$b=Receive-Job $jobB
