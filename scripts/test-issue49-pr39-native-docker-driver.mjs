@@ -131,6 +131,15 @@ function fakeCli({wrongImageVersion=false,wrongImageId=false,foreignLabel=false,
  };
  return {calls,containers,volumes,transport};
 }
+// Explicit safety regression: Windows native subprocess transport must never
+// be instantiated, even when a Docker CLI exists and no daemon is contacted.
+if(process.platform==='win32'){
+ assert.throws(
+  ()=>createIssue49LocalDockerDriver({host}),
+  /WINDOWS_NATIVE_TRANSPORT_BLOCKED_UNTIL_EXECUTABLE_BINDING_ATTESTED/
+ );
+ console.log('PASS ISSUE49 WINDOWS REAL TRANSPORT GATE: BLOCKED before subprocess');
+}
 const sim=fakeCli({bootstrapTransition:true});
 const driver=createIssue49LocalDockerDriver({host,transport:sim.transport});
 const result=await runNativeTrialWithDriver({...cfg,trial,consent,driver});
