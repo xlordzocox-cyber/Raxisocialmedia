@@ -137,4 +137,4 @@ for(const [label,patch,expectedCleanup] of [
  });
 }
 console.log('PASS ISSUE49 NATIVE CORE NEGATIVES ('+denied+' mocked adversarial cases; no Docker/SQL/network)');
-console.log('ISSUE49 NATIVE CORE STATUS: DRIVER_NOT_BUNDLED / NO_GO_HOSTED_MIGRATION');
+console.log('ISSUE49 NATIVE CORE STATUS: MOCK_ONLY / NO_GO_HOSTED_MIGRATION');
