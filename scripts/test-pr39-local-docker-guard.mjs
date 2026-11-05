@@ -62,7 +62,7 @@ negative('context name mismatch',()=>selectPr39LocalDockerHost({platform:'win32'
 negative('skip TLS verify',()=>selectPr39LocalDockerHost({platform:'win32',environment:{},contextName:'default',inspection:[{Name:'default',Endpoints:{docker:{Host:win,SkipTLSVerify:true}},TLSMaterial:{}}]}));
 negative('missing SkipTLSVerify',()=>selectPr39LocalDockerHost({platform:'win32',environment:{},contextName:'default',inspection:[{Name:'default',Endpoints:{docker:{Host:win}},TLSMaterial:{}}]}));
 negative('extra endpoint',()=>selectPr39LocalDockerHost({platform:'win32',environment:{},contextName:'default',inspection:[{Name:'default',Endpoints:{docker:{Host:win,SkipTLSVerify:false},other:{Host:'ssh://remote'}},TLSMaterial:{}}]}));
-negative('configured TLS material',()=>selectPr39LocalDockerHost({platform:'win32',environment:{},contextName:'default',inspection:inspect('default',win,{TLSMaterial:{key:'private'}})));
+negative('configured TLS material',()=>selectPr39LocalDockerHost({platform:'win32',environment:{},contextName:'default',inspection:inspect('default',win,{TLSMaterial:{key:'private'}})}));
 negative('malformed Docker endpoint',()=>selectPr39LocalDockerHost({platform:'win32',environment:{},contextName:'default',inspection:[{Name:'default',Endpoints:{docker:null},TLSMaterial:{}}]}));
 
 const runner=resolve(fileURLToPath(new URL('.',import.meta.url)),'pr39-local-synthetic-recovery.mjs');
