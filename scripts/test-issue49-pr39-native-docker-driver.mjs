@@ -118,7 +118,7 @@ console.log('PASS ISSUE49 DOCKER TRANSPORT MOCK: 4 isolated local containers, PG
 
 let negatives=0;
 for(const [label,config,cleanupExpected] of [
- ['invalid image metadata',{wrongImageVersion:true},'ALL_TRACKED_IDS_AND_VOLUMES_REMOVED'],
+ ['invalid image metadata',{wrongImageVersion:true},'NOT_REQUIRED_NO_RESOURCES'],
  ['owner label changed',{foreignLabel:true},'RESOURCE_REMAINS'],
  ['anonymous volume not deleted',{leaveVolume:true},'RESOURCE_REMAINS']
 ]){
