@@ -142,8 +142,9 @@ test('verified recovery updates password once, signs out, and cannot be reused',
   } finally { if (previous) Object.defineProperty(globalThis, 'window', previous); else Reflect.deleteProperty(globalThis, 'window'); }
 });
 
-test('login exposes recovery request; reset route does not expose a password form without recovery', () => {
+test('login exposes recovery request; reset route does not expose a password form without recovery', async () => {
   const f = fixture();
+  await f.store.signOut();
   const html = renderToString(<AuthProvider store={f.store}><MemoryRouter initialEntries={['/login']}><AuthRoutes /></MemoryRouter></AuthProvider>);
   assert.ok(html.includes('Olvidaste tu contraseña'));
   const reset = renderToString(<AuthProvider store={f.store}><MemoryRouter initialEntries={['/reset-password']}><AuthRoutes /></MemoryRouter></AuthProvider>);
