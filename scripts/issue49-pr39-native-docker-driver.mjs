@@ -58,9 +58,11 @@ async function command({binary,host,args,input,permitFailure=false}){
   child.on('error',()=>{clearTimeout(timeout);reject(Error('DOCKER_SUBPROCESS_UNAVAILABLE'));});
   child.on('close',(code)=>{
    clearTimeout(timeout);
-   if(failed||(!permitFailure&&code!==0))reject(Error('DOCKER_COMMAND_FAILED'));
+   if(failed||code===null||(!permitFailure&&code!==0))reject(Error('DOCKER_COMMAND_FAILED'));
    else resolve({code,bytes:Buffer.concat(output)});
   });
+  // A stopped child can close its stdin first; never allow an uncaught EPIPE.
+  child.stdin.on('error',()=>{failed=true;child.kill();});
   if(input!==undefined)child.stdin.end(input);
   else child.stdin.end();
  });
