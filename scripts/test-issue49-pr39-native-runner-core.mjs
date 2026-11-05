@@ -20,7 +20,7 @@ const prerequisites=verifyNativeTrialPrerequisites({
   architecture:'amd64',rootless:false,source:'LOCALLY_INSPECTED'}
 });
 const sessionId='2'.repeat(24);
-const cfg={plan,source,prerequisites,expectedImageId:imageId,sessionId};
+const cfg={plan,source,manifest,prerequisites,expectedImageId:imageId,sessionId};
 const trial=prepareNativeTrial(cfg);
 const consent={scope:'ISSUE49_LOCAL_T0T1_PG17_11',sessionId,
  imageId,localOnly:true,syntheticOnly:true,maxContainers:4,
@@ -88,6 +88,11 @@ for(const [label,change] of [
  ['tampered DDL hash',x=>x.trial={...trial,specs:trial.specs.map((s,i)=>
    i===2?{...s,ddlSha256:'f'.repeat(64)}:s)}],
  ['modified source',x=>x.source+='-- changed'],
+ ['invalid manifest version',x=>x.manifest={...manifest,formatVersion:999}],
+ ['manifest permissions enabled',x=>x.manifest={...manifest,authorizations:{
+  ...manifest.authorizations,applySql:true}}],
+ ['manifest inventory changed',x=>{x.manifest=structuredClone(manifest);
+  x.manifest.applicationPlan.steps[0].order=99;}],
  ['mutated image pin',x=>x.expectedImageId='sha256:'+'f'.repeat(64)],
  ['missing driver',x=>delete x.driver]
 ]){
