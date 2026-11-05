@@ -93,7 +93,7 @@ export function createIssue49LocalDockerDriver({host}){
    if(x.OSType!=='linux'||typeof x.ID!=='string'||x.ID.length<4)
       stop('not Linux daemon');
    const inventory=await run(['volume','ls','--format','{{.Name}}']);
-   const preexistingVolumes=inventory.bytes.toString('utf8').split(/\\r?\\n/).filter(Boolean);
+   const preexistingVolumes=inventory.bytes.toString('utf8').split(/\r?\n/).filter(Boolean);
    if(preexistingVolumes.length>10000||new Set(preexistingVolumes).size!==preexistingVolumes.length)
       stop('unbounded or duplicate volume inventory');
    return {host,local:true,verified:true,daemonId:x.ID,preexistingVolumes};
@@ -103,7 +103,7 @@ export function createIssue49LocalDockerDriver({host}){
    const x=parseJson((await run(['image','inspect',imageId])).bytes);
    if(!Array.isArray(x)||x.length!==1||x[0].Id!==imageId||
      x[0].Os!=='linux'||x[0].Architecture!=='amd64'||
-     !x[0].Config?.Env?.some(v=>/^PG_VERSION=17\\.11(?:-|$)/.test(v)))
+     !x[0].Config?.Env?.some(v=>/^PG_VERSION=17\.11(?:-|$)/.test(v)))
      stop('image ID, OS, architecture or PostgreSQL version mismatch');
    return {id:imageId,version:'17.11',os:'linux',architecture:'amd64',verified:true};
   },
