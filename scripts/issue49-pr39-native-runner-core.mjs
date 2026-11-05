@@ -1,7 +1,8 @@
 // Issue #49 — native T0/T1 trial state machine, NO bundled Docker transport.
 // Importing this module does nothing; it never discovers, launches or deletes resources.
 // A separately reviewed local driver and explicit future consent are both required.
-import {assertPlanIsBlocked} from './issue49-pr39-t0t1-offline-executor.mjs';
+import {assertPlanIsBlocked,makeT0T1Plan} from './issue49-pr39-t0t1-offline-executor.mjs';
+import {createHash} from 'node:crypto';
 import {makeNativeTrialBlueprint} from './issue49-pr39-native-trial-contract.mjs';
 import {prepareOfflineNativeAdapter} from './issue49-pr39-adapter-offline.mjs';
 
@@ -30,9 +31,12 @@ const exactArray=(x,values)=>Array.isArray(x)&&x.length===values.length&&
  Reflect.ownKeys(x).length===values.length+1&&
  values.every((v,i)=>Object.hasOwn(x,i)&&x[i]===v);
 const safeError=e=>e instanceof Error?e.name:'UNKNOWN_ERROR';
+const digest=manifest=>createHash('sha256').update(JSON.stringify(manifest),'utf8').digest('hex');
 
-export function prepareNativeTrial({plan,source,prerequisites,expectedImageId,sessionId}){
+export function prepareNativeTrial({plan,source,manifest,prerequisites,expectedImageId,sessionId}){
  assertPlanIsBlocked(plan,source);
+ const rebuilt=makeT0T1Plan({source,manifest,environment:{},argv:['node','offline']});
+ if(!sameStructure(plan,rebuilt))stop('plan not derived from current pinned manifest');
  const adapter=prepareOfflineNativeAdapter({plan,source,prerequisites,expectedImageId,sessionId});
  const blueprint=makeNativeTrialBlueprint({plan,source,prerequisites,sessionId});
  if(adapter.executionAuthorized!==false||adapter.runtimeAvailable!==false||
@@ -43,6 +47,7 @@ export function prepareNativeTrial({plan,source,prerequisites,expectedImageId,se
  return Object.freeze({
    version:'ISSUE49_NATIVE_TRIAL_PREPARED_V1',
    sessionId,host:prerequisites.host,imageId:expectedImageId,
+   manifestSha256:digest(manifest),
    specs:Object.freeze(blueprint.specs.map(s=>Object.freeze({
      role:s.role,name:s.name,ownerLabel:s.expectedOwnerLabel,
      imageId:s.imageId,ddlSha256:s.ddlSha256,network:'none'
@@ -90,12 +95,12 @@ function compare(a,b){
 // An abstract orchestration: deliberately contains no subprocess, SQL client or Docker SDK.
 // The supplied driver must undergo an independent code review before any real invocation.
 export async function runNativeTrialWithDriver({
- trial,consent,driver,plan,source,prerequisites,expectedImageId,sessionId
+ trial,consent,driver,plan,source,manifest,prerequisites,expectedImageId,sessionId
 }){
  // Bind every native action to the original source-attested offline plan.
- const expected=prepareNativeTrial({plan,source,prerequisites,expectedImageId,sessionId});
+ const expected=prepareNativeTrial({plan,source,manifest,prerequisites,expectedImageId,sessionId});
  if(!sameStructure(trial,expected))stop('trial not bound to pinned source and image');
- if(!onlyKeys(trial,['version','sessionId','host','imageId','specs','driverAttached',
+ if(!onlyKeys(trial,['version','sessionId','host','imageId','manifestSha256','specs','driverAttached',
     'executionAuthorized','consentReceived','evidence','decision','allowCatalogPass','hostedMigration'])||
     trial.version!=='ISSUE49_NATIVE_TRIAL_PREPARED_V1'||
     !img.test(trial.imageId)||!HOSTS.includes(trial.host)||
