@@ -53,3 +53,10 @@ Los negativos del núcleo abarcan, entre otros: consentimiento ausente/manipulad
 ### Estado de auditoría
 
 `PENDING_OPERATOR_NODE_QA` y `PENDING_INDEPENDENT_CODE_REVIEW`. Un PASS de mock no concede permiso de ejecución local. Si surge una divergencia o riesgo P1/P2, corregirlo en la rama y repetir ambas validaciones antes de solicitar consentimiento del ensayo.
+
+
+## QA del operador en Windows: 33/33 simuladas PASS (2026-11-05)
+
+El operador ejecutó PowerShell desde `C:\\Users\\joslu\\source\\RaxiHQ-Oficina` con `FETCH_HEAD` comprobado contra el commit exacto `6729900d68f23986a8edaf8f57e2b77d47a1029a`, extrajo ocho módulos al directorio temporal y verificó la sintaxis de todos con `node --check` (sin errores). `test-issue49-pr39-native-runner-core.mjs` reportó `PASS ISSUE49 NATIVE CORE: four mocked roles, archive, strict catalog, exact-ID and volume cleanup` y `PASS ISSUE49 NATIVE CORE NEGATIVES (24 mocked adversarial cases; no Docker/SQL/network)`. `test-issue49-pr39-native-docker-driver.mjs` reportó `PASS ISSUE49 DOCKER TRANSPORT MOCK: 4 isolated local containers, PG17.11 pin, dump/restore and verified cleanup` y `PASS ISSUE49 DOCKER TRANSPORT NEGATIVES (9 mocked failure cases; no Docker/subprocess/SQL)`. Salida final: `PASS: 33 PRUEBAS NATIVAS SIMULADAS`. **QA Node real en Windows de las dos suites mock: PASS (33/33).** No se ejecutó Docker, no se inició PostgreSQL, no se ejecutó SQL, ni se crearon o limpiaron contenedores reales. Las afirmaciones de aislamiento, autenticidad de imagen y limpieza se refieren a fixtures controlados, no a recursos físicos.
+
+Al consultar GitHub después de este QA, Codex figura `running` sobre el SHA exacto `6729900d68f23986a8edaf8f57e2b77d47a1029a` y todavía no tiene dictamen de ese incremento. **Pendiente** revisión independiente, corrección de P1/P2 si aparecieran y confirmación de procedencia de imagen antes de solicitar autorización para el ensayo real. El PR #50 sigue draft; `NO_GO_HOSTED_MIGRATION` inalterado.
