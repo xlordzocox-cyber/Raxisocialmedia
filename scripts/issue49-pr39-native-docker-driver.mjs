@@ -18,7 +18,7 @@ const configuredBinary=platform=>{
  if(platform==='linux')return '/usr/bin/docker';
  if(platform!=='win32')stop('unsupported Docker CLI platform');
  const local=process.env.LOCALAPPDATA;
- if(typeof local!=='string'||!/^([a-zA-Z]:\\\\|\\\\\\\\)/.test(local))
+ if(typeof local!=='string'||!/^[A-Za-z]:\\/.test(local))
    stop('missing absolute per-user Docker install root');
  return join(local,'Programs','DockerDesktop','resources','bin','docker.exe');
 };
