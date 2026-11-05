@@ -10,5 +10,5 @@ export function useAuth() {
   const store = useContext(AuthContext);
   if (!store) throw new Error('AuthProvider is required');
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-  return { ...state, signIn: store.signIn.bind(store), signOut: store.signOut.bind(store), getRealIdeaStore: store.getRealIdeaStore, getRealCampaignStore: store.getRealCampaignStore };
+  return { ...state, signIn: store.signIn.bind(store), signOut: store.signOut.bind(store), requestPasswordRecovery: store.requestPasswordRecovery.bind(store), completePasswordRecovery: store.completePasswordRecovery.bind(store), getRealIdeaStore: store.getRealIdeaStore, getRealCampaignStore: store.getRealCampaignStore };
 }

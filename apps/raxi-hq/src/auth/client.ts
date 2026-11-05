@@ -3,5 +3,5 @@ import { readAuthConfig } from './config';
 
 const config = readAuthConfig(import.meta.env);
 export const supabase = config ? createClient(config.url, config.key, {
-  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
+  auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
 }) : null;
