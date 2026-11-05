@@ -104,6 +104,13 @@ for(const [label,change] of [
  ['existing container',(_p,o)=>o[0].existing=true],
  ['different image',(_p,o)=>o[2].imageId='sha256:'+'f'.repeat(64)],
  ['bad anonymous volume',(_p,o)=>o[0].anonymousVolumes=['someone-elses-volume']],
+ ['same anonymous volume in source and restored',(_p,o)=>{
+  o[0].anonymousVolumes=['f'.repeat(64)];
+  o[1].anonymousVolumes=['f'.repeat(64)];
+ }],
+ ['same anonymous volume in all four roles',(_p,o)=>{
+  o.forEach(item=>{item.anonymousVolumes=['e'.repeat(64)];});
+ }],
  ['extra observation property',(_p,o)=>o[0].allowCatalogPass=true],
  ['changed blueprint role',(p,_o)=>p.specs[0].role='ADMIN'],
  ['changed blueprint label',(p,_o)=>p.specs[1].expectedOwnerLabel='unsafe'],
