@@ -21,9 +21,13 @@ El operador ejecutó `issue49_pg17_strategy_history_negative.sql` sobre el labor
 
 El operador ejecutó `supabase/tests/issue49_pg17_strategy_rpc_flow.sql`, commit `8e854642d43b821e258c1499f8a4c79943708072`, en PostgreSQL17 aislado. Se observaron siete avisos PASS: SAVE (borrador+entregable), SUBMIT, rechazo de alteración de entregable enviado, rechazo de APPROVE sin `confirmed=true`, APPROVE con registro de auditoría/aprobación, replay idempotente, rechazo de mutación tras APPROVED. Final `ROLLBACK`; código SQL sin errores. Es evidencia de validación del *flag* de confirmación, no de autenticación real de un humano.
 
+## Strategy RPC: séptima batería PASS
+
+El operador ejecutó `supabase/tests/issue49_pg17_strategy_revision_rpc.sql` en laboratorio PG17 sobre commit `44c3e6ec08db10a97d54cbf97f44b35092b84ce9`. Cinco avisos PASS: REQUEST_STRATEGY_CHANGES con decisión registrada, congelamiento de entregables V1, rechazo de V2 no confirmada, creación explícita de V2 DRAFT conservando V1 y rechazo de creación implícita V3 por SAVE_STRATEGY. Código SQL sin error, `ROLLBACK`. Etapa 1 (restricciones y rutas Strategy ensayadas) **PASS LOCAL ACOTADO**; no acredita Auth/JWT, Edge ni aprobación humana real.
+
 ## Gates pendientes
 
-- Strategy y deliverables: tablas y flujo RPC SAVE/SUBMIT/APPROVE PASS local; falta REQUEST_STRATEGY_CHANGES y START_STRATEGY_REVISION para completar el recorrido.
+- Strategy y deliverables: siete baterías de campañas/Strategy PASS local en los casos ensayados; faltan validación real de identidad humana y pruebas integradas de servicios.
 - Compatibilidad/atestación estructural PG17 del incidente PR #39.
 - JWT, Auth, RLS e integración de Edge en un entorno Supabase real autorizado.
 - Revisión independiente, pruebas automatizadas de integración y restricciones FanView/NSFW por canal.
