@@ -77,8 +77,13 @@ try {
         CheckExit 'typecheck on integrated main'
         & npm --prefix apps/raxi-hq run build
         CheckExit 'build on integrated main'
-        & node apps/raxi-hq/scripts/security-scan.mjs
-        CheckExit 'security scan on integrated main'
+        # security-scan.mjs scans '.'; its intended scope is the application.
+        Push-Location (Join-Path $temp 'apps\raxi-hq')
+        try {
+            & node scripts/security-scan.mjs
+            CheckExit 'security scan on integrated main'
+        }
+        finally { Pop-Location }
         & git diff --cached --check
         CheckExit 'merged staged diff whitespace'
         Write-Host 'PASS: PR39 MAIN INTEGRATION OFFLINE QA, APP TEST, TYPECHECK, BUILD, SECURITY SCAN'
