@@ -86,12 +86,12 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
  const binary=configuredBinary(platform);
  // Production transport only: bind to the operator-verified signed executable hash.
  // Mocks never read the executable or spawn a subprocess.
- if(platform==='win32'&&transport===command){
-  let actual;
-  try{actual=createHash('sha256').update(readFileSync(binary)).digest('hex');}
-  catch{stop('pinned Docker CLI unavailable');}
-  if(actual!==PINNED_WIN_DOCKER_SHA256)stop('Docker CLI SHA-256 pin mismatch');
- }
+ // The per-user binary can be replaced between hash verification and spawn.
+ // Node's path-based spawn cannot bind an immutable opened executable handle.
+ // Fail closed on Windows real transport until a separately reviewed protected
+ // native launcher is implemented. Simulated transports remain available for QA.
+ if(platform==='win32'&&transport===command)
+   stop('WINDOWS_NATIVE_TRANSPORT_BLOCKED_UNTIL_EXECUTABLE_BINDING_ATTESTED');
  let pinnedDaemonId=null,attestedImageId=null,baselineVolumes=new Set();
  const created=new Map(),inspected=new Map(),removalRequested=new Set();
  const registered=(id,spec)=>{
