@@ -42,7 +42,7 @@ function fakeDriver(changes={}){
   async inspect({id,spec}){state.calls.push('inspect');
    return {id,name:spec.name,role:spec.role,ownerLabel:spec.ownerLabel,
     imageId:spec.imageId,network:'none',ports:false,privileged:false,
-    bindMounts:false,anonymousVolumes:[String(Number(id[0])+6).repeat(64)],
+    bindMounts:false,anonymousVolumes:[String(Number(id[0])+5).repeat(64)],
     existing:false};},
   async start(){state.calls.push('start');},
   async initialize(){state.calls.push('initialize');},
