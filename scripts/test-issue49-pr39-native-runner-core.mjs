@@ -33,7 +33,7 @@ function fakeDriver(changes={}){
  const state={create:0,remove:[],calls:[],byId:new Map()};
  const base={
   async attestLocal(args){state.calls.push('attestLocal');return {
-   host:args.host,local:true,verified:true};},
+   host:args.host,local:true,verified:true,daemonId:'mock-linux-daemon',preexistingVolumes:[]};},
   async attestImage(args){state.calls.push('attestImage');return {
    id:args.imageId,version:'17.11',os:'linux',architecture:'amd64',verified:true};},
   async create({spec}){state.calls.push('create');state.create++;
@@ -100,7 +100,7 @@ for(const [label,change] of [
  });
 }
 for(const [label,patch,expectedCleanup] of [
- ['wrong local daemon', {attestLocal:async()=>({host:'tcp://remote',local:false,verified:true})},
+ ['wrong local daemon', {attestLocal:async()=>({host:'tcp://remote',local:false,verified:true,daemonId:'bad',preexistingVolumes:[]})},
   'ALL_TRACKED_IDS_AND_VOLUMES_REMOVED'],
  ['image build mismatch', {attestImage:async({imageId:id})=>({
   id,version:'17.10',os:'linux',architecture:'amd64',verified:true})},
@@ -117,6 +117,10 @@ for(const [label,patch,expectedCleanup] of [
   role:spec.role,ownerLabel:spec.ownerLabel,imageId:spec.imageId,
   network:'bridge',ports:false,privileged:false,bindMounts:false,
   anonymousVolumes:[],existing:false})},
+  'RESOURCE_REMAINS'],
+ ['preexisting volume reused',{
+  attestLocal:async({host})=>({host,local:true,verified:true,
+   daemonId:'mock-linux-daemon',preexistingVolumes:['7'.repeat(64)]})},
   'RESOURCE_REMAINS'],
  ['sparse volume identity',{inspect:async({id,spec})=>({id,name:spec.name,
   role:spec.role,ownerLabel:spec.ownerLabel,imageId:spec.imageId,
