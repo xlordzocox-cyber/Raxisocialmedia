@@ -29,7 +29,8 @@ const consent={scope:'ISSUE49_LOCAL_T0T1_PG17_11',sessionId,imageId,
  localOnly:true,syntheticOnly:true,maxContainers:4,separateOperatorConsent:true};
 
 function fakeCli({wrongImageVersion=false,wrongImageId=false,foreignLabel=false,
- leaveVolume=false,remoteContext=false,unsafeNetwork=false,preexistingVolume=false}={}){
+ leaveVolume=false,remoteContext=false,unsafeNetwork=false,preexistingVolume=false,
+ missingDataVolume=false}={}){
  const calls=[],containers=new Map(),volumes=new Set();
  if(preexistingVolume)volumes.add('6'.repeat(64));
  let index=0;
@@ -71,7 +72,7 @@ function fakeCli({wrongImageVersion=false,wrongImageId=false,foreignLabel=false,
     Config:{Labels:{'raxi.issue49.owner':foreignLabel?'foreign':r.label}},
     HostConfig:{NetworkMode:unsafeNetwork?'bridge':'none',Privileged:false,
      Binds:null,PortBindings:null},
-    Mounts:[{Type:'volume',Name:r.volume,Destination:'/var/lib/postgresql/data'}]}]);
+    Mounts:missingDataVolume?[]:[{Type:'volume',Name:r.volume,Destination:'/var/lib/postgresql/data'}]}]);
   }
   if(args[0]==='container'&&args[1]==='start')return out(args[2]);
   if(args[0]==='container'&&args[1]==='rm'){
@@ -129,7 +130,8 @@ for(const [label,config,cleanupExpected] of [
  ['remote context injection',{remoteContext:true},'NOT_REQUIRED_NO_RESOURCES'],
  ['wrong immutable image ID',{wrongImageId:true},'NOT_REQUIRED_NO_RESOURCES'],
  ['network escape on inspection',{unsafeNetwork:true},'RESOURCE_REMAINS'],
- ['preexisting volume attached',{preexistingVolume:true},'RESOURCE_REMAINS']
+ ['preexisting volume attached',{preexistingVolume:true},'RESOURCE_REMAINS'],
+ ['required data volume missing',{missingDataVolume:true},'RESOURCE_REMAINS']
 ]){
  const fake=fakeCli(config);
  const d=createIssue49LocalDockerDriver({host,transport:fake.transport});
