@@ -111,7 +111,7 @@ function fakeCli({wrongImageVersion=false,wrongImageId=false,foreignLabel=false,
     const conbin=t0?(sourceRole?'a':'b'):'c';
     const row={constraint_name:'raxi_workspaces_slug_check',type:'c',
       validated:true,slug_notnull:true,tablecount:1,constraintcount:1,
-      conbin,definition:'mock constraint',local:true,noinherit:true,
+      conbin,definition:'mock constraint',local:true,noinherit:false,
       inhcount:0,slug_type:'text',slug_collation:'default'};
     if(incompleteCatalog)delete row.conbin;
     return out(row);
