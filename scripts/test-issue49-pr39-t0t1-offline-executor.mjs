@@ -81,7 +81,14 @@ for(const [label,change] of [
  ['forged hosted permission',p=>({...p,hostedMigration:'READY'})],
  ['changed scope',p=>({...p,scope:'HOSTED'})],
  ['missing variant',p=>({...p,variants:[p.variants[0]]})],
- ['extra step',p=>({...p,stages:[...p.stages,'OVERRIDE']})]
+ ['extra step',p=>({...p,stages:[...p.stages,'OVERRIDE']})],
+ ['reordered mandatory steps',p=>({...p,stages:[...p.stages].reverse()})],
+ ['extra plan permission',p=>({...p,runNative:true})],
+ ['missing plan field',p=>{const q={...p};delete q.writePerformed;return q;}],
+ ['extra variant permission',p=>({...p,variants:[{...p.variants[0],allowRestore:true},p.variants[1]]})],
+ ['forged T0 predicate digest',p=>({...p,variants:[{...p.variants[0],sourcePredicateSha256:'0'.repeat(64)},p.variants[1]]})],
+ ['forged T1 predicate digest',p=>({...p,variants:[p.variants[0],{...p.variants[1],sourcePredicateSha256:'0'.repeat(64)}]})],
+ ['missing variant metadata',p=>{const v={...p.variants[0]};delete v.sourcePredicateSha256;return {...p,variants:[v,p.variants[1]]};}]
 ]){
  assert.throws(()=>assertPlanIsBlocked(change(plan)),/ISSUE49 T0T1 OFFLINE STOP/,label);denied++;
 }
