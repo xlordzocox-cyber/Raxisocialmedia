@@ -31,6 +31,9 @@ const microT1="length(slug) >= 2 AND length(slug) <= 64 AND slug ~ '^[a-z0-9-]+$
 const fail=message=>{throw Error('ISSUE49 T0T1 OFFLINE STOP: '+message);};
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x)&&Object.getPrototypeOf(x)===Object.prototype;
 const keys=(obj,list)=>plain(obj)&&Object.keys(obj).length===list.length&&list.every(k=>Object.hasOwn(obj,k));
+const exactSequence=(actual,expected)=>Array.isArray(actual)&&
+ actual.length===expected.length&&Reflect.ownKeys(actual).length===expected.length+1&&
+ expected.every((value,i)=>Object.hasOwn(actual,i)&&actual[i]===value);
 export function assertOfflineOnly({argv,environment}){
  if(!Array.isArray(argv)||argv.length!==2||argv.some(x=>typeof x!=='string'))fail('CLI options and native execution forbidden');
  if(environment===null||typeof environment!=='object'||Array.isArray(environment))fail('environment required');
@@ -121,8 +124,7 @@ export function assertPlanIsBlocked(plan,source){
    plan.variants[0].sourcePredicateSha256!==hash(T0T1_ORIGINAL)||
    plan.variants[1].sourcePredicateSha256!==hash(T0T1_EXPLICIT)||
    plan.variants.some(v=>!(/^[a-f0-9]{64}$/.test(v.ddlSha256)))||
-   !Array.isArray(plan.stages)||plan.stages.length!==stages.length||
-   plan.stages.some((stage,i)=>stage!==stages[i]))fail('unsafe or incomplete plan');
+   !exactSequence(plan.stages,stages))fail('unsafe or incomplete plan');
  return true;
 }
 function main(){
