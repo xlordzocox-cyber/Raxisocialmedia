@@ -12,7 +12,7 @@ const exact=(o,keys)=>o!==null&&typeof o==='object'&&!Array.isArray(o)&&
  Object.getPrototypeOf(o)===Object.prototype&&
  Object.keys(o).length===keys.length&&keys.every(k=>Object.hasOwn(o,k));
 const exactArray=(actual,expected)=>Array.isArray(actual)&&
- actual.length===expected.length&&
+ actual.length===expected.length&&Reflect.ownKeys(actual).length===expected.length+1&&
  Array.from({length:expected.length},(_,i)=>i).every(i=>
    Object.hasOwn(actual,i)&&typeof actual[i]==='string'&&actual[i]===expected[i]);
 
