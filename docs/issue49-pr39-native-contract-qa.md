@@ -35,3 +35,12 @@ Resultado esperado: `PASS ISSUE49 NATIVE DESIGN NEGATIVES (47 rejected synthetic
 - En ningún caso habilitar Supabase alojado, SQL remoto, Auth real, proveedores, despliegues, merges ni normalización permisiva del catálogo.
 
 **Política sin cambios:** `BLOCKED / NOT_VERIFIED; allowCatalogPass=false; NO_GO_HOSTED_MIGRATION`.
+
+
+## QA del operador y corrección del hallazgo P2 Codex
+
+El operador ejecutó en Windows el contrato publicado en commit `06659b4cbcc23fafc82632cb9019841d029cec8f`: sintaxis de cuatro archivos PASS, contrato sintético PASS y `PASS ISSUE49 NATIVE DESIGN NEGATIVES (47 rejected synthetic cases; no Docker/SQL/network)`. El estado final fue `DESIGN_ONLY / BLOCKED / NO_GO_HOSTED_MIGRATION`.
+
+La revisión Codex de ese commit detectó **un nuevo P2** en el contrato: `inspectSyntheticContainerSet` permitía que varios roles compartieran la misma cadena SHA de volumen anónimo, a pesar de `sharedVolumes=false` (hilo `PRRT_kwDOVIWc5s60QYhJ`). El resultado de 47 negativas **no cubría esa situación**. Correctivo en `scripts/issue49-pr39-native-trial-contract.mjs`, commit `23bd31bd31132e1be58aa1812dad8624d5915e21`: `volumeIds` global y rechazo de cualquier volumen repetido entre roles. Regresiones en `scripts/test-issue49-pr39-native-trial-contract.mjs`, commit `3c56a67a4bb61738170fdd3e2022a3159d0abeb6`: volumen compartido entre origen/restauración y compartido entre los cuatro roles; total esperado **49 negativas**.
+
+Verificación parcial: los archivos corregidos pasan comprobación de sintaxis aislada V8 y dos pruebas de humo con dependencias simuladas rechazaron ambos casos de volumen compartido manteniendo `BLOCKED`. **La batería de 49 negativas aún no se ha ejecutado con Node real en Windows, ni se ha obtenido dictamen independiente de los correctivos.** Mantener P2 abierto hasta ambos controles; no activar Docker, SQL ni migraciones.
