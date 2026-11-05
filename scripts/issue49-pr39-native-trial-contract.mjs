@@ -71,7 +71,8 @@ export function makeNativeTrialBlueprint({plan,source,prerequisites,sessionId}){
 }
 
 // Only prepared/fake observation metadata can be validated. Never delete anything here.
-export function inspectSyntheticContainerSet({blueprint,observations}){
+export function inspectSyntheticContainerSet({blueprint,observations,plan,source}){
+ assertPlanIsBlocked(plan,source);
  if(!exact(blueprint,['version','scope','evidenceProvenance','stageNames','specs',
    'executionAvailable','executionAuthorized','nativeVerified','allowCatalogPass','decision','hostedMigration'])||
    blueprint.version!==NATIVE_TRIAL_SPEC_VERSION||
@@ -86,7 +87,10 @@ export function inspectSyntheticContainerSet({blueprint,observations}){
    !Array.isArray(blueprint.specs)||blueprint.specs.length!==4||
    blueprint.specs.some((s,i)=>!exact(s,['role','name','imageId','network','publishPorts',
      'privileged','binds','mounts','sharedVolumes','existingContainerReuse','expectedOwnerLabel','ddlSha256'])||
-     s.role!==ROLES[i]||!/^[a-z0-9-]+$/.test(s.name)||!IMAGE.test(s.imageId)||
+     s.role!==ROLES[i]||!/^[a-z0-9-]+$/.test(s.name)||
+     s.name!=='raxi-t0t1-'+s.expectedOwnerLabel.slice('raxi.issue49.trial.'.length)+'-'+ROLES[i].toLowerCase().replaceAll('_','-')||
+     s.ddlSha256!==plan.variants[i<2?0:1].ddlSha256||
+     !IMAGE.test(s.imageId)||
      s.network!=='none'||s.publishPorts!==false||s.privileged!==false||
      !Array.isArray(s.binds)||s.binds.length!==0||
      !Array.isArray(s.mounts)||s.mounts.length!==0||
