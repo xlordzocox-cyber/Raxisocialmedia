@@ -11,6 +11,15 @@ export const T0T1_SOURCE_PATH='supabase/migrations/20261019030541_raxi_hq_v09_pr
 export const T0T1_SOURCE_SHA='e0f0a828b5d4f31960f2153ad910bb84a399a449754db8761057e91047cd7ba0';
 export const T0T1_ORIGINAL="slug text not null check(length(slug) between 2 and 64 and slug ~ '^[a-z0-9-]+$')";
 export const T0T1_EXPLICIT="slug text not null check(length(slug) >= 2 and length(slug) <= 64 and slug ~ '^[a-z0-9-]+$')";
+const EXPECTED_SOURCE_STEPS=Object.freeze([
+ ['20261019030541','supabase/migrations/20261019030541_raxi_hq_v09_private_core.sql','e0f0a828b5d4f31960f2153ad910bb84a399a449754db8761057e91047cd7ba0','BASE_MIGRATION'],
+ ['20261019030659','supabase/migrations/20261019030659_raxi_hq_v09_fk_indexes.sql','2967d26201b0e335edec509e5cb40cc0808e3c422ff5eceeff1251b3ae43cf49','BASE_MIGRATION'],
+ ['20261019030808','supabase/migrations/20261019030808_raxi_hq_v09_workspace_onboarding.sql','67472da139bbe3146f6e21ff8f1a5992a41a73fe80fd52800a9448ef15d3e375','BASE_MIGRATION'],
+ ['20261019231655','supabase/migrations/20261019231655_raxi_hq_real_idea_write.sql','89d9db4a1fa22eef45d34f279dbb10fd5feada5b495dab12eedfbbc4b66188ec','BASE_MIGRATION'],
+ ['agent_runtime','supabase/proposals/agent_runtime.sql','36114c12797976ebfc0afdf94ca59c6a0c3dd11b184efdc5c83803b4eeefcb8c','RUNTIME_PROPOSAL'],
+ ['supervised_host_stage_a','supabase/proposals/supervised_host_stage_a.sql','7f6de9365a6e85492b3e8e18b929f5caecfb3a01791d1326b34686e436c6ef3d','RUNTIME_PROPOSAL'],
+ ['supervised_host_stage_b','supabase/proposals/supervised_host_stage_b.sql','59595546fdf1302342df0691fd5c3c7645d2a521861221ca11ae05b184bcb689','RUNTIME_PROPOSAL']
+]);
 const DANGER_ENV=['DOCKER_HOST','DOCKER_CONTEXT','DOCKER_CONFIG','DOCKER_TLS','DOCKER_TLS_VERIFY','DOCKER_CERT_PATH',
   'PGHOST','PGHOSTADDR','PGSERVICE','PGPASSWORD','PGDATABASE','DATABASE_URL','SUPABASE_DB_URL'];
 const hash=s=>createHash('sha256').update(s,'utf8').digest('hex');
@@ -31,7 +40,17 @@ export function makeT0T1Plan({source,manifest,environment={},argv=['node','offli
    !plain(manifest.authorizations)||
    !keys(manifest.authorizations,['applySql','runB2','deploy','createUsers','realProviders','additionalSpend'])||
    Object.values(manifest.authorizations).some(v=>v!==false))fail('staging not disabled');
- if(!Array.isArray(manifest.applicationPlan?.steps)||manifest.applicationPlan.steps.length!==7)fail('unexpected migration inventory');
+ if(!Array.isArray(manifest.applicationPlan?.steps)||manifest.applicationPlan.steps.length!==7||
+   !plain(manifest.project)||manifest.project.postgresMajor!==17||
+   !plain(manifest.candidate)||manifest.candidate.executionAuthorized!==false||
+   manifest.candidate.pg17Status!=='BLOCKED_NOT_AVAILABLE'||
+   manifest.candidate.cliStatus!=='BLOCKED_NOT_AVAILABLE')fail('unexpected staging inventory or candidate status');
+ for(let i=0;i<EXPECTED_SOURCE_STEPS.length;i++){
+   const item=manifest.applicationPlan.steps[i],expected=EXPECTED_SOURCE_STEPS[i];
+   if(!plain(item)||item.id!==expected[0]||item.path!==expected[1]||
+      item.sha256Lf!==expected[2]||item.kind!==expected[3]||item.order!==i+1)
+      fail('pinned source inventory changed at '+i);
+ }
  const matching=manifest.applicationPlan.steps.filter(x=>x.id==='20261019030541');
  if(matching.length!==1||matching[0].path!==T0T1_SOURCE_PATH||
    matching[0].sha256Lf!==T0T1_SOURCE_SHA||matching[0].kind!=='BASE_MIGRATION'||matching[0].order!==1)fail('source manifest pin mismatch');
@@ -74,6 +93,8 @@ export function assertPlanIsBlocked(plan){
    plan.sqlExecuted!==false||plan.writePerformed!==false||
    plan.decision!=='BLOCKED'||plan.semanticEquivalence!=='NOT_VERIFIED'||
    plan.allowCatalogPass!==false||plan.hostedMigration!==T0T1_NO_GO||
+   plan.pinnedMigrationSha256!==T0T1_SOURCE_SHA||
+   typeof plan.inMemoryCandidateSha256!=='string'||!(/^[a-f0-9]{64}$/.test(plan.inMemoryCandidateSha256))||
    !Array.isArray(plan.variants)||plan.variants.length!==2||
    plan.variants[0]?.id!=='T0'||plan.variants[1]?.id!=='T1'||
    plan.variants.some(v=>!(/^[a-f0-9]{64}$/.test(v.ddlSha256)))||
