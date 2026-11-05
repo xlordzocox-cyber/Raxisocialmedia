@@ -15,11 +15,11 @@ El entorno `auth`/`storage` es un **fixture local**, no Supabase Auth real. Esta
 
 ## Strategy: primer intento fallido (fixture)
 
-El operador ejecutó `issue49_pg17_strategy_history_negative.sql` sobre el laboratorio y el `INSERT` inicial de entregables en estrategias ya `IN_REVIEW` / `APPROVED` fue rechazado por el trigger `raxi_protect_deliverable_history` con `historical deliverables are immutable`. **No es una falla demostrada del trigger, sino un fixture inválido**. La transacción no se confirmó; limpieza aún debe verificarse con lectura antes del reintento. Se corrigió la preparación: insertar revisiones y entregables en `DRAFT`, luego transicionar a `IN_REVIEW` y finalmente `APPROVED` / `CHANGES_REQUESTED`. Commit `ffc71e1359964eadd6eae38bd29e315c96ecaf1b`. La quinta batería permanece **NO VERIFICADA** hasta ejecutarse de nuevo.
+El operador ejecutó `issue49_pg17_strategy_history_negative.sql` sobre el laboratorio y el `INSERT` inicial de entregables en estrategias ya `IN_REVIEW` / `APPROVED` fue rechazado por el trigger `raxi_protect_deliverable_history` con `historical deliverables are immutable`. **No es una falla demostrada del trigger, sino un fixture inválido**. La transacción no se confirmó; limpieza aún debe verificarse con lectura antes del reintento. Se corrigió la preparación: insertar revisiones y entregables en `DRAFT`, luego transicionar a `IN_REVIEW` y finalmente `APPROVED` / `CHANGES_REQUESTED`. Commit `ffc71e1359964eadd6eae38bd29e315c96ecaf1b`. La quinta batería se repitió sobre el commit `da2782bef98656e563cb0600a774904209e79c95` y el operador confirmó seis avisos PASS: DRAFT editable, IN_REVIEW contenido inmutable, sin regresión a DRAFT, historial APPROVED/CHANGES_REQUESTED, entregables congelados e identidad inmutable y aprobación única/inmutable. Final `ROLLBACK`, código SQL sin error. **PASS local para restricciones SQL**, todavía no para el flujo RPC completo.
 
 ## Gates pendientes
 
-- Strategy y deliverables: transiciones, historial inmutable, comprobaciones de aprobación por el flujo completo.
+- Strategy y deliverables: restricciones históricas de tabla PASS local; transiciones y aprobaciones a través de la RPC `raxi_campaign_commit` todavía pendientes.
 - Compatibilidad/atestación estructural PG17 del incidente PR #39.
 - JWT, Auth, RLS e integración de Edge en un entorno Supabase real autorizado.
 - Revisión independiente, pruebas automatizadas de integración y restricciones FanView/NSFW por canal.
