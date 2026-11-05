@@ -1,0 +1,188 @@
+// Issue49 LOCAL Docker adapter: exported factory only, NO top-level execution.
+// The separate native runner core performs scope/consent checks before calling it.
+// NO remote hosts, auto-pull, published ports, bind mounts, or global prune.
+import {spawn} from 'node:child_process';
+import {createHash} from 'node:crypto';
+import {platform as osPlatform} from 'node:os';
+const stop=msg=>{throw Error('ISSUE49 DOCKER DRIVER STOP: '+msg);};
+const SHA=/^[a-f0-9]{64}$/;
+const IMAGE=/^sha256:[a-f0-9]{64}$/;
+const windows='npipe:////./pipe/dockerDesktopLinuxEngine';
+const hosts={win32:[windows,'npipe:////./pipe/docker_engine'],
+ linux:['unix:///var/run/docker.sock']};
+const dockerPath={win32:'C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe',
+ linux:'/usr/bin/docker'};
+const MAX=8*1024*1024;
+const hash=value=>createHash('sha256').update(value).digest('hex');
+const sqlFor=role=>'CREATE TABLE public.raxi_workspaces (\n'+
+ '  slug text NOT NULL CHECK ('+(role.startsWith('T0_')
+ ? "length(slug) BETWEEN 2 AND 64 AND slug ~ '^[a-z0-9-]+$'"
+ : "length(slug) >= 2 AND length(slug) <= 64 AND slug ~ '^[a-z0-9-]+$'")+')\n);\n';
+const catalogSql=`
+SELECT json_build_object(
+ 'constraint_name',c.conname,'type',c.contype,'validated',c.convalidated,
+ 'local',c.conislocal,'noinherit',c.connoinherit,'inhcount',c.coninhcount,
+ 'conbin',c.conbin::text,'definition',pg_get_constraintdef(c.oid,true),
+ 'slug_notnull',a.attnotnull,'slug_type',format_type(a.atttypid,a.atttypmod),
+ 'slug_collation',a.attcollation::regcollation::text,
+ 'tablecount',(SELECT count(*) FROM pg_class WHERE relnamespace='public'::regnamespace),
+ 'constraintcount',(SELECT count(*) FROM pg_constraint WHERE connamespace='public'::regnamespace)
+)
+FROM pg_constraint c
+JOIN pg_class t ON t.oid=c.conrelid
+JOIN pg_namespace n ON n.oid=t.relnamespace
+JOIN pg_attribute a ON a.attrelid=t.oid AND a.attname='slug'
+WHERE n.nspname='public' AND t.relname='raxi_workspaces'
+AND c.contype='c' AND c.conname='raxi_workspaces_slug_check';
+`.trim();
+async function command({binary,host,args,input,permitFailure=false}){
+ if(!hosts[osPlatform()]?.includes(host))stop('non-local endpoint');
+ if(!Array.isArray(args)||args.some(x=>typeof x!=='string'))stop('invalid argv');
+ if(input!==undefined&&!(input instanceof Uint8Array)&&typeof input!=='string')stop('invalid stdin');
+ return await new Promise((resolve,reject)=>{
+  const child=spawn(binary,['--host',host,...args],{
+   shell:false,windowsHide:true,
+   env:{PATH:process.env.PATH||'',SystemRoot:process.env.SystemRoot||'',
+     HOME:process.env.HOME||'',USERPROFILE:process.env.USERPROFILE||''},
+   stdio:['pipe','pipe','pipe']
+  });
+  const output=[];let size=0,errBytes=0,failed=false;
+  const timeout=setTimeout(()=>{failed=true;child.kill();},25000);
+  child.stdout.on('data',chunk=>{
+   size+=chunk.length;
+   if(size>MAX){failed=true;child.kill();return;}
+   output.push(chunk);
+  });
+  child.stderr.on('data',chunk=>{errBytes+=chunk.length;
+   if(errBytes>65536){failed=true;child.kill();}});
+  child.on('error',()=>{clearTimeout(timeout);reject(Error('DOCKER_SUBPROCESS_UNAVAILABLE'));});
+  child.on('close',(code)=>{
+   clearTimeout(timeout);
+   if(failed||(!permitFailure&&code!==0))reject(Error('DOCKER_COMMAND_FAILED'));
+   else resolve({code,bytes:Buffer.concat(output)});
+  });
+  if(input!==undefined)child.stdin.end(input);
+  else child.stdin.end();
+ });
+}
+const parseJson=bytes=>{try{return JSON.parse(bytes.toString('utf8'));}catch{stop('invalid JSON attestation');}};
+export function createIssue49LocalDockerDriver({host}){
+ const platform=osPlatform();
+ if(!hosts[platform]?.includes(host)||!dockerPath[platform])
+  stop('unsupported host/platform');
+ const binary=dockerPath[platform];
+ const run=(args,input,permitFailure=false)=>command({binary,host,args,input,permitFailure});
+ const inspectContainer=async id=>{
+  const out=await run(['container','inspect',id]);
+  const list=parseJson(out.bytes);
+  if(!Array.isArray(list)||list.length!==1)stop('invalid inspect count');
+  return list[0];
+ };
+ const owner=x=>x?.Config?.Labels?.['raxi.issue49.owner'];
+ return Object.freeze({
+  async attestLocal({host:required}){
+   if(required!==host)stop('changed local host');
+   const x=parseJson((await run(['info','--format','{{json .}}'])).bytes);
+   if(x.OSType!=='linux'||typeof x.ID!=='string'||!x.ID)stop('not Linux daemon');
+   return {host,local:true,verified:true};
+  },
+  async attestImage({imageId}){
+   if(!IMAGE.test(imageId))stop('image ID required');
+   const x=parseJson((await run(['image','inspect',imageId])).bytes);
+   if(!Array.isArray(x)||x.length!==1||x[0].Id!==imageId||
+     x[0].Os!=='linux'||x[0].Architecture!=='amd64'||
+     !x[0].Config?.Env?.includes('PG_VERSION=17.11'))
+     stop('image ID, OS, architecture or PostgreSQL version mismatch');
+   return {id:imageId,version:'17.11',os:'linux',architecture:'amd64',verified:true};
+  },
+  async create({spec,host:required}){
+   if(required!==host||spec.imageId===undefined||!IMAGE.test(spec.imageId)||
+     !/^raxi-t0t1-[a-f0-9]{24}-(?:t0|t1)-(?:source|restored)$/.test(spec.name)||
+     !/^raxi\.issue49\.trial\.[a-f0-9]{24}$/.test(spec.ownerLabel))
+     stop('unsafe container request');
+   const x=await run(['container','create','--name',spec.name,
+    '--label','raxi.issue49.owner='+spec.ownerLabel,'--network','none',
+    '--pull','never','--restart','no',
+    '--env','POSTGRES_HOST_AUTH_METHOD=trust',spec.imageId]);
+   const id=x.bytes.toString('utf8').trim();
+   if(!SHA.test(id))stop('invalid created ID');
+   return id;
+  },
+  async inspect({id,spec}){
+   if(!SHA.test(id))stop('bad inspect ID');
+   const x=await inspectContainer(id);
+   if(x.Id!==id||owner(x)!==spec.ownerLabel)stop('foreign resource');
+   const mounts=x.Mounts||[];
+   if(!Array.isArray(mounts)||mounts.some(m=>m.Type!=='volume'||!SHA.test(m.Name)||
+     m.Destination!=='/var/lib/postgresql/data'))stop('unexpected storage mount');
+   const mappings=x.HostConfig?.PortBindings||{};
+   const ports=Object.values(mappings).some(v=>Array.isArray(v)&&v.length>0);
+   return {id:x.Id,name:String(x.Name||'').replace(/^\//,''),
+    role:spec.role,ownerLabel:owner(x),imageId:x.Image,
+    network:x.HostConfig?.NetworkMode,ports,privileged:x.HostConfig?.Privileged,
+    bindMounts:Boolean(x.HostConfig?.Binds?.length),
+    anonymousVolumes:mounts.map(m=>m.Name),existing:false};
+  },
+  async start({id}){
+   if(!SHA.test(id))stop('bad start ID');
+   await run(['container','start',id]);
+   for(let i=0;i<25;i++){
+    const r=await run(['container','exec',id,'pg_isready','-U','postgres'],undefined,true);
+    if(r.code===0)return;
+    await new Promise(resolve=>setTimeout(resolve,400));
+   }
+   stop('postgres did not become ready');
+  },
+  async initialize({id,spec}){
+   if(!SHA.test(id))stop('bad SQL container identity');
+   const sql=sqlFor(spec.role);
+   if(hash(sql)!==spec.ddlSha256)stop('DDL differs from pinned micro-schema');
+   await run(['container','exec','-i',id,'psql','-U','postgres','-d','postgres',
+     '-v','ON_ERROR_STOP=1','--single-transaction'],sql);
+  },
+  async dump({id}){
+   if(!SHA.test(id))stop('bad dump ID');
+   const r=await run(['container','exec',id,'pg_dump','-U','postgres','-d','postgres',
+      '-Fc','--schema=public','--no-owner','--no-acl']);
+   if(r.bytes.length===0)stop('empty dump');
+   return r.bytes;
+  },
+  async restore({id,archive}){
+   if(!SHA.test(id)||!(archive instanceof Uint8Array)||
+      archive.length===0||archive.length>MAX)stop('bad restore input');
+   await run(['container','exec','-i',id,'pg_restore','-U','postgres','-d','postgres',
+      '--single-transaction','--exit-on-error','--no-owner','--no-acl'],archive);
+  },
+  async catalog({id}){
+   if(!SHA.test(id))stop('bad catalog ID');
+   const result=await run(['container','exec',id,'psql','-U','postgres','-d','postgres',
+    '-tA','-v','ON_ERROR_STOP=1','-c',catalogSql]);
+   const row=parseJson(result.bytes);
+   const actual=JSON.stringify(row);
+   if(row?.constraint_name!=='raxi_workspaces_slug_check'||row.type!=='c'||
+      row.validated!==true||row.slug_notnull!==true||
+      row.tablecount!=='1'&&row.tablecount!==1||
+      row.constraintcount!=='1'&&row.constraintcount!==1)
+      stop('unexpected microcatalog');
+   const build=parseJson((await run(['container','exec',id,'psql','-U','postgres',
+     '-d','postgres','-tA','-v','ON_ERROR_STOP=1','-c',
+     "SELECT json_build_array(current_setting('server_version'), current_setting('server_encoding'), current_setting('lc_collate'), current_setting('lc_ctype'))"])).bytes);
+   if(!Array.isArray(build)||build[0]!=='17.11')stop('unexpected database build');
+   return {conbinSha256:hash(String(row.conbin)),
+    catalogSha256:hash(actual),buildSha256:hash(JSON.stringify(build))};
+  },
+  async remove({id}){
+   if(!SHA.test(id))stop('bad cleanup ID');
+   await run(['container','rm','-f','-v',id]);
+  },
+  async confirmRemoved({id,anonymousVolumes}){
+   if(!SHA.test(id)||!Array.isArray(anonymousVolumes)||
+     anonymousVolumes.length>1||anonymousVolumes.some(v=>!SHA.test(v)))
+     stop('bad removal evidence');
+   const x=await run(['container','inspect',id],undefined,true);
+   const checks=await Promise.all(anonymousVolumes.map(v=>
+     run(['volume','inspect',v],undefined,true)));
+   return {containerGone:x.code!==0,volumesGone:checks.every(v=>v.code!==0)};
+  }
+ });
+}
