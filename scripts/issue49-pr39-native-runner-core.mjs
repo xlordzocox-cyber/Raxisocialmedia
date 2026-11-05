@@ -204,7 +204,8 @@ export async function runNativeTrialWithDriver({
  return Object.freeze({
   finding,source:'NATIVE_DRIVER_REPORTED_NOT_INDEPENDENTLY_ATTESTED',
   cleanup:unknownCreatedIdentity?'UNKNOWN_CREATED_IDENTITY':
-    cleanupFailed?'RESOURCE_REMAINS':'ALL_TRACKED_IDS_AND_VOLUMES_REMOVED',
+    cleanupFailed?'RESOURCE_REMAINS':
+    created.length===0?'NOT_REQUIRED_NO_RESOURCES':'ALL_TRACKED_IDS_AND_VOLUMES_REMOVED',
   createdCount:created.length,reportableError:failure,
   decision:'BLOCKED',semanticEquivalence:'NOT_VERIFIED',
   allowCatalogPass:false,hostedMigration:'NO_GO_HOSTED_MIGRATION'
