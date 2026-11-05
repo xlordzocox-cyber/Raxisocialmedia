@@ -25,12 +25,14 @@ function negative(label,mutate){
  denied++;
 }
 const plan=makeT0T1Plan(input());
-assertPlanIsBlocked(plan);
+assertPlanIsBlocked(plan,source);
 assert.equal(plan.hostedMigration,T0T1_NO_GO);
 assert.equal(plan.nativeExecutionAvailable,false);
 assert.equal(plan.dockerInvoked,false);
 assert.equal(plan.sqlExecuted,false);
 assert.equal(plan.writePerformed,false);
+assert.throws(()=>assertPlanIsBlocked(plan,undefined),/ISSUE49 T0T1 OFFLINE STOP/);
+assert.throws(()=>assertPlanIsBlocked(plan,source+' -- forged'),/ISSUE49 T0T1 OFFLINE STOP/);
 assert.deepEqual(plan.variants.map(x=>x.id),['T0','T1']);
 const micro0="CREATE TABLE public.raxi_workspaces (\n  slug text NOT NULL CHECK (length(slug) BETWEEN 2 AND 64 AND slug ~ '^[a-z0-9-]+$')\n);\n";
 const micro1="CREATE TABLE public.raxi_workspaces (\n  slug text NOT NULL CHECK (length(slug) >= 2 AND length(slug) <= 64 AND slug ~ '^[a-z0-9-]+$')\n);\n";
@@ -50,6 +52,9 @@ negative('unknown flag',v=>{v.argv.push('--help');});
 negative('missing argv',v=>{v.argv=[];});
 negative('missing environment',v=>{v.environment=null;});
 negative('manifest execution ready',v=>{v.manifest.executionReady=true;});
+negative('format version null',v=>{v.manifest.formatVersion=null;});
+negative('format version unknown',v=>{v.manifest.formatVersion=999;});
+negative('format version string',v=>{v.manifest.formatVersion='1';});
 negative('migration apply authorized',v=>{v.manifest.authorizations.applySql=true;});
 negative('host run authorized',v=>{v.manifest.authorizations.runB2=true;});
 negative('extra staging authorization',v=>{v.manifest.authorizations.restore=true;});
@@ -88,9 +93,14 @@ for(const [label,change] of [
  ['extra variant permission',p=>({...p,variants:[{...p.variants[0],allowRestore:true},p.variants[1]]})],
  ['forged T0 predicate digest',p=>({...p,variants:[{...p.variants[0],sourcePredicateSha256:'0'.repeat(64)},p.variants[1]]})],
  ['forged T1 predicate digest',p=>({...p,variants:[p.variants[0],{...p.variants[1],sourcePredicateSha256:'0'.repeat(64)}]})],
- ['missing variant metadata',p=>{const v={...p.variants[0]};delete v.sourcePredicateSha256;return {...p,variants:[v,p.variants[1]]};}]
+ ['missing variant metadata',p=>{const v={...p.variants[0]};delete v.sourcePredicateSha256;return {...p,variants:[v,p.variants[1]]};}],
+ ['forged T0 DDL digest',p=>({...p,variants:[{...p.variants[0],ddlSha256:'0'.repeat(64)},p.variants[1]]})],
+ ['forged T1 DDL digest',p=>({...p,variants:[p.variants[0],{...p.variants[1],ddlSha256:'0'.repeat(64)}]})],
+ ['identical forged DDL digests',p=>({...p,variants:p.variants.map(v=>({...v,ddlSha256:'0'.repeat(64)}))})],
+ ['swapped DDL digests',p=>({...p,variants:[{...p.variants[0],ddlSha256:p.variants[1].ddlSha256},{...p.variants[1],ddlSha256:p.variants[0].ddlSha256}]})],
+ ['forged full candidate digest',p=>({...p,inMemoryCandidateSha256:'0'.repeat(64)})]
 ]){
- assert.throws(()=>assertPlanIsBlocked(change(plan)),/ISSUE49 T0T1 OFFLINE STOP/,label);denied++;
+ assert.throws(()=>assertPlanIsBlocked(change(plan),source),/ISSUE49 T0T1 OFFLINE STOP/,label);denied++;
 }
 // Confirm CLI never accepts --run-local, and its normal execution only reports a blocked plan.
 const executable=fileURLToPath(new URL('./issue49-pr39-t0t1-offline-executor.mjs',import.meta.url));
