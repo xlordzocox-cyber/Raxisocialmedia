@@ -67,3 +67,10 @@ Antes de crear contenedores:
 `decision=BLOCKED; semanticEquivalence=NOT_VERIFIED; allowCatalogPass=false; NO_GO_HOSTED_MIGRATION`.
 
 El presente documento no modifica fuentes SQL, migraciones, runner, comparador, staging, RLS, Auth, Docker ni infraestructura.
+
+
+## Corrección de la preparación T0/T1 (2026-11-05)
+
+Primera ejecución del operador sobre commit `d1b06ba904b98989a1830f9324922210c20f8890`: **FAIL** en `variant diff is not the one reviewed change`; código distinto de cero. Causa comprobada en el script: `String.replace(original, explicit)` y la inversión con argumento string interpretan el fragmento literal `$'` que aparece al final del patrón SQL como un token especial de sustitución en JavaScript. El fallo es del generador de escenario, no demuestra un problema del SQL ni de PostgreSQL. El `Write-Host` verde posterior al `throw` no representa un PASS.
+
+Correctivo en `scripts/issue49-pr39-ddl-offline-scenarios.mjs`: usar callbacks `source.replace(original,()=>explicit)` y `variant.replace(explicit,()=>original)` para conservar literalmente el ancla `$`; reforzar verificación de la expresión regular. Commit `1a0127c3d3e015f90b010d8022fbdf9a0c1b19cb`. Una comprobación de texto con la fuente original recuperada de GitHub dio exactamente una aparición del CHECK, una del ancla antes y después, ida/vuelta exacta `true`; **el operador debe repetir la prueba en Windows antes de declarar PASS del ejecutable**. No hubo cambios en las migraciones ni en el comparador, SQL, Docker o Supabase.
