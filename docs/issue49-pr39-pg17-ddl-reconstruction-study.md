@@ -79,3 +79,8 @@ Correctivo en `scripts/issue49-pr39-ddl-offline-scenarios.mjs`: usar callbacks `
 ## Segunda incidencia de preparacion T0/T1
 
 El usuario ejecuto el commit `9fe3c7847ec5ca097fc8616d2a16b4f99c0b2207` y obtuvo un error de sintaxis de JavaScript antes de ejecutar la prueba. La version publicada contenia fragmentos de texto y lineas duplicadas; fueron causados por la interpretacion del token especial de reemplazo al construir el propio parche. Los mensajes verdes posteriores al error no constituyen PASS. El script fue reconstruido de forma completa en el commit `0ce4095df624b1bd5473e2ea7ace24878ef94a71`, evitando reemplazos de codigo sujetos a interpolaciones accidentales y conservando un solo camino T0/T1. Comprobacion independiente local de sintaxis `node --check` y regresion de sustitucion literal de ida/vuelta: PASS. La nueva ejecucion completa del operador sigue PENDIENTE. Ni SQL ni Docker fueron ejecutados en esta correccion.
+
+
+## Resultado operatorio confirmado: T0/T1 offline PASS
+
+El 2026-11-05, el operador ejecutó en Windows el script corregido sobre HEAD `31a95f9a8a2cff4e33deeddcdfba6992c937e579`; `node --input-type=module --check -` y la ejecución reportaron código de salida 0. Resultado: `PASS PR39 DDL SOURCE`, SHA-256 de la migración original conforme al manifiesto, autorizaciones de staging desactivadas, T0 fingerprint `a08d44d9bb1fad3a`, T1 fingerprint `cb395cdaac26abeb`, un cambio de CHECK en memoria y bloqueo `BLOCKED / NOT_VERIFIED; NO_GO_HOSTED_MIGRATION`. Esto prueba la *preparación de escenarios*, NO una restauración PostgreSQL real. El fallo previo de sustitución y el posterior error de sintaxis quedaron superados en este ensayo; no se modificaron migraciones ni datos alojados.
