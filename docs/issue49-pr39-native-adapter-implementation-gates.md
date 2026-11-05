@@ -23,3 +23,10 @@ Este documento no autoriza la ejecución, instalación o descarga de Docker, cre
 ## Evidencia disponible
 
 Las 49 pruebas sintéticas pasaron en Windows sobre el commit f0ac98efceb36e0ddddfa28e2cfd867d1014dc73. Codex completó rereview sin hallazgos nuevos en ese commit. El hilo sobre volúmenes compartidos fue marcado resuelto. El experimento nativo real sigue sin realizarse.
+
+
+## Incremento publicado: adaptador puramente offline
+
+Se publicaron `scripts/issue49-pr39-adapter-offline.mjs` (commit `005729027905eb4b9c72cafb056d7a6417e4ed83`) y `scripts/test-issue49-pr39-adapter-offline.mjs` (commit `890611b9c49bd5903e561311db8035d361560306`). El adaptador valida el plan y la fuente a traves del preflight existente, consume el blueprint sintetico aprobado, propone ocho etapas descriptivas y cuatro roles, y mantiene `runtimeAvailable=false`, `executionAuthorized=false`, `cleanupAuthorized=false`, `allowCatalogPass=false`, `decision=BLOCKED`, `NO_GO_HOSTED_MIGRATION`. No implementa llamadas a Docker, SQL, sistema de archivos o red; la limpieza es una barrera de evidencia sintetica con lista de eliminaciones vacia, **no** una limpieza real.
+
+La bateria de prueba del adaptador incluye **28 negativos previstos**: 16 de plan mutado, 5 de origen/huellas/permisos y 7 de identidad/aislamiento/almacenamiento compartido. Sintaxis de ambos archivos revisada mediante parser V8 aislado; un smoke test de funciones con dependencias simuladas verifico caso valido y **5/5 manipulaciones rechazadas**. **No** es PASS del suite Node real, ni resultado de PostgreSQL. Antes de cualquier ampliacion deben ejecutarse las 28 negativas en Windows y recibir revision Codex sobre el commit exacto. El contrato sintetico anterior contaba con 49 negativos PASS y Codex sin nuevos hallazgos en su propio commit.
