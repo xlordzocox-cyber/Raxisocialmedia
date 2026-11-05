@@ -101,10 +101,10 @@ for(const [label,change] of [
 }
 for(const [label,patch,expectedCleanup] of [
  ['wrong local daemon', {attestLocal:async()=>({host:'tcp://remote',local:false,verified:true,daemonId:'bad',preexistingVolumes:[]})},
-  'ALL_TRACKED_IDS_AND_VOLUMES_REMOVED'],
+  'NOT_REQUIRED_NO_RESOURCES'],
  ['image build mismatch', {attestImage:async({imageId:id})=>({
   id,version:'17.10',os:'linux',architecture:'amd64',verified:true})},
-  'ALL_TRACKED_IDS_AND_VOLUMES_REMOVED'],
+  'NOT_REQUIRED_NO_RESOURCES'],
  ['create with unknown identity',{create:async()=>{throw Error('CREATE_UNCERTAIN');}},
   'UNKNOWN_CREATED_IDENTITY'],
  ['oversize archive',{dump:async()=>new Uint8Array(8*1024*1024+1)},
