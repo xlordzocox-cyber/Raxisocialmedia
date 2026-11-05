@@ -13,6 +13,10 @@ Laboratorio aislado: PostgreSQL 17.11, contenedor `raxi-pg17-campaign-qa` sin re
 
 El entorno `auth`/`storage` es un **fixture local**, no Supabase Auth real. Esta evidencia es la salida compartida por el operador; no representa una ejecución independiente de CI.
 
+## Strategy: primer intento fallido (fixture)
+
+El operador ejecutó `issue49_pg17_strategy_history_negative.sql` sobre el laboratorio y el `INSERT` inicial de entregables en estrategias ya `IN_REVIEW` / `APPROVED` fue rechazado por el trigger `raxi_protect_deliverable_history` con `historical deliverables are immutable`. **No es una falla demostrada del trigger, sino un fixture inválido**. La transacción no se confirmó; limpieza aún debe verificarse con lectura antes del reintento. Se corrigió la preparación: insertar revisiones y entregables en `DRAFT`, luego transicionar a `IN_REVIEW` y finalmente `APPROVED` / `CHANGES_REQUESTED`. Commit `ffc71e1359964eadd6eae38bd29e315c96ecaf1b`. La quinta batería permanece **NO VERIFICADA** hasta ejecutarse de nuevo.
+
 ## Gates pendientes
 
 - Strategy y deliverables: transiciones, historial inmutable, comprobaciones de aprobación por el flujo completo.
