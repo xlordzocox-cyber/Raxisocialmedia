@@ -22,7 +22,7 @@ function Run-Lab([string]$path) {
  if($code -ne 0){throw "LAB SQL failed: $path"}
 }
 $counts=Read-Lab "SELECT (SELECT count(*) FROM auth.users), (SELECT count(*) FROM public.raxi_workspaces), (SELECT count(*) FROM public.raxi_ideas), (SELECT count(*) FROM public.raxi_audit_events)"
-if($counts -ne '0,0,0,0'){throw "LAB not empty: $counts"}
+if($counts -ne '0|0|0|0'){throw "LAB not empty: $counts"}
 $jobA=$null;$jobB=$null;$seeded=$false;$complete=$false
 $worker={
  param($revision,$path,$container,$db)
@@ -61,6 +61,6 @@ try {
  }
  if($seeded -and -not $complete){Run-Lab 'supabase/tests/issue49_pg17_race_cleanup_only.sql'}
  $counts=Read-Lab "SELECT (SELECT count(*) FROM auth.users), (SELECT count(*) FROM public.raxi_workspaces), (SELECT count(*) FROM public.raxi_ideas), (SELECT count(*) FROM public.raxi_audit_events)"
- if($counts -ne '0,0,0,0'){throw "CLEANUP NOT VERIFIED: $counts"}
+ if($counts -ne '0|0|0|0'){throw "CLEANUP NOT VERIFIED: $counts"}
  Write-Host 'CLEANUP PASS: 0 synthetic rows remaining.' -ForegroundColor Green
 }
