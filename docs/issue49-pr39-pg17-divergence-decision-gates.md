@@ -32,3 +32,18 @@ El verificador deliberadamente **no** se importa en `assertPr39CatalogEquality`,
 ## Bloqueos paralelos
 
 La Etapa 1 de campañas/Strategy tiene siete baterías con PASS **local sintético**, no Auth real; Etapa 3 debe verificar JWT/RLS/Edge y separación de permisos; Etapa 4 requiere QA y revisión independiente. El manifiesto staging permanece inhabilitado. Esta nota no modifica SQL, permisos, staging, proveedores, Docker, jobs, branch main o despliegues.
+
+## Auditoría de volatilidad de funciones — PASS local, 2026-11-05
+
+El operador ejecutó el fichero `scripts/issue49-pr39-pinned-identity-audit.mjs` desde el commit `e5f2639662425dcf1780187b7b17f7e896850374`, sobre el reporte privado SHA-fijado. El comando `node --input-type=module --check -` no emitió errores y el ejecutable mostró las siguientes identidades declaradas en la evidencia:
+
+| OID | Función | Origen | Restauración |
+| --- | --- | --- | --- |
+| 150 | `int4ge` | `i` | `i` |
+| 1317 | `length` | `i` | `i` |
+| 149 | `int4le` | `i` | `i` |
+| 1254 | `textregexeq` | `i` | `i` |
+
+Salida final: `PASS PR39 PINNED FUNCTION METADATA: 4 unique functions marked immutable on both sides` y `PR39 REMAINS BLOCKED / NOT_VERIFIED`. `i` representa la **volatilidad declarada `IMMUTABLE` en los metadatos de la captura**, no una prueba nativa independiente de ausencia de efectos o equivalencia de todas las dependencias. No se subió el JSON a GitHub ni se modificó ningún gate.
+
+**Siguiente evidencia material:** auditoría de campos de contexto y dependencias que el informe pinneado sí permite verificar, seguida de examen del resto del catálogo mediante la comparación estricta del runner. No inferir éxito de restauración ni ejecutar un nuevo ensayo nativo sin aprobación separada.
