@@ -6,6 +6,12 @@ import {assertPlanIsBlocked} from './issue49-pr39-t0t1-offline-executor.mjs';
 const error=code=>{throw Error('ISSUE49 NATIVE DESIGN STOP: '+code);};
 const plain=x=>x!==null&&typeof x==='object'&&!Array.isArray(x)&&Object.getPrototypeOf(x)===Object.prototype;
 const exact=(x,fields)=>plain(x)&&Object.keys(x).length===fields.length&&fields.every(k=>Object.hasOwn(x,k));
+const exactSequence=(actual,expected)=>Array.isArray(actual)&&
+ actual.length===expected.length&&Reflect.ownKeys(actual).length===expected.length+1&&
+ expected.every((value,i)=>Object.hasOwn(actual,i)&&actual[i]===value);
+const denseArray=(actual,max)=>Array.isArray(actual)&&actual.length<=max&&
+ Reflect.ownKeys(actual).length===actual.length+1&&
+ Array.from({length:actual.length},(_,i)=>i).every(i=>Object.hasOwn(actual,i));
 const SHA=/^[a-f0-9]{64}$/;
 const IMAGE=/^sha256:[a-f0-9]{64}$/;
 const ROLES=['T0_SOURCE','T0_RESTORED','T1_SOURCE','T1_RESTORED'];
@@ -81,9 +87,7 @@ export function inspectSyntheticContainerSet({blueprint,observations,plan,source
    blueprint.executionAvailable!==false||blueprint.executionAuthorized!==false||
    blueprint.nativeVerified!==false||blueprint.allowCatalogPass!==false||
    blueprint.decision!=='BLOCKED'||blueprint.hostedMigration!==NATIVE_TRIAL_NO_GO||
-   !Array.isArray(blueprint.stageNames)||
-   blueprint.stageNames.length!==STAGES.length||
-   blueprint.stageNames.some((v,i)=>v!==STAGES[i])||
+   !exactSequence(blueprint.stageNames,STAGES)||
    !Array.isArray(blueprint.specs)||blueprint.specs.length!==4||
    blueprint.specs.some((s,i)=>!exact(s,['role','name','imageId','network','publishPorts',
      'privileged','binds','mounts','sharedVolumes','existingContainerReuse','expectedOwnerLabel','ddlSha256'])||
@@ -116,8 +120,9 @@ export function inspectSyntheticContainerSet({blueprint,observations,plan,source
       o.privileged!==false||o.ownerLabel!==s.expectedOwnerLabel||
       o.existing!==false||!Array.isArray(o.binds)||o.binds.length!==0||
       !Array.isArray(o.mounts)||o.mounts.length!==0||
-      !Array.isArray(o.anonymousVolumes)||o.anonymousVolumes.length>1||
-      o.anonymousVolumes.some(v=>typeof v!=='string'||!/^[a-f0-9]{64}$/.test(v)))error('isolation or ownership mismatch');
+      !denseArray(o.anonymousVolumes,1)||
+      !Array.from({length:o.anonymousVolumes.length},(_,j)=>j).every(j=>
+        typeof o.anonymousVolumes[j]==='string'&&SHA.test(o.anonymousVolumes[j])))error('isolation or ownership mismatch');
    ids.add(o.id);
    for(const volume of o.anonymousVolumes){
      if(volumeIds.has(volume))error('shared anonymous volume between roles');
