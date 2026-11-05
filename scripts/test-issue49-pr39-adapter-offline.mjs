@@ -22,7 +22,8 @@ const prerequisites=verifyNativeTrialPrerequisites({
  inspection:[context],image
 });
 const sessionId='1'.repeat(24);
-const opts={plan,source,prerequisites,sessionId};
+const expectedImageId=image.id; // independent pin, not copied from a mutated inspection
+const opts={plan,source,prerequisites,sessionId,expectedImageId};
 const adapter=prepareOfflineNativeAdapter(opts);
 const blueprint=makeNativeTrialBlueprint(opts);
 assert.equal(adapter.runtimeAvailable,false);
@@ -62,7 +63,8 @@ for(const [label,mutate] of [
  ['role renamed',x=>x.roles[0]='ADMIN'],
  ['changed resource name',x=>x.resourceNames[0]='existing-database'],
  ['duplicate resource names',x=>x.resourceNames[1]=x.resourceNames[0]],
- ['plan hash falsified',x=>x.sourcePlanHash='0'.repeat(64)]
+ ['plan hash falsified',x=>x.sourcePlanHash='0'.repeat(64)],
+ ['forged expected image in adapter',x=>x.expectedImageId='sha256:'+'f'.repeat(64)]
 ]){
  negative(label,()=>{
   const modified=structuredClone(adapter);
@@ -74,6 +76,9 @@ for(const [label,mutate] of [
  ['changed source',x=>x.source+=' -- forged'],
  ['forged plan',x=>x.plan.allowCatalogPass=true],
  ['changed image pin',x=>x.prerequisites.imageId='sha256:'+'f'.repeat(64)],
+ ['missing independent pin',x=>delete x.expectedImageId],
+ ['invalid independent pin',x=>x.expectedImageId='postgres:17'],
+ ['independent pin differs',x=>x.expectedImageId='sha256:'+'f'.repeat(64)],
  ['wrong session ID',x=>x.sessionId='INVALID'],
  ['faked role',x=>x.plan.variants[0].id='UNSAFE']
 ]){
