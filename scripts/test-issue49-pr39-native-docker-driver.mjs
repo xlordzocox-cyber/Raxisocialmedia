@@ -28,8 +28,10 @@ const trial=prepareNativeTrial(cfg);
 const consent={scope:'ISSUE49_LOCAL_T0T1_PG17_11',sessionId,imageId,
  localOnly:true,syntheticOnly:true,maxContainers:4,separateOperatorConsent:true};
 
-function fakeCli({wrongImageVersion=false,foreignLabel=false,leaveVolume=false}={}){
+function fakeCli({wrongImageVersion=false,wrongImageId=false,foreignLabel=false,
+ leaveVolume=false,remoteContext=false,unsafeNetwork=false,preexistingVolume=false}={}){
  const calls=[],containers=new Map(),volumes=new Set();
+ if(preexistingVolume)volumes.add('6'.repeat(64));
  let index=0;
  const out=(value,code=0)=>({code,bytes:Buffer.isBuffer(value)?value:
   Buffer.from(typeof value==='string'?value:JSON.stringify(value))});
@@ -40,10 +42,12 @@ function fakeCli({wrongImageVersion=false,foreignLabel=false,leaveVolume=false}=
   calls.push([...args]);
   const a=args.join(' ');
   if(args[0]==='context'&&args[1]==='inspect')return out([{
-   Name:name,Endpoints:{docker:{Host:host,SkipTLSVerify:false}}}]);
+   Name:name,Endpoints:{docker:{Host:remoteContext?'tcp://127.0.0.1:2375':host,
+   SkipTLSVerify:false}}}]);
   if(args[0]==='info')return out({OSType:'linux',ID:'mock-docker-daemon'});
   if(args[0]==='image'&&args[1]==='inspect')return out([{
-   Id:imageId,Os:'linux',Architecture:'amd64',Config:{
+   Id:wrongImageId?'sha256:'+'f'.repeat(64):imageId,
+   Os:'linux',Architecture:'amd64',Config:{
     Env:['PG_VERSION='+(wrongImageVersion?'17.10-1':'17.11-1.pgdg13+1')]}}]);
   if(args[0]==='volume'&&args[1]==='ls')return out([...volumes].join('\n'));
   if(args[0]==='container'&&args[1]==='ls')return out([...containers.keys()].join('\n'));
@@ -65,7 +69,8 @@ function fakeCli({wrongImageVersion=false,foreignLabel=false,leaveVolume=false}=
    if(!r)throw Error('MOCK_UNKNOWN_CONTAINER');
    return out([{Id:r.id,Name:'/'+r.name,Image:imageId,
     Config:{Labels:{'raxi.issue49.owner':foreignLabel?'foreign':r.label}},
-    HostConfig:{NetworkMode:'none',Privileged:false,Binds:null,PortBindings:null},
+    HostConfig:{NetworkMode:unsafeNetwork?'bridge':'none',Privileged:false,
+     Binds:null,PortBindings:null},
     Mounts:[{Type:'volume',Name:r.volume,Destination:'/var/lib/postgresql/data'}]}]);
   }
   if(args[0]==='container'&&args[1]==='start')return out(args[2]);
@@ -120,7 +125,11 @@ let negatives=0;
 for(const [label,config,cleanupExpected] of [
  ['invalid image metadata',{wrongImageVersion:true},'NOT_REQUIRED_NO_RESOURCES'],
  ['owner label changed',{foreignLabel:true},'RESOURCE_REMAINS'],
- ['anonymous volume not deleted',{leaveVolume:true},'RESOURCE_REMAINS']
+ ['anonymous volume not deleted',{leaveVolume:true},'RESOURCE_REMAINS'],
+ ['remote context injection',{remoteContext:true},'NOT_REQUIRED_NO_RESOURCES'],
+ ['wrong immutable image ID',{wrongImageId:true},'NOT_REQUIRED_NO_RESOURCES'],
+ ['network escape on inspection',{unsafeNetwork:true},'RESOURCE_REMAINS'],
+ ['preexisting volume attached',{preexistingVolume:true},'RESOURCE_REMAINS']
 ]){
  const fake=fakeCli(config);
  const d=createIssue49LocalDockerDriver({host,transport:fake.transport});
