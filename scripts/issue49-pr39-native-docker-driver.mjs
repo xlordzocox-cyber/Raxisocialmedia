@@ -2,6 +2,8 @@
 // The separate native runner core performs scope/consent checks before calling it.
 // NO remote hosts, auto-pull, published ports, bind mounts, or global prune.
 import {spawn} from 'node:child_process';
+import {readFileSync} from 'node:fs';
+import {join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {platform as osPlatform} from 'node:os';
 const stop=msg=>{throw Error('ISSUE49 DOCKER DRIVER STOP: '+msg);};
@@ -10,8 +12,16 @@ const IMAGE=/^sha256:[a-f0-9]{64}$/;
 const windows='npipe:////./pipe/dockerDesktopLinuxEngine';
 const hosts={win32:[windows,'npipe:////./pipe/docker_engine'],
  linux:['unix:///var/run/docker.sock']};
-const dockerPath={win32:'C:\\Program Files\\Docker\\Docker\\resources\\bin\\docker.exe',
- linux:'/usr/bin/docker'};
+// Windows installation is per-user; never accept PATH or arbitrary CLI binaries.
+const PINNED_WIN_DOCKER_SHA256='0f97bc1111f59d859766ba938691ee07ed4e58d5fdaeb6f4dfb10a5ef5394753';
+const configuredBinary=platform=>{
+ if(platform==='linux')return '/usr/bin/docker';
+ if(platform!=='win32')stop('unsupported Docker CLI platform');
+ const local=process.env.LOCALAPPDATA;
+ if(typeof local!=='string'||!/^([a-zA-Z]:\\\\|\\\\\\\\)/.test(local))
+   stop('missing absolute per-user Docker install root');
+ return join(local,'Programs','DockerDesktop','resources','bin','docker.exe');
+};
 const MAX=8*1024*1024;
 const hash=value=>createHash('sha256').update(value).digest('hex');
 const sqlFor=role=>'CREATE TABLE public.raxi_workspaces (\n'+
@@ -71,9 +81,17 @@ const parseJson=bytes=>{try{return JSON.parse(bytes.toString('utf8'));}catch{sto
 export function createIssue49LocalDockerDriver({host,transport=command}){
  const platform=osPlatform();
  if(typeof transport!=='function')stop('transport must be callable');
- if(!hosts[platform]?.includes(host)||!dockerPath[platform])
+ if(!hosts[platform]?.includes(host))
   stop('unsupported host/platform');
- const binary=dockerPath[platform];
+ const binary=configuredBinary(platform);
+ // Production transport only: bind to the operator-verified signed executable hash.
+ // Mocks never read the executable or spawn a subprocess.
+ if(platform==='win32'&&transport===command){
+  let actual;
+  try{actual=createHash('sha256').update(readFileSync(binary)).digest('hex');}
+  catch{stop('pinned Docker CLI unavailable');}
+  if(actual!==PINNED_WIN_DOCKER_SHA256)stop('Docker CLI SHA-256 pin mismatch');
+ }
  let pinnedDaemonId=null,attestedImageId=null,baselineVolumes=new Set();
  const created=new Map(),inspected=new Map(),removalRequested=new Set();
  const registered=(id,spec)=>{
