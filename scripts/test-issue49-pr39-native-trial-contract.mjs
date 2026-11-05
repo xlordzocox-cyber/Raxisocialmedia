@@ -99,7 +99,7 @@ for(const [label,change] of [
  ['public port',(_p,o)=>o[0].publishPorts=true],
  ['network enabled',(_p,o)=>o[1].network='bridge'],
  ['privileged',(_p,o)=>o[0].privileged=true],
- ['host mount',(_p,o)=>o[0].binds=['C:/'],
+ ['host mount',(_p,o)=>o[0].binds=['C:/']],
  ['unexpected volume mount',(_p,o)=>o[0].mounts=['/var/run/docker.sock']],
  ['existing container',(_p,o)=>o[0].existing=true],
  ['different image',(_p,o)=>o[2].imageId='sha256:'+'f'.repeat(64)],
