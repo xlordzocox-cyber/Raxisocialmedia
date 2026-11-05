@@ -79,13 +79,19 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
  const registered=(id,spec)=>{
   if(!SHA.test(id)||!created.has(id)||!inspected.has(id))stop('unknown or uninspected container');
   const expected=created.get(id);
-  if(spec&&(spec.name!==expected.name||spec.ownerLabel!==expected.ownerLabel||
-    spec.role!==expected.role||spec.imageId!==expected.imageId))
+  if(!spec||spec.name!==expected.name||spec.ownerLabel!==expected.ownerLabel||
+    spec.role!==expected.role||spec.imageId!==expected.imageId)
     stop('container ownership binding changed');
   return expected;
  };
  const run=(args,input,permitFailure=false)=>transport({binary,host,args,input,permitFailure});
- const inspectContainer=async id=>{
+ const requireSameDaemon=async()=>{
+  if(pinnedDaemonId===null)stop('daemon has not been attested');
+  const info=parseJson((await run(['info','--format','{{json .}}'])).bytes);
+  if(info.OSType!=='linux'||info.ID!==pinnedDaemonId)
+    stop('daemon identity changed before operation');
+ };
+  const inspectContainer=async id=>{
   const out=await run(['container','inspect',id]);
   const list=parseJson(out.bytes);
   if(!Array.isArray(list)||list.length!==1)stop('invalid inspect count');
@@ -133,6 +139,7 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
      !/^raxi-t0t1-[a-f0-9]{24}-(?:t0|t1)-(?:source|restored)$/.test(spec.name)||
      spec.ownerLabel!=='raxi.issue49.trial.'+spec.name.slice(10,34))
      stop('unsafe container request');
+   await requireSameDaemon();
    const x=await run(['container','create','--name',spec.name,
     '--label','raxi.issue49.owner='+spec.ownerLabel,'--network','none',
     '--pull','never','--restart','no',
@@ -174,6 +181,7 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
   },
   async start({id,spec}){
    registered(id,spec);
+   await requireSameDaemon();
    await run(['container','start',id]);
    for(let i=0;i<25;i++){
     const r=await run(['container','exec',id,'pg_isready','-U','postgres'],undefined,true);
@@ -186,11 +194,13 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
    registered(id,spec);
    const sql=sqlFor(spec.role);
    if(hash(sql)!==spec.ddlSha256)stop('DDL differs from pinned micro-schema');
+   await requireSameDaemon();
    await run(['container','exec','-i',id,'psql','-U','postgres','-d','postgres',
      '-v','ON_ERROR_STOP=1','--single-transaction'],sql);
   },
   async dump({id,spec}){
    registered(id,spec);
+   await requireSameDaemon();
    const r=await run(['container','exec',id,'pg_dump','-U','postgres','-d','postgres',
       '-Fc','--schema=public','--no-owner','--no-acl']);
    if(r.bytes.length===0)stop('empty dump');
@@ -200,11 +210,13 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
    registered(id,spec);
    if(!(archive instanceof Uint8Array)||
       archive.length===0||archive.length>MAX)stop('bad restore input');
+   await requireSameDaemon();
    await run(['container','exec','-i',id,'pg_restore','-U','postgres','-d','postgres',
       '--single-transaction','--exit-on-error','--no-owner','--no-acl'],archive);
   },
   async catalog({id,spec}){
    registered(id,spec);
+   await requireSameDaemon();
    const result=await run(['container','exec',id,'psql','-U','postgres','-d','postgres',
     '-tA','-v','ON_ERROR_STOP=1','-c',catalogSql]);
    const row=parseJson(result.bytes);
@@ -227,6 +239,7 @@ export function createIssue49LocalDockerDriver({host,transport=command}){
    if(!Array.isArray(anonymousVolumes)||anonymousVolumes.length!==known.length||
       anonymousVolumes.some((v,i)=>v!==known[i]))
      stop('cleanup volumes not bound to inspection');
+   await requireSameDaemon();
    await run(['container','rm','-f','-v',id]);
    removalRequested.add(id);
   },
