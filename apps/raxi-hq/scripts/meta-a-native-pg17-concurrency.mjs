@@ -31,7 +31,7 @@ function guardedLab() {
  assert.deepEqual(Object.keys(x.tmpfs??{}),['/var/lib/postgresql/data']);
  assert.match(x.tmpfs['/var/lib/postgresql/data'],/(^|,)size=512m(,|$)/);
 }
-function query(sql) {return docker([...psqlArgs('meta_a_guard').slice(0,2),...psqlArgs('meta_a_guard').slice(2),'-c',sql]);}
+function query(sql) {return docker([...psqlArgs('meta_a_guard').slice(2),'-c',sql]);}
 function startSession(app,sql) {
  const cp=spawn('docker',psqlArgs(app),{windowsHide:true,env:dockerEnv,stdio:['pipe','pipe','pipe']});
  let output='',error='',closed=false,exitCode;
@@ -112,10 +112,12 @@ SELECT 'LOSER_REJECTED';`);
    if(b.closed)break;
  }
  assert.ok(lockSeen,'No simultaneous row-lock wait observed; cannot claim concurrency PASS');
- const [aResult,bResult]=await Promise.all([a.done,b.done]);
- if(!aResult.ok)throw aResult.failure;
- if(!bResult.ok)throw bResult.failure;
- assert.match(aResult.value,/WINNER_COMMITTED/);assert.match(bResult.value,/LOSER_REJECTED/);
+ const failFast=(session,label)=>session.done.then(result=>{
+   if(!result.ok)throw result.failure;
+   return result.value;
+ });
+ const [aOut,bOut]=await Promise.all([failFast(a,'A'),failFast(b,'B')]);
+ assert.match(aOut,/WINNER_COMMITTED/);assert.match(bOut,/LOSER_REJECTED/);
  assert.equal(query(`SELECT campaign_version||'|'||(SELECT count(*) FROM public.raxi_audit_events WHERE workspace_id='${WS}') FROM public.raxi_workspaces WHERE ${workspacePredicate};`),'1|0');
  console.log('PASS: two PostgreSQL sessions overlapped on a real row lock');
  console.log('PASS: loser returned stale CAS 40001 after winner committed');
