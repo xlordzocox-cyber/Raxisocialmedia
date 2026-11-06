@@ -145,7 +145,8 @@ function checkResponse(operation,result,expected){
     new Set(items.map(x=>x.Id)).size===items.length;
   ensure(valid(d),'bad container inventory');
   const snap=copy(d);
-  ensure(valid(snap),'serialized container identity changed');
+  ensure(valid(snap)&&snap.every((item,i)=>item.Id===d[i].Id),
+   'serialized container identity changed');
   return snap;
  }
  requireObject(d);
@@ -177,7 +178,8 @@ function checkResponse(operation,result,expected){
    (inventory.Warnings===null||dense(inventory.Warnings,0));
   ensure(valid(d),'bad volume inventory');
   const snap=copy(d);
-  ensure(valid(snap),'serialized volume identity changed');
+  ensure(valid(snap)&&snap.Volumes.every((item,i)=>item.Name===d.Volumes[i].Name),
+   'serialized volume identity changed');
   return snap;
  }
  if(operation==='inspectContainer'){
