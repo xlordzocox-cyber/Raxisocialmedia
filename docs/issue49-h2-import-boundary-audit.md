@@ -80,3 +80,23 @@ Pinned tree: `3b66e3f26ea0dd0e8e3ee9c40a34c6294d8dbc92`. User's `git grep -n -F`
 **PR #50: DRAFT / FAKE_ONLY / NOT_INTEGRATED / NO_GO_HOSTED_MIGRATION.**
 
 Next: inspect package scripts, TypeScript/JavaScript imports, dynamic `import()`/`require()`, module-resolution aliases and any generated entrypoints; then build a **read-only, reproducible negative guard** showing that the legacy RAW/M1 parsers have no route from application or candidate runtime code, and an explicit guard that real runtime paths cannot accept public fake-fixture receipts. Review with Codex and perform pinned Windows QA before closing anything. No network, Docker, SQL, merge or deployment is authorized by this result.
+
+## H2C inspection of app build entrypoint (preliminary, 2026-11-06)
+
+Reviewed `apps/raxi-hq/package.json` at SHA `9c8a66148856965a647cd282f20d7ba3db9df1bc`: scripts `dev:vite`, `build:node scripts/build-campaign-function.mjs --check && tsc -b && tsc -p ../../server/agent-runtime/tsconfig.json && vite build`, `typecheck:tsc -b && tsc -p ../../server/agent-runtime/tsconfig.json`, and `test:node scripts/test.mjs`. **None of these package script definitions explicitly names legacy RAW/M1.** This does not prove that scripts, build entrypoints, transitive dependencies, dynamically imported modules, or generated artifacts are free of those references. No script was executed during this audit.
+
+**H2C still requires a pinned whole-tree scan** of dynamic `import()`, `require()`, `createRequire`, Vite `import.meta.glob`, package scripts, `tsconfig` aliases and generated imports plus a human review of relevant hits; do not close historic RAW/M1 P2 based on package.json alone. All checks remain read-only. A future static guard should fail on unapproved import edges from production/application/runtime modules to legacy RAW/M1 and on import of public fake-fixture receipt constructors from any live runtime. An allowlist must explicitly constrain tests/docs to avoid incorrectly allowing all `scripts/**` code.
+
+## Completion roadmap (proposed, not approved implementation)
+
+1. **H2C:** classify dynamic imports, aliases, app/build/test entrypoints and transitive module graph, document negative guard; code SHA and Windows QA. No changes to runtime.
+2. **H2D:** test real reachability of legacy D2/RAW/M1 exports, fix or structurally quarantine still-reachable historical vulnerabilities, close 16 remaining P2 *only* with targeted regression and independent review.
+3. **D2 boundary refactor:** extract immutable, allowlisted request descriptor builder from legacy mock transport; M4 can use a separately audited request contract. Preserve all M0 13 descriptor invariants and SHA/owner/ports/command pin.
+4. **Host provenance gate:** design/implement a genuine trusted transport adapter and receipt origin that cannot be created from public fake fixtures; distinguish request construction, transport success, inspect status and real execution. Requires fresh user approval before any real Docker or database activity.
+5. **Local native verification:** complete prereqs and safety gate for Windows isolated Docker/PG17.11, verify resource isolation/cleanup/RLS/PG parity/canonical catalog, and compare against PR39 known discrepancies. No unapproved local writes or migrations.
+6. **Hosted staging gate:** only when separate approval, validate Supabase Auth/RLS/migrations against pinned manifest, permissions, rollback, policies and no production data copying. Never extrapolate mock PASS into hosted PASS.
+7. **Application integration and UX:** connect actual agents/workflows and state to office without invented movement, implement human approvals, retry/idempotency, errors, audit trail, durable assets and schedule/publisher controls. Distinguish MOCK/LIVE_READ_ONLY/REAL.
+8. **Product launch QA:** repository regression/typecheck/build/security+secrets, independent review and manual desktop/mobile E2E; performance, monitoring, rollback and operator runbooks; merge/deploy only after explicit approvals.
+9. **Creator workflow readiness:** validate one end-to-end campaign (idea → investigation → creative assets → independent QA → approval → publish only with separate consent → analytics and memory) before declaring the office operational. Publishing and paid-provider connections remain opt-in.
+
+Each item is a **proposal/remaining gate**, not a statement that all listed implementation work is absent. Exact implementation coverage of steps 4–9 must be inventoried against main and PRs before scope/estimates are frozen.
