@@ -111,5 +111,23 @@ await denyAsync(()=>fake({status:200,data:[{
 await denyAsync(()=>fake({status:200,data:{Volumes:[
  {Name:'valid',toJSON(){return {Name:'changed'};}}
 ],Warnings:[]}}).call({operation:'listVolumes'}));
+// Codex: getters must never change the operation, endpoint, or validated ID.
+let getterReads=0;
+const getterId={operation:'startContainer'};
+Object.defineProperty(getterId,'id',{enumerable:true,get(){getterReads++;
+ return getterReads===1?id:id+'/exec?ignored=';}});
+deny(()=>buildIssue49D2Request(getterId));
+const getterOperation={};
+let opReads=0;
+Object.defineProperty(getterOperation,'operation',{enumerable:true,get(){
+ return ++opReads===1?'unknown':'imageInspect';}});
+await denyAsync(()=>fake({status:200,data:{}}).call(getterOperation));
+const sameId='a'.repeat(64),otherId='b'.repeat(64);
+await denyAsync(()=>fake({status:200,data:[{
+ Id:sameId,toJSON(){this.Id=otherId;return {Id:otherId};}
+}]}).call({operation:'listContainers'}));
+await denyAsync(()=>fake({status:200,data:{Volumes:[{
+ Name:'before',toJSON(){this.Name='after';return {Name:'after'};}
+}],Warnings:[]}}).call({operation:'listVolumes'}));
 console.log('PASS ISSUE49 D2 MOCK NEGATIVES ('+negatives+' adversarial cases; no Docker/socket/SQL)');
 console.log('ISSUE49 D2: FAKE_ONLY / NO_GO_HOSTED_MIGRATION');
