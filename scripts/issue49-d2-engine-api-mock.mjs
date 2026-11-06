@@ -47,9 +47,9 @@ export const ISSUE49_D2_CONTRACT='D2_FAKE_ONLY_NO_PIPE_OR_DOCKER';
 
 export function buildIssue49D2Request(input){
  requireObject(input);
- ensure(str(input.operation),'missing operation');
  ensure(noAccessors(input),'accessor request forbidden');
  const op=data(input,'operation');
+ ensure(str(op),'missing operation');
  const global=['operation'];
  if(['ping','version','info','listVolumes','listContainers'].includes(op)){
   ensure(shape(input,global),'unexpected fields');
