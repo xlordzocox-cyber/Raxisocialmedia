@@ -28,7 +28,8 @@
     "pr": 53,
     "branch": "audit/meta-a-campaign-approval-negatives",
     "nativePg17NegativeTestsValidatedSha": "c2ddc26a4f88ca4b02fef05bf8dcc618db1b3f01",
-    "fullAppQaValidatedSha": "c1510201e7d802d3c772af973fac9235928fcb96"
+    "fullAppQaValidatedSha": "c1510201e7d802d3c772af973fac9235928fcb96",
+    "sqlSourceCommit": "2ff7823fe706c22d9e86cbeeb07d41dc18f389da"
   },
   "orderedSqlCandidates": [
     "supabase/migrations/20261019030541_raxi_hq_v09_private_core.sql",
@@ -57,7 +58,9 @@
     "stagingSchemaMigration": "NOT_AUTHORIZED",
     "stagingEdgeDeployment": "NOT_AUTHORIZED",
     "stagingCrossTenantE2e": "NOT_TESTED",
-    "independentReviewOfManifest": "PENDING"
+    "independentReviewOfManifest": "REQUEST_PENDING",
+    "migrationDependencyOrderReviewed": "REVIEWED_SOURCE_ONLY",
+    "migrationFileIntegrityPinned": "GIT_BLOB_SHA1"
   },
   "goDecision": "NO_GO_HOSTED_CHANGES",
   "nextSteps": [
@@ -66,5 +69,27 @@
     "Obtain separate explicit approvals for staging SQL, Edge, Auth/users and spending",
     "Revalidate schema, JWT and cross-tenant receipts after any future authorized deployment",
     "Keep production and real providers untouched"
+  ],
+  "orderedSqlSourceBlobs": [
+    {
+      "path": "supabase/migrations/20261019030541_raxi_hq_v09_private_core.sql",
+      "gitBlobSha1": "9b590c1a2d7fe19ab7831cdfa406beb4a3829cd1"
+    },
+    {
+      "path": "supabase/migrations/20261019030659_raxi_hq_v09_fk_indexes.sql",
+      "gitBlobSha1": "c42f27655cac23586b6042ba22ea8c13ca117ca2"
+    },
+    {
+      "path": "supabase/migrations/20261019030808_raxi_hq_v09_workspace_onboarding.sql",
+      "gitBlobSha1": "4e40c8d04396888e6efa55af77fd3c6f3b0fa21b"
+    },
+    {
+      "path": "supabase/migrations/20261019231655_raxi_hq_real_idea_write.sql",
+      "gitBlobSha1": "a77a6777cfac2d94ab3ff7ebc791e53571a58488"
+    },
+    {
+      "path": "supabase/migrations/20261020234358_raxi_hq_campaign_strategy_pending_review.sql",
+      "gitBlobSha1": "7590d35ebd4a62566889e6a5adb970d8c1698a54"
+    }
   ]
 }
