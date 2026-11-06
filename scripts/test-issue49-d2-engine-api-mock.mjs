@@ -164,5 +164,20 @@ Object.defineProperty(indexedVolumes,0,{enumerable:true,configurable:true,
  get(){return {Name:'kept'};}});
 await denyAsync(()=>fake({status:200,data:{Volumes:indexedVolumes,Warnings:[]}})
  .call({operation:'listVolumes'}));
+// Codex: inherited getters must not run during identity validation.
+const inheritedVolumes=[{Name:'first'},{Name:'second'}];
+const inheritedVolume=Object.create(Object.create(null,{
+ Name:{get(){inheritedVolumes.length=1;return 'first';},configurable:true}
+}));
+inheritedVolumes[0]=inheritedVolume;
+await denyAsync(()=>fake({status:200,data:{Volumes:inheritedVolumes,Warnings:[]}})
+ .call({operation:'listVolumes'}));
+const inheritedContainers=[{Id:id},{Id:'c'.repeat(64)}];
+const inheritedContainer=Object.create(Object.create(null,{
+ Id:{get(){inheritedContainers.length=1;return id;},configurable:true}
+}));
+inheritedContainers[0]=inheritedContainer;
+await denyAsync(()=>fake({status:200,data:inheritedContainers})
+ .call({operation:'listContainers'}));
 console.log('PASS ISSUE49 D2 MOCK NEGATIVES ('+negatives+' adversarial cases; no Docker/socket/SQL)');
 console.log('ISSUE49 D2: FAKE_ONLY / NO_GO_HOSTED_MIGRATION');
