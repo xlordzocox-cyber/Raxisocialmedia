@@ -69,5 +69,35 @@ const pending=createIssue49D2MockTransport({
 mutable.operation='not-allowlisted';
 release();
 await denyAsync(()=>pending);
+// Codex P2 regressions: never accept partial or invalid inventories.
+for(const volumes of [
+ [null,42,{}],
+ [{Name:null}],
+ [{Name:''}],
+ [{Name:'known'},{Name:'known'}],
+ new Array(1),
+ [,{Name:'known'}]
+]) await denyAsync(()=>fake({status:200,data:{Volumes:volumes,Warnings:[]}})
+  .call({operation:'listVolumes'}));
+for(const containers of [
+ new Array(1),
+ [,{Id:id}],
+ [null],
+ [{Id:id},{Id:id}],
+ [{Id:'wrong'}]
+]) await denyAsync(()=>fake({status:200,data:containers})
+  .call({operation:'listContainers'}));
+const volumeSparse=[{Name:'good'},{Name:'second'}];
+delete volumeSparse[0];
+await denyAsync(()=>fake({status:200,data:{Volumes:volumeSparse,Warnings:[]}})
+  .call({operation:'listVolumes'}));
+const containerSparse=[{Id:id},{Id:'c'.repeat(64)}];
+delete containerSparse[1];
+await denyAsync(()=>fake({status:200,data:containerSparse})
+  .call({operation:'listContainers'}));
+assert.deepEqual(await fake({status:200,data:{Volumes:[{Name:'valid'}],Warnings:[]}})
+ .call({operation:'listVolumes'}),{Volumes:[{Name:'valid'}],Warnings:[]});
+assert.deepEqual(await fake({status:200,data:[{Id:id}]})
+ .call({operation:'listContainers'}),[{Id:id}]);
 console.log('PASS ISSUE49 D2 MOCK NEGATIVES ('+negatives+' adversarial cases; no Docker/socket/SQL)');
 console.log('ISSUE49 D2: FAKE_ONLY / NO_GO_HOSTED_MIGRATION');
