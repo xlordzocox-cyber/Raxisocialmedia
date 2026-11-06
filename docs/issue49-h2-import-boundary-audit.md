@@ -100,3 +100,25 @@ Reviewed `apps/raxi-hq/package.json` at SHA `9c8a66148856965a647cd282f20d7ba3db9
 9. **Creator workflow readiness:** validate one end-to-end campaign (idea → investigation → creative assets → independent QA → approval → publish only with separate consent → analytics and memory) before declaring the office operational. Publishing and paid-provider connections remain opt-in.
 
 Each item is a **proposal/remaining gate**, not a statement that all listed implementation work is absent. Exact implementation coverage of steps 4–9 must be inventoried against main and PRs before scope/estimates are frozen.
+
+
+## H2C — detailed dynamic-loading classification (Windows pinned report, 2026-11-06)
+
+Pinned tree `4ec2c374391badad304a6bea573438c53c92b1e8`. User supplied the full `git grep -n -E` results for source/config files and configuration inventory; code files above were independently inspected via GitHub. **Scan completed; findings are static, no modules executed.**
+
+- `import(...)`: **11** textual lines. Eight in `apps/raxi-hq/scripts/staging-runtime-acceptance.mjs` (builtin `node:fs/promises`, `node:crypto`, `node:assert/strict`, `node:url`, `@supabase/supabase-js`, `pg`, `esbuild`, and two generated local bundles); one in `apps/raxi-hq/src/auth/AuthRoutes.tsx` dynamically imports `../App` behind React.lazy; one opt-in local script `scripts/run-native-concurrent-pr35.mjs` imports `node:child_process`; one opt-in local script `scripts/run-native-js-adapter-pr35.mjs` dynamically imports its generated local runOne/repository/provider bundle. **None of these 11 import expressions directly names RAW original or M1.** Staging runtime has approval gates, but this audit did not run or verify them.
+- `require(...)`: **11** textual lines. Ten in `scripts/pr39-catalog-diagnostic.mjs` invoke its own local assertion function named `require`, *not* CommonJS imports. One `require('esbuild')` occurs in opt-in `scripts/run-native-js-adapter-pr35.mjs` after `createRequire`. `createRequire` appears **twice** in the same file (import and invocation).
+- `import.meta.glob`, `new Function(...)`, `eval(...)`: **0 matches in scanned extensions** (not a universal runtime ban).
+- RAW original `issue49-d2-raw-response-mock`: **1 direct import**, in `scripts/test-issue49-d2-raw-response-mock.mjs` only.
+- M1 `issue49-d2-raw-m1-parity-mock`: **1 direct import**, in `scripts/test-issue49-d2-raw-m1-parity-mock.mjs` only.
+- `issue49M4FakeReceipt`: **2 matches**, the export in the mock module and an import in `scripts/test-issue49-d2-raw-m4-request-binding-mock.mjs`; no non-test reference in this source-extension scan.
+
+**Five configuration paths**: `apps/raxi-hq/package.json`, `apps/raxi-hq/tsconfig.json`, `apps/raxi-hq/tsconfig.node.json`, `apps/raxi-hq/vite.config.ts`, `server/agent-runtime/tsconfig.json`. Inspected all five. Vite config sets React, manual pixi/react chunks, dev port 5174, **no aliases**; TypeScript configs use bundler module resolution and contain no `paths` aliases, source includes `src`, Vite config, or agent-runtime `*.ts` respectively. Package scripts do not explicitly import RAW/M1. This inspection does **not** prove bundler graph or generated output are closed to other import expressions.
+
+### Reachability verdict
+
+**PASS limited H2C static classification:** for the tested source extensions, RAW original and M1 have no detected static/dynamic module imports outside their dedicated tests; M4 fake receipt likewise has no detected call outside its own module/test. This is a **bounded source finding**, not a guarantee against alternative external callers, future code, generated artifacts or undiscovered resolution mechanisms. Existing D2 `buildIssue49D2Request` is still directly imported into M4.
+
+**Open engineering gate:** add a fail-closed repository check detecting new non-test imports of historical RAW/M1 and imports of M4 fake receipt into operational source; run test on exact SHA and independent review. Do not claim permanent runtime quarantine until that guard exists. Do not resolve the remaining 16 historical P2 merely because present static references are test-only.
+
+**Security/operational separation:** opt-in PR35 native scripts, staging acceptance paths, and Meta A usable UI are separate concerns; no Docker, SQL, hosted migration, app startup, provider use or deployment was executed in H2C. `NO_GO_HOSTED_MIGRATION` remains effective.
