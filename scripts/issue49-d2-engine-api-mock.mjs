@@ -144,9 +144,9 @@ function checkResponse(operation,result,expected){
   return parseIssue49D2Multiplexed(d);
  }
  if(operation==='listContainers'){
-  const valid=items=>dense(items,10000)&&items.every(x=>x!==null&&
-    typeof x==='object'&&!Array.isArray(x)&&idCheck(x.Id))&&
-    new Set(items.map(x=>x.Id)).size===items.length;
+  const valid=items=>dense(items,10000)&&Array.prototype.every.call(items,x=>x!==null&&
+    typeof x==='object'&&!Array.isArray(x)&&idCheck(data(x,'Id')))&&
+    new Set(Array.prototype.map.call(items,x=>data(x,'Id'))).size===items.length;
   ensure(dense(d,10000)&&noAccessors(d)&&
    d.every(item=>item&&typeof item==='object'&&
    !Array.isArray(item)&&noAccessors(item))&&valid(d),'bad container inventory');
@@ -179,10 +179,10 @@ function checkResponse(operation,result,expected){
  }
  if(operation==='listVolumes'){
   const valid=inventory=>inventory!==null&&typeof inventory==='object'&&
-   dense(inventory.Volumes,10000)&&inventory.Volumes.every(v=>v!==null&&
-    typeof v==='object'&&!Array.isArray(v)&&str(v.Name)&&
-    v.Name.length>0&&v.Name.trim()===v.Name)&&
-   new Set(inventory.Volumes.map(v=>v.Name)).size===inventory.Volumes.length&&
+   dense(inventory.Volumes,10000)&&Array.prototype.every.call(inventory.Volumes,v=>v!==null&&
+    typeof v==='object'&&!Array.isArray(v)&&str(data(v,'Name'))&&
+    data(v,'Name').length>0&&data(v,'Name').trim()===data(v,'Name'))&&
+   new Set(Array.prototype.map.call(inventory.Volumes,v=>data(v,'Name'))).size===inventory.Volumes.length&&
    (inventory.Warnings===null||dense(inventory.Warnings,0));
   ensure(own(d,'Volumes')&&own(d,'Warnings')&&noAccessors(d)&&
    dense(d.Volumes,10000)&&noAccessors(d.Volumes)&&
