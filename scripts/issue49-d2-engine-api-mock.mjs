@@ -22,12 +22,19 @@ const fixed=(sessionId,role)=>{
 };
 const ensure=(ok,reason)=>{if(!ok)stop(reason);};
 const copy=(x)=>JSON.parse(JSON.stringify(x));
+const freezeDeep=(x)=>{
+ if(x&&typeof x==='object'){
+  for(const value of Object.values(x))freezeDeep(value);
+  Object.freeze(x);
+ }
+ return x;
+};
 const requireObject=(x)=>ensure(x!==null&&typeof x==='object'&&!Array.isArray(x)&&
  Object.getPrototypeOf(x)===Object.prototype,'invalid JSON object');
 const request=(method,path,body,expect)=>{
  ensure(str(method)&&str(path)&&path.startsWith(PREFIX+'/')&&!path.includes('..')&&
  !path.includes('%')&&!path.includes('#'),'unsafe path');
- return Object.freeze({method,path,body:body===undefined?null:Object.freeze(body),expect});
+ return Object.freeze({method,path,body:body===undefined?null:freezeDeep(body),expect});
 };
 export const ISSUE49_D2_IMAGE_ID=PIN;
 export const ISSUE49_D2_CONTRACT='D2_FAKE_ONLY_NO_PIPE_OR_DOCKER';
