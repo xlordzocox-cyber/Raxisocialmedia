@@ -14,6 +14,9 @@ const shape=(o,keys)=>o!==null&&typeof o==='object'&&!Array.isArray(o)&&
 const str=(v)=>typeof v==='string';
 const roleSlug=(r)=>r.toLowerCase().replaceAll('_','-');
 const idCheck=(s)=>str(s)&&ID.test(s);
+const dense=(items,max)=>Array.isArray(items)&&items.length<=max&&
+ Reflect.ownKeys(items).length===items.length+1&&
+ Array.from({length:items.length},(_,i)=>i).every(i=>own(items,i));
 const fixed=(sessionId,role)=>{
  if(!str(sessionId)||!SESSION.test(sessionId)||!ROLES.includes(role))
   stop('invalid session or role');
@@ -137,9 +140,9 @@ function checkResponse(operation,result,expected){
   return parseIssue49D2Multiplexed(d);
  }
  if(operation==='listContainers'){
-  ensure(Array.isArray(d)&&d.length<=10000&&
-   d.every(x=>x!==null&&typeof x==='object'&&idCheck(x.Id)),
-   'bad container inventory');
+  ensure(dense(d,10000)&&d.every(x=>x!==null&&typeof x==='object'&&
+    !Array.isArray(x)&&idCheck(x.Id))&&
+   new Set(d.map(x=>x.Id)).size===d.length,'bad container inventory');
   return copy(d);
  }
  requireObject(d);
@@ -163,8 +166,11 @@ function checkResponse(operation,result,expected){
   ensure(d.Running===false&&d.ExitCode===0,'exec incomplete or failed');
  }
  if(operation==='listVolumes'){
-  ensure(Array.isArray(d.Volumes)&&d.Volumes.length<=10000&&
-   (d.Warnings===null||(Array.isArray(d.Warnings)&&d.Warnings.length===0)),
+  ensure(dense(d.Volumes,10000)&&d.Volumes.every(v=>v!==null&&
+    typeof v==='object'&&!Array.isArray(v)&&str(v.Name)&&
+    v.Name.length>0&&v.Name.trim()===v.Name)&&
+   new Set(d.Volumes.map(v=>v.Name)).size===d.Volumes.length&&
+   (d.Warnings===null||dense(d.Warnings,0)),
    'bad volume inventory');
  }
  if(operation==='inspectContainer'){
