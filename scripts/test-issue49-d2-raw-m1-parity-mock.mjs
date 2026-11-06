@@ -54,6 +54,21 @@ deny(()=>check(text(500,'OK'),'ping',200));
 let traps=0;
 const proxy=new Proxy({status:200,body:'OK'},{get(){traps++;return 'OK';}});
 deny(()=>check(proxy,'ping',200));assert.equal(traps,0);
+// Codex P2: status must be bound to allowlisted operation, not caller's desired code.
+deny(()=>check(text(500,'OK'),'ping',500));
+deny(()=>check(binary(500,''),'deleteContainer',500));
+deny(()=>check(binary(200,''),'startContainer',200));
+deny(()=>check(json(200,'{"Id":"'+id+'"}'),'createContainer',200));
+// Codex P2: an exact single PG_VERSION declaration, never contradictory versions.
+for(const env of [
+ ['PG_VERSION=18.0','PG_VERSION=17.11'],
+ ['PG_VERSION=17.11','PG_VERSION=18.0'],
+ ['PG_VERSION=17.11','PG_VERSION=17.11']
+]){
+ deny(()=>run('imageInspect',200,JSON.stringify({
+  Id:PIN,Os:'linux',Architecture:'amd64',Config:{Env:env}
+ })));
+}
 console.log('PASS ISSUE49 D2 M1: response parity candidate, plain-text ping and JSON schema');
 console.log('PASS ISSUE49 D2 M1 NEGATIVES ('+negatives+' simulated cases; no Docker/socket/SQL)');
 console.log('ISSUE49 D2 M1: FAKE_ONLY / NOT_INTEGRATED / NO_GO_HOSTED_MIGRATION');
