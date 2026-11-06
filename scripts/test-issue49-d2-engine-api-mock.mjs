@@ -99,5 +99,17 @@ assert.deepEqual(await fake({status:200,data:{Volumes:[{Name:'valid'}],Warnings:
  .call({operation:'listVolumes'}),{Volumes:[{Name:'valid'}],Warnings:[]});
 assert.deepEqual(await fake({status:200,data:[{Id:id}]})
  .call({operation:'listContainers'}),[{Id:id}]);
+// Adversarial serialization: toJSON must not replace or mutate validated identities.
+await denyAsync(()=>fake({status:200,data:[{Id:id,toJSON(){return null;}}]})
+ .call({operation:'listContainers'}));
+await denyAsync(()=>fake({status:200,data:{Volumes:[
+ {Name:'valid',toJSON(){return {Name:null};}}
+],Warnings:[]}}).call({operation:'listVolumes'}));
+await denyAsync(()=>fake({status:200,data:[{
+ Id:id,toJSON(){return {Id:'c'.repeat(64)};}
+}]}).call({operation:'listContainers'}));
+await denyAsync(()=>fake({status:200,data:{Volumes:[
+ {Name:'valid',toJSON(){return {Name:'changed'};}}
+],Warnings:[]}}).call({operation:'listVolumes'}));
 console.log('PASS ISSUE49 D2 MOCK NEGATIVES ('+negatives+' adversarial cases; no Docker/socket/SQL)');
 console.log('ISSUE49 D2: FAKE_ONLY / NO_GO_HOSTED_MIGRATION');
