@@ -28,6 +28,16 @@ const fixed=(sessionId,role)=>{
 };
 const ensure=(ok,reason)=>{if(!ok)stop(reason);};
 const copy=(x)=>JSON.parse(JSON.stringify(x));
+// Capture identifiers into a local native array without invoking the untrusted
+// input array constructor or Symbol.species (Array.prototype.map would do so).
+const captureIds=(items,key)=>{
+ const n=items.length,result=[];
+ for(let i=0;i<n;i++){
+  ensure(own(items,i),'sparse inventory identity');
+  result[i]=data(items[i],key);
+ }
+ return result;
+};
 const freezeDeep=(x)=>{
  if(x&&typeof x==='object'){
   for(const value of Object.values(x))freezeDeep(value);
@@ -146,11 +156,11 @@ function checkResponse(operation,result,expected){
  if(operation==='listContainers'){
   const valid=items=>dense(items,10000)&&Array.prototype.every.call(items,x=>x!==null&&
     typeof x==='object'&&!Array.isArray(x)&&idCheck(data(x,'Id')))&&
-    new Set(Array.prototype.map.call(items,x=>data(x,'Id'))).size===items.length;
+    new Set(captureIds(items,'Id')).size===items.length;
   ensure(dense(d,10000)&&noAccessors(d)&&
    Array.prototype.every.call(d,item=>item&&typeof item==='object'&&
    !Array.isArray(item)&&noAccessors(item))&&valid(d),'bad container inventory');
-  const before=Array.prototype.map.call(d,item=>data(item,'Id'));
+  const before=captureIds(d,'Id');
   const snap=copy(d);
   ensure(valid(snap)&&snap.length===before.length&&
    snap.every((item,i)=>item.Id===before[i]),
@@ -182,14 +192,14 @@ function checkResponse(operation,result,expected){
    dense(inventory.Volumes,10000)&&Array.prototype.every.call(inventory.Volumes,v=>v!==null&&
     typeof v==='object'&&!Array.isArray(v)&&str(data(v,'Name'))&&
     data(v,'Name').length>0&&data(v,'Name').trim()===data(v,'Name'))&&
-   new Set(Array.prototype.map.call(inventory.Volumes,v=>data(v,'Name'))).size===inventory.Volumes.length&&
+   new Set(captureIds(inventory.Volumes,'Name')).size===inventory.Volumes.length&&
    (inventory.Warnings===null||dense(inventory.Warnings,0));
   ensure(own(d,'Volumes')&&own(d,'Warnings')&&noAccessors(d)&&
    dense(d.Volumes,10000)&&noAccessors(d.Volumes)&&
    Array.prototype.every.call(d.Volumes,item=>item&&
    typeof item==='object'&&!Array.isArray(item)&&noAccessors(item))&&valid(d),
    'bad volume inventory');
-  const before=Array.prototype.map.call(d.Volumes,item=>data(item,'Name'));
+  const before=captureIds(d.Volumes,'Name');
   const snap=copy(d);
   ensure(valid(snap)&&snap.Volumes.length===before.length&&
    snap.Volumes.every((item,i)=>item.Name===before[i]),
