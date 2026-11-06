@@ -194,6 +194,12 @@ function checkResponse(operation,result,expected){
   ensure(d.Id===PIN&&d.Os==='linux'&&d.Architecture==='amd64'&&
    validPgVersionEnv(d.Config?.Env),
    'untrusted image metadata');
+  // Legacy copy may invoke an inherited toJSON. Never return metadata that
+  // differs from the pinned image/version contract after serialization.
+  const snap=copy(d);
+  ensure(snap&&snap.Id===PIN&&snap.Os==='linux'&&snap.Architecture==='amd64'&&
+   validPgVersionEnv(snap.Config?.Env),'serialized image metadata changed');
+  return snap;
  }
  if(operation==='createContainer'||operation==='createExec'){
   ensure(idCheck(d.Id),'missing created identity');
