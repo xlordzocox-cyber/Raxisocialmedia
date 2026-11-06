@@ -147,7 +147,8 @@ function checkResponse(operation,result,expected){
   const valid=items=>dense(items,10000)&&items.every(x=>x!==null&&
     typeof x==='object'&&!Array.isArray(x)&&idCheck(x.Id))&&
     new Set(items.map(x=>x.Id)).size===items.length;
-  ensure(dense(d,10000)&&d.every(item=>item&&typeof item==='object'&&
+  ensure(dense(d,10000)&&noAccessors(d)&&
+   d.every(item=>item&&typeof item==='object'&&
    !Array.isArray(item)&&noAccessors(item))&&valid(d),'bad container inventory');
   const before=d.map(item=>data(item,'Id'));
   const snap=copy(d);
@@ -183,7 +184,8 @@ function checkResponse(operation,result,expected){
     v.Name.length>0&&v.Name.trim()===v.Name)&&
    new Set(inventory.Volumes.map(v=>v.Name)).size===inventory.Volumes.length&&
    (inventory.Warnings===null||dense(inventory.Warnings,0));
-  ensure(d&&dense(d.Volumes,10000)&&d.Volumes.every(item=>item&&
+  ensure(noAccessors(d)&&dense(d.Volumes,10000)&&noAccessors(d.Volumes)&&
+   d.Volumes.every(item=>item&&
    typeof item==='object'&&!Array.isArray(item)&&noAccessors(item))&&valid(d),
    'bad volume inventory');
   const before=d.Volumes.map(item=>data(item,'Name'));
