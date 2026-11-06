@@ -36,11 +36,23 @@ const sparse=new Array(1);await deny(sparse);
 const accessor=['PG_VERSION=17.11'];
 Object.defineProperty(accessor,'0',{get(){throw Error('should not read');}});
 await deny(accessor);
+// Inherited toJSON must not turn a previously validated PG17 image into
+// contradictory PG18+PG17 metadata after JSON serialization.
+const serializing=['PG_VERSION=17.11'];
+let serializationCalls=0;
+const serializationProto=Object.create(Array.prototype);
+Object.defineProperty(serializationProto,'toJSON',{value(){
+ serializationCalls++;
+ return ['PG_VERSION=18.0','PG_VERSION=17.11'];
+}});
+Object.setPrototypeOf(serializing,serializationProto);
+await deny(serializing);
+assert.equal(serializationCalls,1,'regression must exercise JSON copy boundary');
 const good=['PG_VERSION=17.11','POSTGRES_USER=postgres'];
 const beforePositive=exchanges;
 const result=await make(good).call({operation:'imageInspect',imageId:PIN});
 assert.equal(exchanges,beforePositive+1,'positive must reach image response');
 assert.equal(result.Id,PIN);
 assert.deepEqual(result.Config.Env,good);
-console.log('PASS ISSUE49 D2 IMAGE ENV: '+negatives+'/5 adversarial negatives + valid PG17.11 (FAKE_ONLY)');
+console.log('PASS ISSUE49 D2 IMAGE ENV: '+negatives+'/6 adversarial negatives + valid PG17.11 (FAKE_ONLY)');
 console.log('ISSUE49 D2 IMAGE ENV: NO_DOCKER / NO_SQL / NO_GO_HOSTED_MIGRATION');
