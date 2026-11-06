@@ -1,5 +1,5 @@
 // Domain bundle is generated from the same frontend contracts, without Node imports.
-import { applyCampaignOperation, parseCampaignSnapshot, validateCampaignOperation } from '../_shared/campaign-domain.js';
+import { applyCampaignOperation, parseCampaignSnapshot, sameValue, validateCampaignOperation } from '../_shared/campaign-domain.js';
 
 export interface CampaignDependencies {
   verifyUser(token: string): Promise<{ id: string; isAnonymous: boolean } | null>;
@@ -31,6 +31,13 @@ export function createCampaignHandler(dependencies: CampaignDependencies) {
       catch { return reply(409, { error: 'Conflicto de versión, idempotencia o transición. Recupera el estado antes de decidir.' }); }
       if (next === current) return reply(200, current);
       const saved = parseCampaignSnapshot(await dependencies.commit(user.id, command, next), user.id, command.workspaceId);
+      // The privileged RPC must prove this exact write. A well-shaped snapshot or HTTP 200 is not a receipt.
+      const receipts = saved.receipts.filter(receipt => receipt.operationId === command.operationId);
+      if (saved.version < command.expectedVersion + 1 ||
+          receipts.length !== 1 ||
+          !sameValue(receipts[0].command, command)) {
+        throw new Error('Commit receipt missing, mismatched or stale');
+      }
       return reply(200, saved);
     } catch {
       return reply(503, { error: 'El servicio no confirmó la operación. Conserva el comando y reintenta.' });
