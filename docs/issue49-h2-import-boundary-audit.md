@@ -43,3 +43,40 @@ Search literals:
 ## H2A preliminary gate
 
 **PARTIAL / NOT VERIFIED TREE-WIDE / NO_GO_HOSTED_MIGRATION**. Do not close the remaining 16 P2 threads, mark PR50 ready, or merge.
+
+
+## H2B Windows full-tree literal-scan result and classification (verified 2026-11-06)
+
+Pinned tree: `3b66e3f26ea0dd0e8e3ee9c40a34c6294d8dbc92`. User's `git grep -n -F` completed PASS in PowerShell, and full transcript (path:line:content) was inspected. The **95 text-match entries are not distinct references or vulnerabilities**; terms intentionally overlap across searches.
+
+| File class | Text-match entries | Source of classification |
+| --- | ---: | --- |
+| Documentation (`docs/**`) | 46 | Narrative, references and historical audit evidence |
+| Test scripts (`scripts/test-*`) | 33 | Test imports, calls, assertions |
+| Other `scripts/**` modules | 16 | Exports, imports and internal references; **not 16 executable dependencies** |
+| **Total** | **95** | All 13 terms, complete supplied transcript |
+
+### Source-module edges confirmed by exact matches
+
+- `M4 -> legacy D2`: `scripts/issue49-d2-raw-m4-request-binding-mock.mjs:3` imports `buildIssue49D2Request`, and uses it at lines 34 and 75. Legacy D2 itself defines this export at line 73 and calls it internally at line 243.
+- `M4 -> M2`: M4 line 4 imports `issue49RawM2Check`; `M3 -> M2`: M3 line 3 imports the same checker.
+- `M4 -> M3`: M4 line 8 imports the M3 session functions (continued across multiple lines).
+- Historical RAW parser exported at `scripts/issue49-d2-raw-response-mock.mjs:43`; its only matching import in this scan is in `scripts/test-issue49-d2-raw-response-mock.mjs:3`.
+- Historical M1 checker exported at `scripts/issue49-d2-raw-m1-parity-mock.mjs:112`; its only matching import in this scan is in `scripts/test-issue49-d2-raw-m1-parity-mock.mjs:4`.
+- M2 checker export at M2 line 151; M4 fake-receipt export at M4 line 45; original D2 fake transport export at D2 line 237. The original fake transport appears as test uses; no matching non-test import was found.
+- Among these **literal matches**, there is **no non-test static import of original RAW or M1**. This is a bounded negative statement about the provided `git grep` output, not proof that they are unreachable via computed/dynamic imports, alternate aliases, build scripts, or other repository paths.
+
+### Architecture and security implication
+
+`RAW original` and `M1` appear *candidate historical/test-only modules* in this literal reference graph. **This is a recommendation for isolation, not a verified safe removal or justification for resolving their six historic P2 threads.** Source modules can still be invoked directly by any caller that imports them; this audit has not implemented nor proven a runtime import restriction.
+
+`M4` is not independent of the D2 request constructor; do not replace or delete D2 without separating its descriptor builder from the legacy fake transport in an explicitly reviewed and tested change. `M2/M3/M4` still operate on mock fixtures, not an authenticated host boundary. `executionConfirmed:false` remains mandatory.
+
+### H2B gate and recommended next validation
+
+**H2B literal reference classification: PASS (95/95 entries categorized).**
+**Reachability and dynamic import/build-reference audit: PENDING.**
+**Historic P2 status: 16 OPEN, 0 additional closures from H2B.**
+**PR #50: DRAFT / FAKE_ONLY / NOT_INTEGRATED / NO_GO_HOSTED_MIGRATION.**
+
+Next: inspect package scripts, TypeScript/JavaScript imports, dynamic `import()`/`require()`, module-resolution aliases and any generated entrypoints; then build a **read-only, reproducible negative guard** showing that the legacy RAW/M1 parsers have no route from application or candidate runtime code, and an explicit guard that real runtime paths cannot accept public fake-fixture receipts. Review with Codex and perform pinned Windows QA before closing anything. No network, Docker, SQL, merge or deployment is authorized by this result.
