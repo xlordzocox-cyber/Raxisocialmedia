@@ -38,8 +38,11 @@ deny(()=>start({},goodStream()));
 deny(()=>inspect({},ended(A)));
 deny(()=>start(null,goodStream()));
 const before=session();deny(()=>inspect(before,ended(A)));
+deny(()=>start(before,goodStream())); // premature inspect poisons session forever
 const repeated=session();start(repeated,goodStream());deny(()=>start(repeated,goodStream()));
+deny(()=>inspect(repeated,ended(A))); // repeated start poisons pending inspection
 const replay=session();start(replay,goodStream());inspect(replay,ended(A));deny(()=>inspect(replay,ended(A)));
+deny(()=>start(replay,goodStream())); // replay cannot revive completed session
 const mismatch=session();start(mismatch,goodStream());deny(()=>inspect(mismatch,ended(B)));
 deny(()=>inspect(mismatch,ended(A)));
 const missing=session();start(missing,goodStream());
@@ -50,6 +53,8 @@ const running=session();start(running,goodStream());deny(()=>inspect(running,end
 const exitNonzero=session();start(exitNonzero,goodStream());deny(()=>inspect(exitNonzero,ended(A,false,1)));
 const exitNull=session();start(exitNull,goodStream());
 deny(()=>inspect(exitNull,json(200,JSON.stringify({ID:A,Running:false,ExitCode:null}))));
+const unstarted=session();deny(()=>inspect(unstarted,ended(B)));
+deny(()=>inspect(unstarted,ended(A))); // premature inspection cannot retry
 const malformed=session();deny(()=>start(malformed,stream([1,0,0])));
 deny(()=>start(malformed,goodStream()));
 const failStatus=session();deny(()=>start(failStatus,binary(500,enc(frame(1,[1])))));
