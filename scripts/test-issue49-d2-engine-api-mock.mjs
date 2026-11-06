@@ -11,6 +11,8 @@ const spec=buildIssue49D2Request({operation:'createContainer',sessionId:sid,role
 assert.equal(spec.expect,201);
 assert.equal(spec.body.Image,imageId);
 assert.equal(spec.body.HostConfig.NetworkMode,'none');
+assert.equal(Object.isFrozen(spec.body.HostConfig),true);
+assert.equal(Object.isFrozen(spec.body.HostConfig.Binds),true);
 assert.equal(spec.body.HostConfig.Privileged,false);
 assert.deepEqual(spec.body.HostConfig.Binds,[]);
 assert.equal(buildIssue49D2Request({operation:'listContainers'}).method,'GET');
