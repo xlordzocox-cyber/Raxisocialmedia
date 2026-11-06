@@ -151,7 +151,8 @@ function checkResponse(operation,result,expected){
    !Array.isArray(item)&&noAccessors(item))&&valid(d),'bad container inventory');
   const before=d.map(item=>data(item,'Id'));
   const snap=copy(d);
-  ensure(valid(snap)&&snap.every((item,i)=>item.Id===before[i]),
+  ensure(valid(snap)&&snap.length===before.length&&
+   snap.every((item,i)=>item.Id===before[i]),
    'serialized container identity changed');
   return snap;
  }
@@ -187,7 +188,8 @@ function checkResponse(operation,result,expected){
    'bad volume inventory');
   const before=d.Volumes.map(item=>data(item,'Name'));
   const snap=copy(d);
-  ensure(valid(snap)&&snap.Volumes.every((item,i)=>item.Name===before[i]),
+  ensure(valid(snap)&&snap.Volumes.length===before.length&&
+   snap.Volumes.every((item,i)=>item.Name===before[i]),
    'serialized volume identity changed');
   return snap;
  }
