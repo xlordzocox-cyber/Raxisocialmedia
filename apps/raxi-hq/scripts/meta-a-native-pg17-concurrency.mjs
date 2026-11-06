@@ -134,8 +134,24 @@ SELECT 'LOSER_REJECTED';`);
    const result=await Promise.race([session.done,new Promise(resolve=>setTimeout(()=>resolve({ok:false,failure:Error('Session termination timed out')}),5000))]);
    return {closed:session.closed,result};
  }));
- if(states.some(state=>!state.closed)) {
-   console.error('Cleanup BLOCKED: a lab session may still be active; inspect before deleting synthetic rows');
+ // Closing the local Docker CLI does not prove the server-side docker exec or
+ // PostgreSQL backend has stopped. Never delete a fixture while either tagged
+ // backend remains in pg_stat_activity.
+ let backendsGone=false;
+ if(states.every(state=>state.closed)) {
+   try {
+     guardedLab();
+     for(let attempt=0;attempt<20;attempt++){
+       const active=query("SELECT count(*) FROM pg_stat_activity WHERE application_name IN ('meta_a_cas_winner','meta_a_cas_loser') AND pid<>pg_backend_pid();");
+       if(active==='0'){backendsGone=true;break;}
+       await new Promise(resolve=>setTimeout(resolve,150));
+     }
+   } catch(e) {
+     console.error('NO_GO: PostgreSQL backend shutdown not verified:',e.message);
+   }
+ }
+ if(!backendsGone) {
+   console.error('Cleanup BLOCKED: server-side PostgreSQL backends not proven stopped; operator inspection required');
    process.exitCode=1;
  } else if(prepared) {
    try {
