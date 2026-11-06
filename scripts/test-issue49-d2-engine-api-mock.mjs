@@ -135,7 +135,9 @@ await denyAsync(()=>fake({status:200,data:{
  toJSON(){return {Volumes:[{Name:'kept'}],Warnings:[]};}
 }}).call({operation:'listVolumes'}));
 const shortContainers=[{Id:id},{Id:'c'.repeat(64)}];
-shortContainers.toJSON=()=>[{Id:id}];
+Object.setPrototypeOf(shortContainers,Object.assign(Object.create(Array.prototype),{
+ toJSON(){return [{Id:id}];}
+}));
 await denyAsync(()=>fake({status:200,data:shortContainers})
  .call({operation:'listContainers'}));
 console.log('PASS ISSUE49 D2 MOCK NEGATIVES ('+negatives+' adversarial cases; no Docker/socket/SQL)');
