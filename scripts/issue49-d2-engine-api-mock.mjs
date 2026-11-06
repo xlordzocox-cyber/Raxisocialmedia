@@ -129,6 +129,12 @@ function checkResponse(operation,result,expected){
   ensure(d instanceof Uint8Array,'exec output must be binary framed');
   return parseIssue49D2Multiplexed(d);
  }
+ if(operation==='listContainers'){
+  ensure(Array.isArray(d)&&d.length<=10000&&
+   d.every(x=>x!==null&&typeof x==='object'&&idCheck(x.Id)),
+   'bad container inventory');
+  return copy(d);
+ }
  requireObject(d);
  if(operation==='info'){
   ensure(str(d.ID)&&d.ID.length>=4&&d.OSType==='linux','bad Linux daemon identity');
@@ -151,9 +157,6 @@ function checkResponse(operation,result,expected){
  }
  if(operation==='listVolumes'){
   ensure(Array.isArray(d.Volumes)&&d.Volumes.length<=10000,'bad volume inventory');
- }
- if(operation==='listContainers'){
-  ensure(Array.isArray(d.items)&&d.items.length<=10000,'bad container inventory');
  }
  if(operation==='inspectContainer'){
   ensure(idCheck(d.Id),'bad container inspect');
