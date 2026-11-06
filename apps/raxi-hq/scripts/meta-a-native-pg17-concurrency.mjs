@@ -3,6 +3,10 @@
 // Run only after explicit operator inspection; not part of npm test or automatic workflows.
 import {execFileSync, spawn} from 'node:child_process';
 import assert from 'node:assert/strict';
+import {mkdirSync,writeFileSync,readFileSync,unlinkSync,rmdirSync} from 'node:fs';
+import {homedir} from 'node:os';
+import {join} from 'node:path';
+import {randomUUID} from 'node:crypto';
 
 const ID='f8e8d43f6eac5b6ae2216e7272613d70b14fb53cebec6fdbf02c85f799481168';
 const IMAGE='sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe';
@@ -10,6 +14,28 @@ const DB='raxi_campaign_qa';
 const OWNER='11111111-1111-4111-8111-111111111111';
 const WS='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const DOCKER_HOST='npipe:////./pipe/docker_engine';
+// Same fixed path for ALL worktrees and invocations by this Windows account.
+// mkdir is atomic. A crash leaves the directory behind: NEVER steal stale locks.
+const LOCK_DIR=join(homedir(),'.raxi-hq-meta-a-pg17-cas.lock');
+const LOCK_OWNER_FILE=join(LOCK_DIR,'owner.json');
+let lockToken=null;
+let lockReleased=false;
+function acquireExclusiveLock() {
+ mkdirSync(LOCK_DIR); // EEXIST immediately blocks the second invocation (no Docker call)
+ const token=JSON.stringify({runId:randomUUID(),pid:process.pid,containerId:ID,
+   database:DB,createdAt:new Date().toISOString()});
+ lockToken=token; // any exception from owner write leaves lock retained fail-closed
+ writeFileSync(LOCK_OWNER_FILE,token,{encoding:'utf8',flag:'wx'});
+ console.log('LOCK_ACQUIRED: exclusive local PG17 harness; crash requires operator inspection');
+}
+function releaseExclusiveLock() {
+ assert.ok(lockToken,'No run owns the exclusive lock');
+ assert.equal(readFileSync(LOCK_OWNER_FILE,'utf8'),lockToken,'Lock ownership changed');
+ unlinkSync(LOCK_OWNER_FILE);
+ rmdirSync(LOCK_DIR);
+ lockReleased=true;
+ console.log('LOCK_RELEASED: verified successful postflight');
+}
 const DOCKER=['--host',DOCKER_HOST,'exec','-i'];
 // Do not inspect a remote daemon. Force the Docker Desktop local Windows pipe.
 if(process.platform!=='win32' || process.env.DOCKER_HOST || process.env.DOCKER_CONTEXT ||
@@ -61,8 +87,9 @@ select 'workspaces='||count(*) from public.raxi_workspaces;
 select 'rpc='||(to_regprocedure('public.raxi_campaign_commit(uuid,jsonb,jsonb)') is not null);`;
 const expected=`raxi_campaign_qa|postgres|170011|LOCAL\ntables=18\nusers=0\nworkspaces=0\nrpc=true`;
 
-let prepared=false, setupAttempted=false, a=null, b=null, completed=false;
+let prepared=false, setupAttempted=false, a=null, b=null, completed=false, postflightPassed=false;
 try {
+ acquireExclusiveLock();
  guardedLab();
  assert.equal(query(identity+baseline),expected,'Laboratory must be clean before fixture insertion');
  const setup=`BEGIN;
@@ -178,6 +205,7 @@ DELETE FROM auth.users WHERE id='${OWNER}';
 COMMIT;`);
      assert.equal(query(identity+baseline),expected,'Postflight fixture cleanup mismatch');
      console.log('PASS: exact synthetic fixture removed; 0 users/workspaces remain');
+     postflightPassed=true;
    } catch(e) {
      console.error('FAIL: cleanup needs operator review:',e.message);
      process.exitCode=1;
@@ -185,4 +213,9 @@ COMMIT;`);
  }
  if(!completed)console.error('NO_GO: native concurrency case not established');
  if(setupAttempted&&!prepared)console.error('NO_GO: setup failed; fixture ownership unproven, no automatic DELETE');
+ if(lockToken && completed && postflightPassed && process.exitCode!==1){
+   try {releaseExclusiveLock();} catch(e){console.error('NO_GO: lock release failed:',e.message);process.exitCode=1;}
+ } else if(lockToken&&!lockReleased){
+   console.error('LOCK_RETAINED: abnormal or unverified run; manual lab/backend/fixture inspection required before removal');
+ }
 }
