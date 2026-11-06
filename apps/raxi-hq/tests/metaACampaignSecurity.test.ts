@@ -66,13 +66,12 @@ test('Meta A Edge rejects stale version and missing human confirmation (FAKE_ONL
  const unconfirmed=fixture();const raw={...command(),action:{...command().action,confirmed:false}};
  assert.equal((await unconfirmed.handler(request(raw))).status,409);assert.equal(unconfirmed.calls.commit,0);
 });
-test('Meta A Edge does not confirm a failed commit or an unverified canonical receipt (FAKE_ONLY)',async()=>{
- const failed=fixture({failCommit:true});assert.equal((await failed.handler(request(command()))).status,503);assert.equal(failed.calls.commit,1);
- const stale=fixture({returnStale:true});assert.equal((await stale.handler(request(command()))).status,200);
- // The handler currently validates snapshot shape, but leaves exact receipt verification to the caller store.
- // This test documents the current trust-boundary gap; a positive HTTP status is NOT an operation receipt.
- assert.equal(stale.calls.commit,1);
+test('Meta A Edge reports failed commit without claiming success (FAKE_ONLY)',async()=>{
+ const failed=fixture({failCommit:true});
+ assert.equal((await failed.handler(request(command()))).status,503);
+ assert.equal(failed.calls.commit,1);
 });
+test.todo('Meta A Edge must reject a 200 response whose canonical snapshot lacks the exact new operation receipt (known gap; candidate code fix not yet authorized or validated)');
 test('Meta A Edge canonical positive transition and idempotent replay are distinct (FAKE_ONLY)',async()=>{
  const current=emptyCampaignSnapshot(owner,workspace,[idea]);
  const applied=applyCampaignOperation(current,command());
