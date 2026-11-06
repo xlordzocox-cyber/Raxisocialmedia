@@ -78,3 +78,12 @@ En total: **13 operaciones legacy**; RAW v2 implementa solo un subconjunto y `st
 ## 7. Auditoría M0 reproducible (offline)
 
 Se agregó `scripts/test-issue49-d2-migration-readiness.mjs`. Compara **13/13 descriptores de solicitudes legacy** sin enviarlos a ningún endpoint y confirma las brechas del contrato RAW v2, incluidos el formato incompatible de ping y el rechazo intencional de startExec. Clasificación reproducida: **6 PARCIALES, 5 AUSENTES, 1 PING INCOMPATIBLE y 1 BLOQUEADO**, total 13. Ejecutar únicamente con Node sobre los tres módulos copiados a un directorio temporal; no conecta Docker ni SQL. Verificación V8 offline (polyfill ASCII) del script M0 PASS, **Node Windows todavía pendiente**. Se requiere validar con SHA exacto antes de aceptar M0 como probado en Windows. Los 15 hilos P2 históricos siguen abiertos.
+
+
+## M0 QA Windows y corrección del dictamen Codex (2026-11-06)
+
+El operador confirmó el SHA `291243be63f104c5186eb55951eb7d1178abb53e`, ejecutó los tres `node --check` y la auditoría M0 en Windows con salidas `PASS ISSUE49 D2 M0: 13/13 legacy request descriptors audited offline`, `PASS ISSUE49 D2 M0: RAW v2 gaps identified, ping incompatibility reproduced` y `NOT_READY_FOR_MIGRATION / FAKE_ONLY / NO_GO_HOSTED_MIGRATION`. Este PASS corresponde **solo a la versión previa de la prueba**.
+
+Codex revisó ese SHA y encontró un P2: la auditoría solo comprobaba fragmentos de rutas, método y estado, pero no el cuerpo completo; no detectaba cambios inseguros como `NetworkMode: 'host'`, `Privileged: true`, `all=0` o comandos distintos de `READY_TCP`. Se corrigió `scripts/test-issue49-d2-migration-readiness.mjs` para comparar **13 rutas completas, cuerpos íntegros, método y estado esperados**, además del digest fijo de imagen, etiquetas del propietario, bloqueo de puertos, red `none`, privilegios falsos y comando cerrado de `pg_isready`. Corrigió también el índice de clasificación tras ampliar las columnas de escenarios. **V8 offline del nuevo script PASS, pero QA Node Windows actualizado todavía pendiente**; no atribuir el PASS anterior al cambio nuevo. Mantener el hilo P2 abierto hasta revisión de Codex y QA del mismo SHA.
+
+La corrección editorial oficial `FanView → Fanvue` se documenta por separado en el [issue #51](https://github.com/xlordzocox-cyber/Raxisocialmedia/issues/51), sin reemplazo automático de enums o datos. No altera los contratos PostgreSQL de esta auditoría. No SQL/Docker/transport ejecutado.
