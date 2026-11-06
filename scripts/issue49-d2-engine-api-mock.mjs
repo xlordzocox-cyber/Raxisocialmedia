@@ -38,6 +38,21 @@ const captureIds=(items,key)=>{
  }
  return result;
 };
+// Validate the received PG_VERSION inventory without resolving .filter,
+// .constructor or @@species on an untrusted array.
+const validPgVersionEnv=env=>{
+ if(!dense(env,10000))return false;
+ let matches=0;
+ for(let i=0;i<env.length;i++){
+  const value=data(env,i); // own data descriptor; never invoke getters
+  if(!str(value))return false;
+  if(value.startsWith('PG_VERSION=')){
+   matches++;
+   if(!/^PG_VERSION=17\\.11(?:-|$)/.test(value))return false;
+  }
+ }
+ return matches===1;
+};
 const freezeDeep=(x)=>{
  if(x&&typeof x==='object'){
   for(const value of Object.values(x))freezeDeep(value);
@@ -177,8 +192,7 @@ function checkResponse(operation,result,expected){
  }
  if(operation==='imageInspect'){
   ensure(d.Id===PIN&&d.Os==='linux'&&d.Architecture==='amd64'&&
-   Array.isArray(d.Config?.Env)&&d.Config.Env.filter(v=>str(v)&&
-     /^PG_VERSION=17\.11(?:-|$)/.test(v)).length===1,
+   validPgVersionEnv(d.Config?.Env),
    'untrusted image metadata');
  }
  if(operation==='createContainer'||operation==='createExec'){
