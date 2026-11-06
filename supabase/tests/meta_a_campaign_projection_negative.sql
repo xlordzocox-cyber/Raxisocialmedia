@@ -16,6 +16,9 @@ END $guard$;
 INSERT INTO auth.users(id) VALUES ('11111111-1111-4111-8111-111111111111');
 INSERT INTO public.raxi_workspaces(id,owner_user_id,slug,name)
 VALUES ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','11111111-1111-4111-8111-111111111111','meta-a-negative','Meta A negative');
+-- Caller identity is trusted only inside this offline synthetic role; not an Auth/JWT proof.
+-- The privileged commit RPC is GRANTed exclusively to service_role.
+SET LOCAL ROLE service_role;
 DO $cases$
 DECLARE
   actor uuid := '11111111-1111-4111-8111-111111111111';
