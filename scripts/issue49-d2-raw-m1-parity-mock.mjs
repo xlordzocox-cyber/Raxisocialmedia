@@ -112,6 +112,15 @@ const ids=(items,key)=>{
 export function issue49RawM1Check(token,operation,expectedStatus){
  requireTrue(owned.has(token),'untrusted response token');
  requireTrue(typeof operation==='string'&&Number.isInteger(expectedStatus),'invalid operation/status');
+ const expectedByOperation=Object.freeze({
+  ping:200,version:200,info:200,imageInspect:200,listVolumes:200,
+  listContainers:200,inspectContainer:200,createContainer:201,
+  startContainer:204,deleteContainer:204,createExec:201,
+  inspectExec:200,startExec:200
+ });
+ requireTrue(Object.hasOwn(expectedByOperation,operation)&&
+  expectedStatus===expectedByOperation[operation],
+  'operation HTTP status not allowlisted');
  const {status,bytes}=owned.get(token);
  requireTrue(status===expectedStatus,'unexpected response status');
  if(operation==='startContainer'||operation==='deleteContainer'){
@@ -146,7 +155,9 @@ export function issue49RawM1Check(token,operation,expectedStatus){
    parsed.Architecture==='amd64'&&
    isRecord(parsed.Config)&&Array.isArray(parsed.Config.Env)&&
    parsed.Config.Env.filter(x=>typeof x==='string'&&
-    /^PG_VERSION=17\.11(?:-|$)/.test(x)).length===1,
+    x.startsWith('PG_VERSION=')).length===1&&
+   parsed.Config.Env.some(x=>typeof x==='string'&&
+    /^PG_VERSION=17\.11(?:-|$)/.test(x)),
    'untrusted image metadata');return parsed;
  }
  if(operation==='inspectContainer'){
