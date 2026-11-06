@@ -3,9 +3,11 @@
 import {strict as assert} from 'node:assert';
 import {createIssue49D2MockTransport,ISSUE49_D2_IMAGE_ID as PIN}
  from './issue49-d2-engine-api-mock.mjs';
+let exchanges=0;
 const make=(env)=>createIssue49D2MockTransport({
  gate:'ISSUE49_D2_FAKE_ONLY',
  exchange:async descriptor=>{
+  exchanges++;
   assert.equal(descriptor.method,'GET');
   assert.equal(descriptor.path,'/v1.51/images/'+PIN+'/json');
   return {status:200,data:{Id:PIN,Os:'linux',Architecture:'amd64',Config:{Env:env}}};
@@ -13,7 +15,9 @@ const make=(env)=>createIssue49D2MockTransport({
 });
 let negatives=0;
 const deny=async (env)=>{
+ const before=exchanges;
  await assert.rejects(()=>make(env).call({operation:'imageInspect',imageId:PIN}),/ISSUE49 D2 MOCK STOP/);
+ assert.equal(exchanges,before+1,'negative must reach validated image response');
  negatives++;
 };
 const env=['PG_VERSION=18.0'];
@@ -33,7 +37,9 @@ const accessor=['PG_VERSION=17.11'];
 Object.defineProperty(accessor,'0',{get(){throw Error('should not read');}});
 await deny(accessor);
 const good=['PG_VERSION=17.11','POSTGRES_USER=postgres'];
+const beforePositive=exchanges;
 const result=await make(good).call({operation:'imageInspect',imageId:PIN});
+assert.equal(exchanges,beforePositive+1,'positive must reach image response');
 assert.equal(result.Id,PIN);
 assert.deepEqual(result.Config.Env,good);
 console.log('PASS ISSUE49 D2 IMAGE ENV: '+negatives+'/5 adversarial negatives + valid PG17.11 (FAKE_ONLY)');
