@@ -6,31 +6,57 @@ import {issue49RawV2JsonFixture as rawJson,issue49RawV2BinaryFixture as rawBinar
  issue49RawV2Check as rawCheck}
  from './issue49-d2-raw-v2-mock.mjs';
 const id='a'.repeat(64),sessionId='a'.repeat(24),execId='b'.repeat(64);
+// Independent expectations: literal complete paths, HTTP statuses and request bodies.
+const EXPECTED_PIN='sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe';
+assert.equal(PIN,EXPECTED_PIN,'approved image digest must not drift');
+const createBody={
+ Image:EXPECTED_PIN,Labels:{'raxi.issue49.owner':'raxi.issue49.trial.'+sessionId},
+ Env:['POSTGRES_HOST_AUTH_METHOD=trust'],Tty:false,AttachStdin:false,
+ AttachStdout:false,AttachStderr:false,OpenStdin:false,
+ HostConfig:{NetworkMode:'none',Privileged:false,PublishAllPorts:false,
+  PortBindings:{},Binds:[],AutoRemove:false,RestartPolicy:{Name:'no'}}
+};
+const execBody={AttachStdin:false,AttachStdout:true,AttachStderr:true,
+ Tty:false,Privileged:false,
+ Cmd:['pg_isready','-h','127.0.0.1','-p','5432','-U','postgres']};
 const scenarios=[
- ['ping',{operation:'ping'},'GET','/_ping',200,'RAW_PING_FORMAT_INCOMPATIBLE'],
- ['version',{operation:'version'},'GET','/version',200,'RAW_UNSUPPORTED'],
- ['info',{operation:'info'},'GET','/info',200,'RAW_PARTIAL'],
- ['imageInspect',{operation:'imageInspect',imageId:PIN},'GET','/images/',200,'RAW_UNSUPPORTED'],
- ['listVolumes',{operation:'listVolumes'},'GET','/volumes',200,'RAW_PARTIAL'],
- ['listContainers',{operation:'listContainers'},'GET','/containers/json?',200,'RAW_PARTIAL'],
- ['inspectContainer',{operation:'inspectContainer',id},'GET','/containers/',200,'RAW_UNSUPPORTED'],
- ['createContainer',{operation:'createContainer',sessionId,role:'T0_SOURCE',imageId:PIN},'POST','/containers/create?',201,'RAW_UNSUPPORTED'],
- ['startContainer',{operation:'startContainer',id},'POST','/start',204,'RAW_PARTIAL'],
- ['deleteContainer',{operation:'deleteContainer',id},'DELETE','?force=1&v=1',204,'RAW_PARTIAL'],
- ['createExec',{operation:'createExec',id,commandKey:'READY_TCP'},'POST','/exec',201,'RAW_UNSUPPORTED'],
- ['inspectExec',{operation:'inspectExec',id:execId},'GET','/exec/',200,'RAW_PARTIAL'],
- ['startExec',{operation:'startExec',id:execId},'POST','/start',200,'RAW_BLOCKED']
+ ['ping',{operation:'ping'},'GET','/v1.51/_ping',null,200,'RAW_PING_FORMAT_INCOMPATIBLE'],
+ ['version',{operation:'version'},'GET','/v1.51/version',null,200,'RAW_UNSUPPORTED'],
+ ['info',{operation:'info'},'GET','/v1.51/info',null,200,'RAW_PARTIAL'],
+ ['imageInspect',{operation:'imageInspect',imageId:PIN},'GET',
+  '/v1.51/images/'+EXPECTED_PIN+'/json',null,200,'RAW_UNSUPPORTED'],
+ ['listVolumes',{operation:'listVolumes'},'GET','/v1.51/volumes',null,200,'RAW_PARTIAL'],
+ ['listContainers',{operation:'listContainers'},'GET',
+  '/v1.51/containers/json?all=1',null,200,'RAW_PARTIAL'],
+ ['inspectContainer',{operation:'inspectContainer',id},'GET',
+  '/v1.51/containers/'+id+'/json',null,200,'RAW_UNSUPPORTED'],
+ ['createContainer',{operation:'createContainer',sessionId,role:'T0_SOURCE',imageId:PIN},'POST',
+  '/v1.51/containers/create?name=raxi-t0t1-'+sessionId+'-t0-source',
+  createBody,201,'RAW_UNSUPPORTED'],
+ ['startContainer',{operation:'startContainer',id},'POST',
+  '/v1.51/containers/'+id+'/start',{},204,'RAW_PARTIAL'],
+ ['deleteContainer',{operation:'deleteContainer',id},'DELETE',
+  '/v1.51/containers/'+id+'?force=1&v=1',null,204,'RAW_PARTIAL'],
+ ['createExec',{operation:'createExec',id,commandKey:'READY_TCP'},'POST',
+  '/v1.51/containers/'+id+'/exec',execBody,201,'RAW_UNSUPPORTED'],
+ ['inspectExec',{operation:'inspectExec',id:execId},'GET',
+  '/v1.51/exec/'+execId+'/json',null,200,'RAW_PARTIAL'],
+ ['startExec',{operation:'startExec',id:execId},'POST',
+  '/v1.51/exec/'+execId+'/start',{Detach:false,Tty:false},200,'RAW_BLOCKED']
 ];
 const unique=new Set(scenarios.map(x=>x[0]));
 assert.equal(scenarios.length,13);assert.equal(unique.size,13);
 let audited=0;
-for(const [operation,input,method,fragment,status,classification] of scenarios){
+for(const [operation,input,method,path,body,status,classification] of scenarios){
  const r=oldRequest(input); // Constructed only, never sent anywhere.
- assert.equal(r.method,method,operation);assert.equal(r.expect,status,operation);
- assert.ok(r.path.startsWith('/v1.51/')&&r.path.includes(fragment),operation);
+ assert.equal(r.method,method,operation+' method');
+ assert.equal(r.expect,status,operation+' expected status');
+ assert.equal(r.path,path,operation+' FULL path');
+ assert.deepEqual(r.body,body,operation+' COMPLETE body');
  assert.equal(input.operation,operation);
  assert.ok(classification.startsWith('RAW_'));audited++;
 }
+assert.equal(audited,13);
 const json=(status,text)=>rawJson(status,text);
 assert.deepEqual(rawCheck(json(200,'[]'),'listContainers',200),[]);
 assert.deepEqual(rawCheck(json(200,'{"Volumes":[],"Warnings":[]}'),'listVolumes',200),
