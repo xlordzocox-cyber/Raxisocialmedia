@@ -62,9 +62,9 @@ deny(()=>fake(req,replyCreate(B)));
 deny(()=>consume(dup,req,receipt));
 const invalidFixture=init(),badReq=next(invalidFixture);
 deny(()=>fake(badReq,replyExit(B)));
-const malformed=init(),mr=next(malformed),mrec=fake(mr,json(201,'{}'));
-deny(()=>consume(malformed,mr,mrec));
-deny(()=>next(malformed));
+const malformed=init(),mr=next(malformed);
+deny(()=>fake(mr,json(201,'{}'))); // malformed mock receipt rejected at source
+deny(()=>next(malformed)); // duplicate pending request poisons trial
 const mismatch=started(init());
 const ir=next(mismatch);
 deny(()=>consume(mismatch,ir,fake(ir,replyExit(C))));
