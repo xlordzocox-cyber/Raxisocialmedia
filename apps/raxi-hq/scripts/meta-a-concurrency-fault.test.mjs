@@ -8,14 +8,29 @@ const file=new URL('./meta-a-native-pg17-concurrency.mjs',import.meta.url);
 const source=readFileSync(file,'utf8').replace(/^import\s+.*?;\s*$/gm,'');
 if(source.includes('import {')) throw Error('Unexpected module syntax');
 const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
-const run=new AsyncFunction('execFileSync','spawn','assert','process','console','setTimeout',source);
+const run=new AsyncFunction('execFileSync','spawn','assert','process','console','setTimeout',
+ 'mkdirSync','writeFileSync','readFileSync','unlinkSync','rmdirSync','homedir','join','randomUUID',source);
 const id='f8e8d43f6eac5b6ae2216e7272613d70b14fb53cebec6fdbf02c85f799481168';
 const image='sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe';
 const base='raxi_campaign_qa|postgres|170011|LOCAL\ntables=18\nusers=0\nworkspaces=0\nrpc=true';
 
-async function scenario(kind) {
+let fakeSerial=0;
+async function scenario(kind,sharedLock=new Map()) {
  const state={calls:[],spawn:[],fixture:false,cleaned:false,output:[],errors:[],backends:new Set()};
- const proc={platform:'win32',env:kind==='remote'?{DOCKER_HOST:'tcp://remote.example:2375'}:{},exitCode:0};
+ const proc={platform:'win32',pid:31000+(++fakeSerial),
+  env:kind==='remote'?{DOCKER_HOST:'tcp://remote.example:2375'}:{},exitCode:0};
+ const lockCalls=[];
+ const filesystem={
+   mkdirSync:(path)=>{lockCalls.push('acquire');if(sharedLock.has(path))throw Error('EEXIST: exclusive lock exists');sharedLock.set(path,{owner:null});},
+   writeFileSync:(path,value)=>{const dir=path.slice(0,path.lastIndexOf('/'));const entry=sharedLock.get(dir);if(!entry||entry.owner!==null)throw Error('EEXIST owner');entry.owner=value;},
+   readFileSync:(path)=>{const dir=path.slice(0,path.lastIndexOf('/'));return sharedLock.get(dir)?.owner;},
+   unlinkSync:(path)=>{const dir=path.slice(0,path.lastIndexOf('/'));const entry=sharedLock.get(dir);if(!entry)throw Error('Missing owner');entry.owner=null;},
+   rmdirSync:(path)=>{if(sharedLock.get(path)?.owner!==null)throw Error('Owner not removed');sharedLock.delete(path);lockCalls.push('release');},
+   homedir:()=>'/fake-user',join:(...parts)=>parts.join('/'),
+   randomUUID:()=>`fake-run-${proc.pid}`
+ };
+ state.lockCalls=lockCalls;
+ state.sharedLock=sharedLock;
  const log={log:(...x)=>state.output.push(x.join(' ')),error:(...x)=>state.errors.push(x.join(' '))};
  function execFileSync(command,args,opts) {
   state.calls.push(args.join(' '));
@@ -64,7 +79,10 @@ async function scenario(kind) {
   };
   return cp;
  }
- try {await run(execFileSync,spawn,assert,proc,log,setTimeout);}catch(e){state.error=e.message;}
+ try {await run(execFileSync,spawn,assert,proc,log,setTimeout,
+  filesystem.mkdirSync,filesystem.writeFileSync,filesystem.readFileSync,
+  filesystem.unlinkSync,filesystem.rmdirSync,filesystem.homedir,
+  filesystem.join,filesystem.randomUUID);}catch(e){state.error=e.message;}
  state.exitCode=proc.exitCode;
  return state;
 }
@@ -73,6 +91,7 @@ test('remote Docker context blocked before any daemon interaction',async()=>{
  const r=await scenario('remote');
  assert.match(r.error??'',/local Windows Docker pipe/);
  assert.equal(r.calls.length,0);assert.equal(r.spawn.length,0);
+ assert.equal(r.lockCalls.length,0);
 });
 test('A early failure: no false PASS and guarded fixture cleanup',async()=>{
  const r=await scenario('a-fail');
@@ -90,6 +109,7 @@ test('B early failure: terminate A then clean exact synthetic fixture',async()=>
 test('nominal fake overlap: no real Docker, successful cleanup',async()=>{
  const r=await scenario('success');
  assert.equal(r.exitCode,0);assert.equal(r.cleaned,true);assert.equal(r.fixture,false);
+ assert.deepEqual(r.lockCalls,['acquire','release']);assert.equal(r.sharedLock.size,0);
  assert.ok(r.output.some(s=>s.includes('two PostgreSQL sessions overlapped')));
 });
 
@@ -123,4 +143,28 @@ test('unexpected session closure blocks cleanup despite transient zero backend v
  const r=await scenario('b-fail');
  assert.equal(r.exitCode,1);assert.equal(r.cleaned,false);assert.equal(r.fixture,true);
  assert.ok(!r.output.some(s=>s.includes('PASS: exact synthetic fixture removed')));
+});
+
+test('two overlapping instances: second is rejected by atomic exclusive lock before Docker',async()=>{
+ const shared=new Map();
+ const first=scenario('success',shared);
+ await new Promise(resolve=>setTimeout(resolve,40));
+ const second=await scenario('success',shared);
+ assert.match(second.error??'',/EEXIST/);
+ assert.equal(second.calls.length,0);assert.equal(second.spawn.length,0);
+ assert.deepEqual(second.lockCalls,['acquire']);
+ const finished=await first;
+ assert.equal(finished.exitCode,0);assert.equal(finished.cleaned,true);
+ assert.deepEqual(finished.lockCalls,['acquire','release']);
+ assert.equal(shared.size,0);
+});
+test('failed invocation retains lock; later run cannot enter Docker',async()=>{
+ const shared=new Map();
+ const failed=await scenario('a-fail',shared);
+ assert.equal(failed.exitCode,1);assert.equal(failed.cleaned,false);
+ assert.deepEqual(failed.lockCalls,['acquire']);
+ const repeat=await scenario('success',shared);
+ assert.match(repeat.error??'',/EEXIST/);
+ assert.equal(repeat.calls.length,0);
+ assert.equal(shared.size,1);
 });
