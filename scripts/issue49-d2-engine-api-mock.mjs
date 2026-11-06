@@ -8,9 +8,12 @@ const ROLES=Object.freeze(['T0_SOURCE','T0_RESTORED','T1_SOURCE','T1_RESTORED'])
 const PIN='sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe';
 const LIMIT=8*1024*1024, PREFIX='/v1.51';
 const own=(o,k)=>Object.hasOwn(o,k);
+const data=(o,k)=>{const d=Object.getOwnPropertyDescriptor(o,k);return d&&own(d,'value')?d.value:undefined;};
+const noAccessors=(o)=>Reflect.ownKeys(o).every(k=>own(Object.getOwnPropertyDescriptor(o,k),'value'));
+
 const shape=(o,keys)=>o!==null&&typeof o==='object'&&!Array.isArray(o)&&
  Object.getPrototypeOf(o)===Object.prototype&&
- Reflect.ownKeys(o).length===keys.length&&keys.every(k=>own(o,k));
+ Reflect.ownKeys(o).length===keys.length&&noAccessors(o)&&keys.every(k=>own(o,k));
 const str=(v)=>typeof v==='string';
 const roleSlug=(r)=>r.toLowerCase().replaceAll('_','-');
 const idCheck=(s)=>str(s)&&ID.test(s);
@@ -45,7 +48,8 @@ export const ISSUE49_D2_CONTRACT='D2_FAKE_ONLY_NO_PIPE_OR_DOCKER';
 export function buildIssue49D2Request(input){
  requireObject(input);
  ensure(str(input.operation),'missing operation');
- const op=input.operation;
+ ensure(noAccessors(input),'accessor request forbidden');
+ const op=data(input,'operation');
  const global=['operation'];
  if(['ping','version','info','listVolumes','listContainers'].includes(op)){
   ensure(shape(input,global),'unexpected fields');
@@ -143,9 +147,10 @@ function checkResponse(operation,result,expected){
   const valid=items=>dense(items,10000)&&items.every(x=>x!==null&&
     typeof x==='object'&&!Array.isArray(x)&&idCheck(x.Id))&&
     new Set(items.map(x=>x.Id)).size===items.length;
-  ensure(valid(d),'bad container inventory');
+  ensure(valid(d)&&d.every(item=>noAccessors(item)),'bad container inventory');
+  const before=d.map(item=>data(item,'Id'));
   const snap=copy(d);
-  ensure(valid(snap)&&snap.every((item,i)=>item.Id===d[i].Id),
+  ensure(valid(snap)&&snap.every((item,i)=>item.Id===before[i]),
    'serialized container identity changed');
   return snap;
  }
@@ -176,9 +181,11 @@ function checkResponse(operation,result,expected){
     v.Name.length>0&&v.Name.trim()===v.Name)&&
    new Set(inventory.Volumes.map(v=>v.Name)).size===inventory.Volumes.length&&
    (inventory.Warnings===null||dense(inventory.Warnings,0));
-  ensure(valid(d),'bad volume inventory');
+  ensure(valid(d)&&d.Volumes.every(item=>noAccessors(item)),
+   'bad volume inventory');
+  const before=d.Volumes.map(item=>data(item,'Name'));
   const snap=copy(d);
-  ensure(valid(snap)&&snap.Volumes.every((item,i)=>item.Name===d.Volumes[i].Name),
+  ensure(valid(snap)&&snap.Volumes.every((item,i)=>item.Name===before[i]),
    'serialized volume identity changed');
   return snap;
  }
@@ -196,8 +203,8 @@ export function createIssue49D2MockTransport({exchange,gate}){
  return Object.freeze({
   contract:ISSUE49_D2_CONTRACT,
   async call(input){
-   const selected=input?.operation;
    const descriptor=buildIssue49D2Request(input);
+   const selected=data(input,'operation');
    const answer=await exchange(descriptor);
    return checkResponse(selected,answer,descriptor.expect);
   }
