@@ -140,10 +140,13 @@ function checkResponse(operation,result,expected){
   return parseIssue49D2Multiplexed(d);
  }
  if(operation==='listContainers'){
-  ensure(dense(d,10000)&&d.every(x=>x!==null&&typeof x==='object'&&
-    !Array.isArray(x)&&idCheck(x.Id))&&
-   new Set(d.map(x=>x.Id)).size===d.length,'bad container inventory');
-  return copy(d);
+  const valid=items=>dense(items,10000)&&items.every(x=>x!==null&&
+    typeof x==='object'&&!Array.isArray(x)&&idCheck(x.Id))&&
+    new Set(items.map(x=>x.Id)).size===items.length;
+  ensure(valid(d),'bad container inventory');
+  const snap=copy(d);
+  ensure(valid(snap),'serialized container identity changed');
+  return snap;
  }
  requireObject(d);
  if(operation==='info'){
@@ -166,12 +169,16 @@ function checkResponse(operation,result,expected){
   ensure(d.Running===false&&d.ExitCode===0,'exec incomplete or failed');
  }
  if(operation==='listVolumes'){
-  ensure(dense(d.Volumes,10000)&&d.Volumes.every(v=>v!==null&&
+  const valid=inventory=>inventory!==null&&typeof inventory==='object'&&
+   dense(inventory.Volumes,10000)&&inventory.Volumes.every(v=>v!==null&&
     typeof v==='object'&&!Array.isArray(v)&&str(v.Name)&&
     v.Name.length>0&&v.Name.trim()===v.Name)&&
-   new Set(d.Volumes.map(v=>v.Name)).size===d.Volumes.length&&
-   (d.Warnings===null||dense(d.Warnings,0)),
-   'bad volume inventory');
+   new Set(inventory.Volumes.map(v=>v.Name)).size===inventory.Volumes.length&&
+   (inventory.Warnings===null||dense(inventory.Warnings,0));
+  ensure(valid(d),'bad volume inventory');
+  const snap=copy(d);
+  ensure(valid(snap),'serialized volume identity changed');
+  return snap;
  }
  if(operation==='inspectContainer'){
   ensure(idCheck(d.Id),'bad container inspect');
