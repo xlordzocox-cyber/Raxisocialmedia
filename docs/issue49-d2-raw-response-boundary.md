@@ -26,3 +26,23 @@ The original fake `exchange` returns arbitrary executable JavaScript object grap
 4. No D3/D4/D5 and no real Docker/SQL until explicit authorization and completed gates.
 
 Proposed outcome does **not** claim D2 closure or pass a real Docker/SQL trial. PR #50 remains DRAFT, `NO_GO_HOSTED_MIGRATION`.
+
+## Resultado de la revisión Codex del prototipo inicial (2026-11-06)
+
+**Review del código SHA `4c20d464d54c1943672165665bf0e9d2b674b257`: COMPLETED, cuatro nuevos P2. No aprobado para sustituir D2 existente.** El operador confirmó Node Windows 19/19 negativas PASS sobre ese mismo SHA; esa cobertura no incluye los cuatro ataques observados.
+
+1. **Iterador redefinido:** `Uint8Array.from(raw)` consulta `Symbol.iterator` de la instancia y puede copiar bytes distintos del almacenamiento real; objetos que falsifican `Uint8Array.prototype` pueden superar comprobaciones superficiales.
+2. **Proxy en el envelope:** `Object.getPrototypeOf`, `Reflect.ownKeys` y `Object.getOwnPropertyDescriptor` ejecutan traps de Proxy; el cliente no puede declarar inerte un envelope arbitrario por examinarle descriptores.
+3. **Memoria compartida:** aceptar `SharedArrayBuffer` permite una carrera durante la captura; no es suficiente evitar `await` o copiar después.
+4. **JSON con propiedades duplicadas:** `JSON.parse` aplica la última clave, perdiendo advertencias/inventarios sobreescritos. Debe rechazarse durante el análisis del texto, antes de construir objetos.
+
+### Rediseño recomendado de frontera (pendiente de implementación)
+
+- Evitar que el validador acepte *envelopes de JavaScript aportados por código no confiable*. La capa confiable de transporte deberá construir internamente el estado de respuesta (código HTTP + bytes) a partir de eventos de red, con capacidades no expuestas a proveedores, UI, agentes o fixtures arbitrarios.
+- Para pruebas simuladas, construir fixtures como **literales de texto UTF-8 o arrays de bytes controlados**; no pasar objetos activos al parser ni convertirlos mediante `JSON.stringify`. Mantener separados los tests de entradas activas como regresiones de rechazo de adaptadores externos, no como respuesta HTTP auténtica.
+- Aplicar límites *antes* de reservar y copiar; verificar el tipo real de almacenamiento mediante APIs intrínsecas fiables, sin utilizar iteración externa, y prohibir `SharedArrayBuffer` y aliases mutables no controlados. Cualquier uso de `Proxy` debe excluirse en una frontera anterior confiable; no suponer que inspección de propiedades mediante JavaScript ordinario es libre de efectos.
+- Analizar JSON estricto con detección **por objeto** de claves duplicadas y límites de profundidad/tamaño. No sirve JSON.parse seguido de reviver; las claves duplicadas ya se han perdido. La implementación exacta del parser y su QA requieren revisión independiente.
+- Seguir separando cuerpo JSON y frames binarios Docker; no declarar `startExec` completo hasta validar multiplexing, límites y `ExitCode` en flujo separado.
+- Conservar D2 original y sus 55/55 pruebas Windows, sin integrarlo con RAW hasta una decisión y auditoría posteriores. No presentar una revisión fallida con nuevos P2 como cierre de los once P2 anteriores.
+
+**Estado:** prototipo RAW aislado, QA Windows 19/19 PASS, 4 P2 nuevos abiertos. PR #50 draft/unmerged, Windows Docker real bloqueado, `NO_GO_HOSTED_MIGRATION`.
