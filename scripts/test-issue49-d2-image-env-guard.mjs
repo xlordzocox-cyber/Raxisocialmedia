@@ -13,7 +13,7 @@ const make=(env)=>createIssue49D2MockTransport({
 });
 let negatives=0;
 const deny=async (env)=>{
- await assert.rejects(()=>make(env).call({operation:'imageInspect'}),/ISSUE49 D2 MOCK STOP/);
+ await assert.rejects(()=>make(env).call({operation:'imageInspect',imageId:PIN}),/ISSUE49 D2 MOCK STOP/);
  negatives++;
 };
 const env=['PG_VERSION=18.0'];
@@ -33,7 +33,7 @@ const accessor=['PG_VERSION=17.11'];
 Object.defineProperty(accessor,'0',{get(){throw Error('should not read');}});
 await deny(accessor);
 const good=['PG_VERSION=17.11','POSTGRES_USER=postgres'];
-const result=await make(good).call({operation:'imageInspect'});
+const result=await make(good).call({operation:'imageInspect',imageId:PIN});
 assert.equal(result.Id,PIN);
 assert.deepEqual(result.Config.Env,good);
 console.log('PASS ISSUE49 D2 IMAGE ENV: '+negatives+'/5 adversarial negatives + valid PG17.11 (FAKE_ONLY)');
