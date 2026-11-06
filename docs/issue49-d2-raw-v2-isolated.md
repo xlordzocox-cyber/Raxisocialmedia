@@ -30,3 +30,12 @@ Files:
 4. **No D3/D4/D5, no real Docker, SQL, Supabase, hosted migration, deployment or merge without separate authorization.**
 
 PR #50 stays DRAFT; `NO_GO_HOSTED_MIGRATION`.
+
+
+## Verificación independiente y Windows (2026-11-06)
+
+El operador verificó `FETCH_HEAD` SHA exacto `1ae634917a5012ad899d0b9f728c2fdafd48d59f`, ejecutó `node --check` en ambos archivos RAW v2 y obtuvo `PASS ISSUE49 D2 RAW V2 NEGATIVES (52 adversarial cases; no Docker/socket/SQL)` junto con pruebas positivas. **Node Windows 52/52 PASS** para el prototipo RAW v2 en ese commit.
+
+El recibo Codex `6688369728` para código SHA `1ae634917a` dice: `Didn't find any major issues`. La revisión específica terminó sin nuevos hallazgos importantes. El marcador agregado del PR conserva `has_any_findings=true` debido a **15 hilos P2 históricos sin resolver** sobre diseños anteriores; no es un dictamen limpio sobre la totalidad del PR ni autoriza integración.
+
+**Alcance validado:** exclusivamente módulo aislado RAW v2 fake-only de fixtures con texto primitivo, token opaco y JSON estricto. No integra D2 legacy, no tiene transporte Docker HTTP/named pipe, no implementa `startExec`, no valida un ciclo PG17 real ni autoriza migración hospedada. No resolver hilos históricos hasta documentar reemplazo de código viejo y portar regresiones relevantes. PR #50 DRAFT, `NO_GO_HOSTED_MIGRATION`.
