@@ -9,10 +9,19 @@ const IMAGE='sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e24
 const DB='raxi_campaign_qa';
 const OWNER='11111111-1111-4111-8111-111111111111';
 const WS='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-const DOCKER=['exec','-i'];
+const DOCKER_HOST='npipe:////./pipe/docker_engine';
+const DOCKER=['--host',DOCKER_HOST,'exec','-i'];
+// Do not inspect a remote daemon. Force the Docker Desktop local Windows pipe.
+if(process.platform!=='win32' || process.env.DOCKER_HOST || process.env.DOCKER_CONTEXT ||
+   process.env.DOCKER_API_VERSION || process.env.DOCKER_TLS_VERIFY || process.env.DOCKER_CERT_PATH) {
+ throw Error('NO_GO: local Windows Docker pipe required and no Docker environment overrides');
+}
+const dockerEnv={...process.env};
+delete dockerEnv.DOCKER_HOST;delete dockerEnv.DOCKER_CONTEXT;
+delete dockerEnv.DOCKER_API_VERSION;delete dockerEnv.DOCKER_TLS_VERIFY;delete dockerEnv.DOCKER_CERT_PATH;
 const psqlArgs=(app)=>[...DOCKER,'-e',`PGAPPNAME=${app}`,ID,'psql','-X','-w','-qAt','-v','ON_ERROR_STOP=1','-U','postgres','-d',DB,'-h','/var/run/postgresql'];
 
-function docker(args) {return execFileSync('docker',args,{encoding:'utf8',timeout:12000,windowsHide:true,stdio:['ignore','pipe','pipe']}).trim();}
+function docker(args) {return execFileSync('docker',['--host',DOCKER_HOST,...args],{encoding:'utf8',timeout:12000,windowsHide:true,env:dockerEnv,stdio:['ignore','pipe','pipe']}).trim();}
 function guardedLab() {
  const x=JSON.parse(docker(['inspect','--type=container',ID,'--format',
    '{"id":{{json .Id}},"image":{{json .Image}},"running":{{json .State.Running}},"network":{{json .HostConfig.NetworkMode}},"ports":{{json .HostConfig.PortBindings}},"privileged":{{json .HostConfig.Privileged}},"mounts":{{json .Mounts}},"tmpfs":{{json .HostConfig.Tmpfs}}}']));
@@ -24,7 +33,7 @@ function guardedLab() {
 }
 function query(sql) {return docker([...psqlArgs('meta_a_guard').slice(0,2),...psqlArgs('meta_a_guard').slice(2),'-c',sql]);}
 function startSession(app,sql) {
- const cp=spawn('docker',psqlArgs(app),{windowsHide:true,stdio:['pipe','pipe','pipe']});
+ const cp=spawn('docker',psqlArgs(app),{windowsHide:true,env:dockerEnv,stdio:['pipe','pipe','pipe']});
  let output='',error='',closed=false,exitCode;
  let onData=()=>{};
  cp.stdout.on('data',b=>{output+=b.toString();onData();});
@@ -33,13 +42,16 @@ function startSession(app,sql) {
    cp.on('error',reject);
    cp.on('close',code=>{closed=true;exitCode=code;if(code===0)resolve(output);else reject(Error(`Local psql ${app} failed (exit ${code}): ${error.slice(0,250)}`));});
  });
+ // Attach a failure handler synchronously, before any marker/polling await.
+ const settled=done.then(value=>({ok:true,value}),failure=>({ok:false,failure}));
+ cp.stdin.on('error',()=>{});
  cp.stdin.end(sql+'\n');
  const marker=(value,ms=4000)=>new Promise((resolve,reject)=>{
    if(output.includes(value))return resolve();
    const t=setTimeout(()=>{onData=()=>{};reject(Error(`Missing ${app} marker ${value}`));},ms);
    onData=()=>{if(output.includes(value)){clearTimeout(t);onData=()=>{};resolve();}};
  });
- return {done,marker,get closed(){return closed;},get exitCode(){return exitCode;},kill(){cp.kill();}};
+ return {done:settled,marker,get closed(){return closed;},get exitCode(){return exitCode;},kill(){cp.kill();}};
 }
 const identity=`select current_database()||'|'||current_user||'|'||current_setting('server_version_num')||'|'||coalesce(inet_server_addr()::text,'LOCAL');`;
 const workspacePredicate=`id='${WS}'::uuid`;
@@ -63,7 +75,8 @@ END $guard$;
 INSERT INTO auth.users(id) VALUES ('${OWNER}');
 INSERT INTO public.raxi_workspaces(id,owner_user_id,slug,name) VALUES ('${WS}','${OWNER}','cas-race','CAS Race');
 COMMIT;`;
- query(setup);prepared=true;
+ prepared=true;
+ query(setup);
  console.log('PASS: isolated synthetic workspace fixture created');
  // Conn A intentionally updates only the version while holding the same row lock used
  // by raxi_campaign_commit. This tests CAS lock serialization, not two successful RPCs.
@@ -73,7 +86,7 @@ SELECT 'LOCK_HELD';
 SELECT pg_sleep(8);
 COMMIT;
 SELECT 'WINNER_COMMITTED';`);
- await a.marker('LOCK_HELD',4500);
+ await Promise.race([a.marker('LOCK_HELD',4500),a.done.then(result=>{throw result.ok?Error('Session A exited before lock marker'):result.failure;})]);
  b=startSession('meta_a_cas_loser',`SET ROLE service_role;
 DO $test$
 DECLARE errcode text; command jsonb; proposed jsonb;
@@ -99,8 +112,10 @@ SELECT 'LOSER_REJECTED';`);
    if(b.closed)break;
  }
  assert.ok(lockSeen,'No simultaneous row-lock wait observed; cannot claim concurrency PASS');
- const [aOut,bOut]=await Promise.all([a.done,b.done]);
- assert.match(aOut,/WINNER_COMMITTED/);assert.match(bOut,/LOSER_REJECTED/);
+ const [aResult,bResult]=await Promise.all([a.done,b.done]);
+ if(!aResult.ok)throw aResult.failure;
+ if(!bResult.ok)throw bResult.failure;
+ assert.match(aResult.value,/WINNER_COMMITTED/);assert.match(bResult.value,/LOSER_REJECTED/);
  assert.equal(query(`SELECT campaign_version||'|'||(SELECT count(*) FROM public.raxi_audit_events WHERE workspace_id='${WS}') FROM public.raxi_workspaces WHERE ${workspacePredicate};`),'1|0');
  console.log('PASS: two PostgreSQL sessions overlapped on a real row lock');
  console.log('PASS: loser returned stale CAS 40001 after winner committed');
@@ -111,8 +126,14 @@ SELECT 'LOSER_REJECTED';`);
  process.exitCode=1;
 } finally {
  // No blanket delete. Refuse cleanup while sessions could still be active.
- if(a&&!a.closed||b&&!b.closed) {
-   console.error('Cleanup BLOCKED: a lab session is active; inspect before deleting synthetic rows');
+ // Drain both processes before cleanup; never abandon a failed session.
+ for(const session of [a,b])if(session&&!session.closed)session.kill();
+ const states=await Promise.all([a,b].filter(Boolean).map(async session=>{
+   const result=await Promise.race([session.done,new Promise(resolve=>setTimeout(()=>resolve({ok:false,failure:Error('Session termination timed out')}),5000))]);
+   return {closed:session.closed,result};
+ }));
+ if(states.some(state=>!state.closed)) {
+   console.error('Cleanup BLOCKED: a lab session may still be active; inspect before deleting synthetic rows');
    process.exitCode=1;
  } else if(prepared) {
    try {
