@@ -56,5 +56,18 @@ for(const [req,response] of [
  [{operation:'inspectExec',id},{status:200,data:{Running:false,ExitCode:1}}],
  [{operation:'startExec',id},{status:200,data:Buffer.from([1,0])}]
 ])await denyAsync(()=>fake(response).call(req));
+await denyAsync(()=>fake({status:200,data:{
+ Volumes:[],Warnings:['volume inventory partial']
+}}).call({operation:'listVolumes'}));
+const mutable={operation:'imageInspect',imageId};
+let release;
+const barrier=new Promise(resolve=>{release=resolve;});
+const pending=createIssue49D2MockTransport({
+ gate:'ISSUE49_D2_FAKE_ONLY',
+ exchange:async()=>{await barrier;return {status:200,data:{}};}
+}).call(mutable);
+mutable.operation='not-allowlisted';
+release();
+await denyAsync(()=>pending);
 console.log('PASS ISSUE49 D2 MOCK NEGATIVES ('+negatives+' adversarial cases; no Docker/socket/SQL)');
 console.log('ISSUE49 D2: FAKE_ONLY / NO_GO_HOSTED_MIGRATION');
