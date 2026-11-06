@@ -184,7 +184,8 @@ function checkResponse(operation,result,expected){
     v.Name.length>0&&v.Name.trim()===v.Name)&&
    new Set(inventory.Volumes.map(v=>v.Name)).size===inventory.Volumes.length&&
    (inventory.Warnings===null||dense(inventory.Warnings,0));
-  ensure(noAccessors(d)&&dense(d.Volumes,10000)&&noAccessors(d.Volumes)&&
+  ensure(own(d,'Volumes')&&own(d,'Warnings')&&noAccessors(d)&&
+   dense(d.Volumes,10000)&&noAccessors(d.Volumes)&&
    d.Volumes.every(item=>item&&
    typeof item==='object'&&!Array.isArray(item)&&noAccessors(item))&&valid(d),
    'bad volume inventory');
