@@ -150,7 +150,9 @@ test('two overlapping instances: second is rejected by atomic exclusive lock bef
  const first=scenario('success',shared);
  await new Promise(resolve=>setTimeout(resolve,40));
  const second=await scenario('success',shared);
- assert.match(second.error??'',/EEXIST/);
+ assert.equal(second.exitCode,1);
+ assert.ok(second.errors.some(x=>/NOT VERIFIED: EEXIST/.test(x)),'second process must fail closed with an EEXIST diagnostic');
+ assert.ok(!second.output.some(x=>x.includes('LOCK_ACQUIRED')));
  assert.equal(second.calls.length,0);assert.equal(second.spawn.length,0);
  assert.deepEqual(second.lockCalls,['acquire']);
  const finished=await first;
@@ -164,7 +166,9 @@ test('failed invocation retains lock; later run cannot enter Docker',async()=>{
  assert.equal(failed.exitCode,1);assert.equal(failed.cleaned,false);
  assert.deepEqual(failed.lockCalls,['acquire']);
  const repeat=await scenario('success',shared);
- assert.match(repeat.error??'',/EEXIST/);
+ assert.equal(repeat.exitCode,1);
+ assert.ok(repeat.errors.some(x=>/NOT VERIFIED: EEXIST/.test(x)),'retained lock must deny subsequent process');
+ assert.ok(!repeat.output.some(x=>x.includes('LOCK_ACQUIRED')));
  assert.equal(repeat.calls.length,0);
  assert.equal(shared.size,1);
 });
