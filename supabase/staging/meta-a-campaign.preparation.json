@@ -1,0 +1,70 @@
+{
+  "kind": "RAXI_META_A_STAGING_PREPARATION",
+  "formatVersion": 1,
+  "status": "PREPARED_ONLY",
+  "executionReady": false,
+  "project": {
+    "ref": "zvhxjindgyvtasstfjut",
+    "name": "raxi-hq-staging",
+    "organizationId": "qpjzdqkvjzgqwvismeku",
+    "region": "us-east-2",
+    "postgresMajor": 17,
+    "observedPostgresVersion": "17.11.0.003"
+  },
+  "inventory": {
+    "source": "SUPABASE_READ_ONLY_API",
+    "projectStatus": "ACTIVE_HEALTHY",
+    "migrationVersions": [],
+    "publicTables": [],
+    "edgeFunctions": []
+  },
+  "separation": {
+    "runtimeB2Manifest": "supabase/staging/raxi-hq-staging.manifest.json",
+    "runtimeB2ExecutionReady": false,
+    "campaignMigrationExcludedFromRuntimeB2": true,
+    "doNotMergeAuthorizationScopes": true
+  },
+  "sourceRevision": {
+    "pr": 53,
+    "branch": "audit/meta-a-campaign-approval-negatives",
+    "nativePg17NegativeTestsValidatedSha": "c2ddc26a4f88ca4b02fef05bf8dcc618db1b3f01",
+    "fullAppQaValidatedSha": "c1510201e7d802d3c772af973fac9235928fcb96"
+  },
+  "orderedSqlCandidates": [
+    "supabase/migrations/20261019030541_raxi_hq_v09_private_core.sql",
+    "supabase/migrations/20261019030659_raxi_hq_v09_fk_indexes.sql",
+    "supabase/migrations/20261019030808_raxi_hq_v09_workspace_onboarding.sql",
+    "supabase/migrations/20261019231655_raxi_hq_real_idea_write.sql",
+    "supabase/migrations/20261020234358_raxi_hq_campaign_strategy_pending_review.sql"
+  ],
+  "authorization": {
+    "applySql": false,
+    "deployEdge": false,
+    "createUsers": false,
+    "changeAuthConfig": false,
+    "enableRealProviders": false,
+    "incurAdditionalSpend": false,
+    "merge": false
+  },
+  "gates": {
+    "appTypecheckAndBuild": "PASS_PRIOR_SHA",
+    "appTests": "886_PASS_PRIOR_SHA",
+    "localPostgres17Migrations": "PASS",
+    "localPostgres17CampaignNegativeCases": "3_PASS",
+    "localPostgres17RlsNegativeChecks": "PASS",
+    "nativePostgres17IndependentConcurrency": "PENDING",
+    "realSupabaseJwtAuthRevocation": "NOT_TESTED",
+    "stagingSchemaMigration": "NOT_AUTHORIZED",
+    "stagingEdgeDeployment": "NOT_AUTHORIZED",
+    "stagingCrossTenantE2e": "NOT_TESTED",
+    "independentReviewOfManifest": "PENDING"
+  },
+  "goDecision": "NO_GO_HOSTED_CHANGES",
+  "nextSteps": [
+    "Independently review file digests, ordered migration dependencies and Supabase Auth prerequisites before staging writes",
+    "Design staging-only service role and JWT security scenarios without secrets in tracked files",
+    "Obtain separate explicit approvals for staging SQL, Edge, Auth/users and spending",
+    "Revalidate schema, JWT and cross-tenant receipts after any future authorized deployment",
+    "Keep production and real providers untouched"
+  ]
+}
