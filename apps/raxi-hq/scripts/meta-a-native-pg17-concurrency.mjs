@@ -61,7 +61,7 @@ select 'workspaces='||count(*) from public.raxi_workspaces;
 select 'rpc='||(to_regprocedure('public.raxi_campaign_commit(uuid,jsonb,jsonb)') is not null);`;
 const expected=`raxi_campaign_qa|postgres|170011|LOCAL\ntables=18\nusers=0\nworkspaces=0\nrpc=true`;
 
-let prepared=false, a=null, b=null, completed=false;
+let prepared=false, setupAttempted=false, a=null, b=null, completed=false;
 try {
  guardedLab();
  assert.equal(query(identity+baseline),expected,'Laboratory must be clean before fixture insertion');
@@ -75,8 +75,9 @@ END $guard$;
 INSERT INTO auth.users(id) VALUES ('${OWNER}');
 INSERT INTO public.raxi_workspaces(id,owner_user_id,slug,name) VALUES ('${WS}','${OWNER}','cas-race','CAS Race');
 COMMIT;`;
- prepared=true;
+ setupAttempted=true;
  query(setup);
+ prepared=true;
  console.log('PASS: isolated synthetic workspace fixture created');
  // Conn A intentionally updates only the version while holding the same row lock used
  // by raxi_campaign_commit. This tests CAS lock serialization, not two successful RPCs.
@@ -138,7 +139,10 @@ SELECT 'LOSER_REJECTED';`);
  // PostgreSQL backend has stopped. Never delete a fixture while either tagged
  // backend remains in pg_stat_activity.
  let backendsGone=false;
- if(states.every(state=>state.closed)) {
+ // A failed client cannot prove its docker exec command has stopped remotely.
+ // Never clean on abnormal execution, even if pg_stat_activity briefly says zero.
+ const normalCompletion=completed && [a,b].every(session=>session?.closed && session.exitCode===0);
+ if(normalCompletion && states.every(state=>state.closed)) {
    try {
      guardedLab();
      for(let attempt=0;attempt<20;attempt++){
@@ -152,6 +156,9 @@ SELECT 'LOSER_REJECTED';`);
  }
  if(!backendsGone) {
    console.error('Cleanup BLOCKED: server-side PostgreSQL backends not proven stopped; operator inspection required');
+   process.exitCode=1;
+ } else if(!normalCompletion) {
+   console.error('Cleanup BLOCKED: abnormal or unowned execution; no automatic DELETE. Operator must inspect laboratory state.');
    process.exitCode=1;
  } else if(prepared) {
    try {
@@ -177,4 +184,5 @@ COMMIT;`);
    }
  }
  if(!completed)console.error('NO_GO: native concurrency case not established');
+ if(setupAttempted&&!prepared)console.error('NO_GO: setup failed; fixture ownership unproven, no automatic DELETE');
 }
