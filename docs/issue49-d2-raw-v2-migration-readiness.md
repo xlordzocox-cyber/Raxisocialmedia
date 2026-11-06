@@ -73,3 +73,8 @@ En total: **13 operaciones legacy**; RAW v2 implementa solo un subconjunto y `st
 - Los 15 P2 históricos no desaparecen por crear una implementación nueva si el código legacy sigue disponible e invocable.
 
 **Decisión de esta etapa:** preparar la migración, no ejecutarla. `NO_GO_HOSTED_MIGRATION` continúa vigente.
+
+
+## 7. Auditoría M0 reproducible (offline)
+
+Se agregó `scripts/test-issue49-d2-migration-readiness.mjs`. Compara **13/13 descriptores de solicitudes legacy** sin enviarlos a ningún endpoint y confirma las brechas del contrato RAW v2, incluidos el formato incompatible de ping y el rechazo intencional de startExec. Clasificación reproducida: **6 PARCIALES, 5 AUSENTES, 1 PING INCOMPATIBLE y 1 BLOQUEADO**, total 13. Ejecutar únicamente con Node sobre los tres módulos copiados a un directorio temporal; no conecta Docker ni SQL. Verificación V8 offline (polyfill ASCII) del script M0 PASS, **Node Windows todavía pendiente**. Se requiere validar con SHA exacto antes de aceptar M0 como probado en Windows. Los 15 hilos P2 históricos siguen abiertos.
