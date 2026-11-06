@@ -48,7 +48,7 @@ const validPgVersionEnv=env=>{
   if(!str(value))return false;
   if(value.startsWith('PG_VERSION=')){
    matches++;
-   if(!/^PG_VERSION=17\\.11(?:-|$)/.test(value))return false;
+   if(!/^PG_VERSION=17\.11(?:-|$)/.test(value))return false;
   }
  }
  return matches===1;
