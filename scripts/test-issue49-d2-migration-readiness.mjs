@@ -69,7 +69,7 @@ assert.throws(()=>rawCheck(rawBinary(200,'5b5d'),'startExec',200),/ISSUE49 D2 RA
 for(const operation of ['version','imageInspect','inspectContainer','createContainer','createExec']){
  assert.throws(()=>rawCheck(json(200,'{}'),operation,200),/ISSUE49 D2 RAW V2 STOP/);
 }
-const counts=scenarios.reduce((out,s)=>{out[s[5]]=(out[s[5]]||0)+1;return out;},{});
+const counts=scenarios.reduce((out,s)=>{out[s[6]]=(out[s[6]]||0)+1;return out;},{});
 assert.deepEqual(counts,{RAW_PING_FORMAT_INCOMPATIBLE:1,RAW_UNSUPPORTED:5,RAW_PARTIAL:6,RAW_BLOCKED:1});
 console.log('PASS ISSUE49 D2 M0: 13/13 legacy request descriptors audited offline');
 console.log('PASS ISSUE49 D2 M0: RAW v2 gaps identified, ping incompatibility reproduced');
