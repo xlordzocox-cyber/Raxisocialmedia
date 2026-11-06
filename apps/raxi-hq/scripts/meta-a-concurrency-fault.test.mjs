@@ -14,7 +14,7 @@ const image='sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e24
 const base='raxi_campaign_qa|postgres|170011|LOCAL\ntables=18\nusers=0\nworkspaces=0\nrpc=true';
 
 async function scenario(kind) {
- const state={calls:[],spawn:[],fixture:false,cleaned:false,output:[],errors:[]};
+ const state={calls:[],spawn:[],fixture:false,cleaned:false,output:[],errors:[],backends:new Set()};
  const proc={platform:'win32',env:kind==='remote'?{DOCKER_HOST:'tcp://remote.example:2375'}:{},exitCode:0};
  const log={log:(...x)=>state.output.push(x.join(' ')),error:(...x)=>state.errors.push(x.join(' '))};
  function execFileSync(command,args,opts) {
@@ -28,7 +28,10 @@ async function scenario(kind) {
   if(sql.includes('current_database()||')&&sql.includes('tables='))return state.fixture?base.replace('users=0','users=1').replace('workspaces=0','workspaces=1'):base;
   if(sql.includes('INSERT INTO auth.users')){state.fixture=true;return '';}
   if(sql.includes('DELETE FROM auth.users')){assert.equal(state.fixture,true);state.fixture=false;state.cleaned=true;return '';}
-  if(sql.includes('pg_stat_activity'))return (kind==='success'||kind==='a-fail-after-lock')?'1':'0';
+  if(sql.includes('pg_stat_activity')){
+   if(sql.includes('wait_event_type'))return (kind==='success'||kind==='a-fail-after-lock')?'1':'0';
+   return String(state.backends.size);
+  }
   if(sql.includes('SELECT campaign_version'))return '1|0';
   if(sql.includes('SELECT count(*) FROM public.raxi_audit_events'))return '0';
   if(sql.includes('SELECT count(*) FROM public.raxi_approvals'))return '0';
@@ -40,12 +43,16 @@ async function scenario(kind) {
   const cp=new EventEmitter();cp.stdout=new EventEmitter();cp.stderr=new EventEmitter();cp.stdin=new EventEmitter();
   const winner=args.join(' ').includes('meta_a_cas_winner');
   const entry={winner,closed:false,killed:false};state.spawn.push(entry);
-  const close=(code)=>{if(entry.closed)return;entry.closed=true;cp.emit('close',code);};
+  const backendName=winner?'meta_a_cas_winner':'meta_a_cas_loser';
+  state.backends.add(backendName);
+  const close=(code)=>{if(entry.closed)return;entry.closed=true;
+   if(kind!=='backend-survives'||code!==143)state.backends.delete(backendName);
+   cp.emit('close',code);};
   cp.kill=()=>{entry.killed=true;queueMicrotask(()=>close(143));return true;};
   cp.stdin.end=()=>{
    setTimeout(()=>{
     if(kind==='a-fail'&&winner){cp.stderr.emit('data',Buffer.from('failed A'));close(1);return;}
-    if(kind==='b-fail'&&!winner){cp.stderr.emit('data',Buffer.from('failed B'));close(1);return;}
+    if((kind==='b-fail'||kind==='backend-survives')&&!winner){cp.stderr.emit('data',Buffer.from('failed B'));close(1);return;}
     if(winner){cp.stdout.emit('data',Buffer.from('LOCK_HELD\n'));
      if(kind==='success')setTimeout(()=>{cp.stdout.emit('data',Buffer.from('WINNER_COMMITTED\n'));close(0);},400);
      if(kind==='a-fail-after-lock')setTimeout(()=>{cp.stderr.emit('data',Buffer.from('A failed while B waits'));close(1);},260);
@@ -89,5 +96,15 @@ test('session A fails after lock observation while B hangs: fail fast, cancel B 
  assert.equal(r.spawn.length,2);
  assert.equal(r.spawn[1].killed,true);
  assert.ok(r.errors.some(s=>s.includes('NOT VERIFIED')));
+ assert.ok(!r.output.some(s=>s.includes('two PostgreSQL sessions overlapped')));
+});
+
+test('client killed but remote postgres backend survives: cleanup MUST be blocked',async()=>{
+ const r=await scenario('backend-survives');
+ assert.equal(r.exitCode,1);assert.equal(r.cleaned,false);
+ assert.equal(r.fixture,true);
+ assert.equal(r.spawn.length,2);assert.ok(r.spawn[0].killed&&r.spawn[0].closed);
+ assert.ok(r.backends.size>0);
+ assert.ok(r.errors.some(s=>s.includes('Cleanup BLOCKED: server-side PostgreSQL backends not proven stopped')));
  assert.ok(!r.output.some(s=>s.includes('two PostgreSQL sessions overlapped')));
 });
