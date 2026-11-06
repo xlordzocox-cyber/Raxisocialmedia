@@ -27,3 +27,10 @@ M3: replacement of legacy `{status,data}` exchange only after full migration of 
 M4: actual Docker/SQL/named pipe/host access requires separate authorization and safety review. No automatic merge, no deletion of mocks, and no hosted migration.
 
 **Separate topic:** Instagram competitor access for Investigador tracked in issue #52, using authorized vi dIQ or Work/browser evidence, not coupled to the Docker/PG17 M1 transport.
+
+
+## Windows Node M1 QA confirmado (2026-11-06)
+
+El operador ejecutó PowerShell y verificó `FETCH_HEAD` exacto `e6989f4f36e97fd444dc94f34191e90053a251b2`; los dos scripts M1 pasaron `node --check`. La suite M1 produjo `PASS ISSUE49 D2 M1: response parity candidate, plain-text ping and JSON schema`, `PASS ISSUE49 D2 M1 NEGATIVES (39 simulated cases; no Docker/socket/SQL)` y `ISSUE49 D2 M1: FAKE_ONLY / NOT_INTEGRATED / NO_GO_HOSTED_MIGRATION`. **Windows Node 39/39 negativas simuladas PASS** y rutas positivas de respuesta PASS solo en este candidato aislado.
+
+La revisión Codex solicitada para exactamente ese commit mediante comentario 6693058177 constaba como **running** en la última consulta GitHub. No declarar M1 cerrado hasta revisar dictamen independiente y hallazgos. Los 16 hilos P2 históricos del PR #50 siguen abiertos. Sin sustitución del D2 anterior, sin M2 real, sin Docker/socket/SQL, PR DRAFT, `NO_GO_HOSTED_MIGRATION`.
