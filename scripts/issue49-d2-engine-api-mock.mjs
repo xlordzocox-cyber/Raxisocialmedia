@@ -163,7 +163,9 @@ function checkResponse(operation,result,expected){
   ensure(d.Running===false&&d.ExitCode===0,'exec incomplete or failed');
  }
  if(operation==='listVolumes'){
-  ensure(Array.isArray(d.Volumes)&&d.Volumes.length<=10000,'bad volume inventory');
+  ensure(Array.isArray(d.Volumes)&&d.Volumes.length<=10000&&
+   (d.Warnings===null||(Array.isArray(d.Warnings)&&d.Warnings.length===0)),
+   'bad volume inventory');
  }
  if(operation==='inspectContainer'){
   ensure(idCheck(d.Id),'bad container inspect');
@@ -179,9 +181,10 @@ export function createIssue49D2MockTransport({exchange,gate}){
  return Object.freeze({
   contract:ISSUE49_D2_CONTRACT,
   async call(input){
+   const selected=input?.operation;
    const descriptor=buildIssue49D2Request(input);
    const answer=await exchange(descriptor);
-   return checkResponse(input.operation,answer,descriptor.expect);
+   return checkResponse(selected,answer,descriptor.expect);
   }
  });
 }
