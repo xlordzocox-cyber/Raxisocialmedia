@@ -25,3 +25,10 @@ M1 candidate `scripts/issue49-d2-raw-m1-parity-mock.mjs` at SHA `17d91420aa462e4
 4. Any real Docker/SQL/pipe/hosted migration remains blocked pending explicit authorization and safety assessment.
 
 PR50 stays DRAFT and unmerged; prior historical P2 threads remain unresolved until architectural migration validates replacements.
+
+
+## Evidencia Node Windows y revisión Codex (2026-11-06)
+
+El operador verificó `FETCH_HEAD` exacto `46bdc51ddc33850b9d875799e6d383867f6ebb90`, ejecutó `node --check` de ambos scripts M2 y corrió `node` de la batería. Resultado: `PASS ISSUE49 D2 M2: strict multiplex stdout/stderr; execution NOT confirmed`, `PASS ISSUE49 D2 M2 NEGATIVES (29 simulated cases; no Docker/socket/SQL)`, `ISSUE49 D2 M2: FAKE_ONLY / NOT_INTEGRATED / NO_GO_HOSTED_MIGRATION`. **M2 Node Windows 29/29 negativos PASS** con pruebas positivas de separación binaria.
+
+La revisión independiente Codex de ese SHA terminó y publicó recibo GitHub `6693299202`: `Didn't find any major issues`. Esto valida el **prototipo M2 aislado** dentro de su alcance, NO el cierre de los hallazgos históricos del PR ni el transporte real. No convertir `streamValidated:true` en éxito: `executionConfirmed:false` permanece explícito y todavía falta correlacionar el ID inmutable de `createExec`/`startExec`/`inspectExec`, comprobar el estado final y rechazar mezcla de sesiones o ejecuciones. No cerrar hilos P2 previos ni activar Docker/named pipe/SQL, PR #50 permanece DRAFT y `NO_GO_HOSTED_MIGRATION`.
