@@ -114,3 +114,60 @@ El operador verificó `FETCH_HEAD` exactamente en `d5f4417286c07c3192a77ed95a789
 Codex revisó ese mismo SHA `d5f4417286c07c3192a77ed95a7896e44d2a19c2` y concluyó `completed`, `has_any_findings=false`, `has_unresolved_findings=false`, con recibo `Didn't find any major issues`. Se cerró el hilo P2 TOCTOU de GitHub (`PRRT_kwDOVIWc5s60TrTx`) por mitigación **fail-closed**; **no** por haber solucionado aún el riesgo para el transporte real. El código de ejecución real de Docker Desktop Windows permanece bloqueado por diseño.
 
 **Decisión vigente:** gate offline/fail-closed completado, no habilitar ensayo nativo Windows, no merge, no SQL, no staging, no hosted migration. Investigar diseño nuevo de lanzador con asociación segura entre binario comprobado y proceso ejecutado, con QA/adversarial y revisión independiente, antes de pedir autorización específica para cuatro contenedores sintéticos.
+
+
+## Propuesta de diseño — transporte Docker Engine API sobre named pipe (2026-11-05)
+
+**Estado: PROPUESTA DE ARQUITECTURA, NO IMPLEMENTADA NI APROBADA PARA EJECUCIÓN.** El transporte nativo Windows vigente mantiene un bloqueo incondicional antes de iniciar procesos. El código probado para 40 negativos permanece sin modificaciones. No ejecutar Docker/SQL, no abrir sockets durante diseño, no ejecutar contenedores ni hacer cambios de permisos, no publicar puertos, no alterar el daemon. Codex ya aprobó el bloqueo preventivo del commit \`d5f4417286c07c3192a77ed95a7896e44d2a19c2\`; **NO ha aprobado este diseño como implementación**.
+
+### Decisión recomendada (no aprobada)
+
+**Sustituir el transporte CLI por un adaptador de Docker Engine API de Node.js con conexión HTTP sobre el named pipe local conocido**, sin invocar \`docker.exe\` mediante \`spawn\`, sin instalar binarios ni abrir daemon TCP. Docker documenta que su Engine API REST puede usarse directamente desde bibliotecas HTTP, y que el acceso al socket equivale a una capacidad de administración de alto privilegio:
+- https://docs.docker.com/reference/api/engine/
+- https://docs.docker.com/engine/security/
+- https://docs.docker.com/engine/security/protect-access/
+- https://docs.docker.com/reference/api/engine/version-history/
+
+El socket aprobado como observación de operador es \`npipe:////./pipe/dockerDesktopLinuxEngine\`. Para un cliente Node \`http.request({socketPath})\` habría que usar la forma de ruta nativa Windows **literal y fija** \`\\\\.\\pipe\\dockerDesktopLinuxEngine\` tras revisar compatibilidad y sin extrapolar que el mapeo funciona hasta las pruebas de solo lectura. No aceptar ruta del usuario, \`DOCKER_HOST\`, \`DOCKER_CONTEXT\`, \`DOCKER_CONFIG\`, \`HTTP_PROXY\`, URL TCP/SSH, ni fallback de socket alterno. NO exponer el socket en web/UI ni introducir un proxy con permisos globales. El hecho de que el pipe exista y que Docker CLI lo use NO acredita automáticamente la conexión HTTP de nuestro cliente.
+
+### Frontera de seguridad
+
+\`\`\`text
+Plan/Manifest/source pinned + consentimiento humano independiente
+                      |
+             runNativeTrialWithDriver
+                      |
+          Driver Issue49 local limitado
+                      |
+        Cliente Node HTTP named pipe LOCAL
+         (request por operación autorizada)
+                      |
+           Docker Desktop Linux Engine
+                      |
+        SOLO 4 contenedores sintéticos
+         NO_GO_HOSTED_MIGRATION siempre
+\`\`\`
+
+- **Plano de control:** \`runNativeTrialWithDriver\` valida manifiesto actual, SHA del plan, imagen inmóvil, consentimientos estrictos y cuatro roles. El adaptador valida nuevamente contexto, tipo de daemon, ID de daemon, versión API y esquema cerrado de cada petición.
+- **Capacidad mínima en software, NO en permisos del daemon:** un dispatcher cerrado de métodos, paths y JSON, sin endpoints arbitrarios; acceso a socket no equivale a autorización limitada del sistema operativo. El proceso tendría técnicamente capacidad alta sobre Docker; por ello debe ejecutarse solo en contexto local de operador de confianza y con superficie de código mínima, sin aceptar entradas de web, plugins, MCP o agentes.
+- **Sesión:** una sesión fija/aleatoria de 24 caracteres hexadecimales, nombres exactos \`raxi-t0t1-<session>-<role>\`, labels obligatorios; image ID explícito ya comprobado \`sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe\`. El propio image ID solo prueba coincidencia con la imagen local; su editor/procedencia del registry aún requiere evidencia independiente.
+- **Política Docker:** \`NetworkMode:none\`; sin \`Binds\`, \`Mounts\` arbitrarios, \`PortBindings\`, \`Privileged\`, \`Devices\`, \`CapAdd\`, \`HostPID/HostNetwork\`, policy de reinicio, imagen pull ni conexiones externas. Volumen PGDATA anónimo esperado, sin reutilización. Cada recurso inspeccionado *antes de usarlo* y *antes de borrarlo* por ID completo, nombre, label, imagen, red, privilegios, puertos y volúmenes.
+- **Endpoints a investigar contra el OpenAPI exacto del daemon:** consultas \`GET /_ping\`, \`GET /version\`, \`GET /info\`, inventario \`GET /volumes\`, \`GET /containers/json?all=true\`, \`GET /images/{id}/json\`, \`GET /containers/{id}/json\`; operación \`POST /containers/create\`, \`POST /containers/{id}/start\`, \`POST /containers/{id}/exec\`, \`POST /exec/{id}/start\`, \`GET /exec/{id}/json\`, eliminación \`DELETE /containers/{id}?force=1&v=1\`. **Son nombres de rutas por validar, no permiso para invocarlas.**
+- **SQL/archivo:** SQL sintético T0/T1 con SHA exacto; no acceso a esquemas de producción. \`pg_dump\`/ \`pg_restore\` requieren manejo correcto de streaming binario; Docker exec puede usar multiplexación de stdout/stderr y *HTTP connection upgrade/hijack*, no deben interpretarse bytes mezclados como archivo válido. La implementación necesita parser protocolario documentado o alternativa segura y comprobable. Exigir \`ExitCode=0\` por inspección de exec además del estado HTTP; límites de 8 MiB/25s (u otros límites justificados y ensayados), corte ante truncación, timeout o desconexión.
+- **Idempotencia/limpieza:** registrar cada ID inmediatamente tras respuesta de creación; investigar fallo parcial antes de recibir respuesta y riesgo de contenedor huérfano. Nunca hacer \`prune\`, borrado por coincidencia de nombre sin identidad, ni borrado de IDs preexistentes. Eliminación en orden inverso, confirmar ausencia de contenedor y cada volumen propio en inventario exhaustivo, fallar cerrado ante errores del inventario, daemon cambiado o evidencia ausente; no declarar cleanup PASS cuando no se conoce el estado.
+- **Resultado:** \`T1_MICROSCHEMA_CANDIDATE_ONLY\` es evidencia exploratoria, nunca prueba de equivalencia semántica para migración. \`decision=BLOCKED\`, \`semanticEquivalence=NOT_VERIFIED\`, \`allowCatalogPass=false\`, \`hostedMigration=NO_GO_HOSTED_MIGRATION\` invariantes.
+
+### Alternativas comparadas
+
+1. **Node HTTP sobre named pipe (recomendación):** evita por completo el TOCTOU de \`docker.exe\` por no ejecutar el CLI. Requiere implementar y auditar a fondo protocolo Engine API, exec hijack, validación de capacidades y gestión de recursos.
+2. **Lanzador nativo Windows con handle vinculado, ACL y firma:** puede asegurar mejor la identidad de proceso pero añade binario de terceros/propio, firma, instalación/actualización, permisos y mantenimiento; en este caso es desproporcionado.
+3. **Seguir con CLI por usuario con hash previo a spawn:** **rechazado** por no resolver TOCTOU. Copiar o cambiar permisos del CLI tampoco es una solución automática/segura sin evaluación separada.
+
+### Entregables y gates futuros
+
+- **Gate D0 (actual):** diseño documental. NO mutaciones de infraestructura.
+- **Gate D1:** especificación exacta \`DockerPipeTransport\`, validación oficial del API/versionado/sockPath, request allowlist, límites, streaming, audit journal y limpieza con eventos de respuesta incierta. Revisión de amenazas P1/P2.
+- **Gate D2:** implementación *solo mock/in-memory* y pruebas negativas: endpoint inesperado, redirecciones/override, HTTP no-2xx, estado de exec no cero, multiplexación malformada, truncación, 8 MiB, timeout, restart de daemon, errores de eliminación, propiedad ajena, pull encubierto, response perdido tras create, post-compromiso y reutilización de volúmenes. Ningún tráfico real.
+- **Gate D3:** revisión independiente Codex + QA Node real Windows + pruebas de sintaxis, build y comparador previo. Mantener bloqueo del transporte real.
+- **Gate D4:** *solo con consentimiento posterior separado*, atestación **read-only del nuevo cliente** sobre pipe y contraste exacto de \`/_ping\`, \`/version\`, \`/info\`, imagen, daemon, ausencia de endpoints remotos. No create/start/exec todavía.
+- **Gate D5:** verificar procedencia o política explícita sobre imagen; decisión humana independiente para cualquier prueba sintética real (4 contenedores), su retención/eliminación y evidencia; mantener bloqueo de Supabase/hosted SQL/migración.
