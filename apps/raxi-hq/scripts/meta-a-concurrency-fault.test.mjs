@@ -21,20 +21,21 @@ async function scenario(kind) {
   state.calls.push(args.join(' '));
   assert.equal(command,'docker');
   assert.equal(args[0],'--host');assert.equal(args[1],'npipe:////./pipe/docker_engine');
+  assert.equal(args.filter(x=>x==='--host').length,1,'Docker host must appear exactly once');
   assert.equal(opts.env.DOCKER_HOST,undefined);
   if(args.includes('inspect'))return JSON.stringify({id,image,running:true,network:'none',privileged:false,ports:{},mounts:[],tmpfs:{'/var/lib/postgresql/data':'rw,nosuid,size=512m'}});
   const sql=args.at(-1);
   if(sql.includes('current_database()||')&&sql.includes('tables='))return state.fixture?base.replace('users=0','users=1').replace('workspaces=0','workspaces=1'):base;
   if(sql.includes('INSERT INTO auth.users')){state.fixture=true;return '';}
   if(sql.includes('DELETE FROM auth.users')){assert.equal(state.fixture,true);state.fixture=false;state.cleaned=true;return '';}
-  if(sql.includes('pg_stat_activity'))return kind==='success'?'1':'0';
+  if(sql.includes('pg_stat_activity'))return (kind==='success'||kind==='a-fail-after-lock')?'1':'0';
   if(sql.includes('SELECT campaign_version'))return '1|0';
   if(sql.includes('SELECT count(*) FROM public.raxi_audit_events'))return '0';
   if(sql.includes('SELECT count(*) FROM public.raxi_approvals'))return '0';
   throw Error('Unexpected fake SQL: '+sql.slice(0,100));
  }
  function spawn(command,args,opts) {
-  assert.equal(command,'docker');assert.equal(args[0],'--host');assert.equal(args[1],'npipe:////./pipe/docker_engine');
+  assert.equal(command,'docker');assert.equal(args[0],'--host');assert.equal(args[1],'npipe:////./pipe/docker_engine');assert.equal(args.filter(x=>x==='--host').length,1);
   assert.equal(opts.env.DOCKER_HOST,undefined);
   const cp=new EventEmitter();cp.stdout=new EventEmitter();cp.stderr=new EventEmitter();cp.stdin=new EventEmitter();
   const winner=args.join(' ').includes('meta_a_cas_winner');
@@ -47,6 +48,7 @@ async function scenario(kind) {
     if(kind==='b-fail'&&!winner){cp.stderr.emit('data',Buffer.from('failed B'));close(1);return;}
     if(winner){cp.stdout.emit('data',Buffer.from('LOCK_HELD\n'));
      if(kind==='success')setTimeout(()=>{cp.stdout.emit('data',Buffer.from('WINNER_COMMITTED\n'));close(0);},400);
+     if(kind==='a-fail-after-lock')setTimeout(()=>{cp.stderr.emit('data',Buffer.from('A failed while B waits'));close(1);},260);
     }else if(kind==='success')setTimeout(()=>{cp.stdout.emit('data',Buffer.from('LOSER_REJECTED\n'));close(0);},460);
    },0);
   };
@@ -79,4 +81,13 @@ test('nominal fake overlap: no real Docker, successful cleanup',async()=>{
  const r=await scenario('success');
  assert.equal(r.exitCode,0);assert.equal(r.cleaned,true);assert.equal(r.fixture,false);
  assert.ok(r.output.some(s=>s.includes('two PostgreSQL sessions overlapped')));
+});
+
+test('session A fails after lock observation while B hangs: fail fast, cancel B and clean',async()=>{
+ const r=await scenario('a-fail-after-lock');
+ assert.equal(r.exitCode,1);assert.equal(r.cleaned,true);assert.equal(r.fixture,false);
+ assert.equal(r.spawn.length,2);
+ assert.equal(r.spawn[1].killed,true);
+ assert.ok(r.errors.some(s=>s.includes('NOT VERIFIED')));
+ assert.ok(!r.output.some(s=>s.includes('two PostgreSQL sessions overlapped')));
 });
