@@ -50,7 +50,14 @@ test('Meta A Edge rejects forged actor and projected state fields (FAKE_ONLY)',a
 test('Meta A Edge rejects malformed JSON, invalid UTF-8 and oversize payload (FAKE_ONLY)',async()=>{
  const f=fixture();
  assert.equal((await f.handler(request('{'))).status,400);
- const invalid=new Request('https://isolated.invalid',{method:'POST',headers:{Authorization:'Bearer local-test-token','Content-Type':'application/json'},body:new Uint8Array([0xff])});
+ // Bytes are valid JSON except for an invalid UTF-8 sequence inside a permitted string value.
+ // With a non-fatal decoder JSON.parse would succeed, and the request would reach read() / conflict handling.
+ const valid=new TextEncoder().encode(json({...command(),action:{...command().action,ideaId:'IDEA-REAL-café'}}));
+ const marker=new TextEncoder().encode('é');
+ const position=valid.findIndex((byte,i)=>byte===marker[0]&&valid[i+1]===marker[1]);
+ assert.ok(position>0,'UTF-8 test must contain the expected multibyte marker');
+ valid[position]=0xff;
+ const invalid=new Request('https://isolated.invalid',{method:'POST',headers:{Authorization:'Bearer local-test-token','Content-Type':'application/json'},body:valid});
  assert.equal((await f.handler(invalid)).status,400);
  assert.equal((await f.handler(request(' '.repeat(100_001)))).status,413);
  assert.equal(f.calls.commit,0);assert.equal(f.calls.read,0);
@@ -71,8 +78,36 @@ test('Meta A Edge reports failed commit without claiming success (FAKE_ONLY)',as
  assert.equal((await failed.handler(request(command()))).status,503);
  assert.equal(failed.calls.commit,1);
 });
-test.todo('Meta A Edge must reject a 200 response whose canonical snapshot lacks the exact new operation receipt (known gap; candidate code fix not yet authorized or validated)');
-test('Meta A Edge canonical positive transition and idempotent replay are distinct (FAKE_ONLY)',async()=>{
+test('Meta A Edge fails closed for missing, stale or mismatched commit receipt (FAKE_ONLY)',async()=>{
+ for(const scenario of ['no-receipt','stale-version','other-command'] as const){
+  const state=emptyCampaignSnapshot(owner,workspace,[idea]);const calls={commit:0};
+  const handler=createCampaignHandler({
+   verifyUser:async()=>({id:owner,isAnonymous:false}),
+   read:async()=>structuredClone(state),
+   commit:async(_actor,c,next)=>{
+    calls.commit++;
+    if(scenario==='no-receipt')return structuredClone(state);
+    if(scenario==='stale-version')return {...structuredClone(state),receipts:[{operationId:c.operationId,command:c}]};
+    const wrong={...c,action:{...c.action,confirmed:false}};
+    return {...structuredClone(next),receipts:[{operationId:c.operationId,command:wrong}]};
+   }
+  });
+  const response=await handler(request(command()));
+  assert.equal(response.status,503,scenario);
+  assert.equal(calls.commit,1,scenario);
+ }
+});
+test('Meta A Edge canonical positive new commit and idempotent replay are distinct (FAKE_ONLY)',async()=>{
+ const fresh=fixture();
+ const write=await fresh.handler(request(command()));
+ assert.equal(write.status,200,'a fresh valid commit must not be rejected');
+ assert.equal(fresh.calls.commit,1);
+ const written=await write.json();
+ assert.equal(written.version,command().expectedVersion+1);
+ assert.equal(written.ideas[0].status,'UNDER_REVIEW');
+ const exact=written.receipts.filter((r:{operationId:string})=>r.operationId===command().operationId);
+ assert.equal(exact.length,1);
+ assert.deepEqual(exact[0].command,command());
  const current=emptyCampaignSnapshot(owner,workspace,[idea]);
  const applied=applyCampaignOperation(current,command());
  assert.equal(applied.ideas[0].status,'UNDER_REVIEW');
