@@ -26,7 +26,7 @@ export function issue49RawM3CreateSession(createExecToken){
 // Every state transition is one-shot; any failure permanently invalidates it.
 export function issue49RawM3AcceptStart(session,startExecToken){
   const state=get(session);
-  if(state.phase!=='created') STOP('start out of order or replayed');
+  if(state.phase!=='created') { state.phase='failed'; STOP('start out of order or replayed'); }
   state.phase='failed';
   const stream=check(startExecToken,'startExec',200);
   if(stream.streamValidated!==true||stream.executionConfirmed!==false)
@@ -39,7 +39,7 @@ export function issue49RawM3AcceptStart(session,startExecToken){
 }
 export function issue49RawM3InspectExit(session,inspectExecToken){
   const state=get(session);
-  if(state.phase!=='started') STOP('inspect out of order or replayed');
+  if(state.phase!=='started') { state.phase='failed'; STOP('inspect out of order or replayed'); }
   state.phase='failed';
   const inspected=check(inspectExecToken,'inspectExec',200);
   // M2 requires Running:false and ExitCode:0; M3 requires exact ID.
