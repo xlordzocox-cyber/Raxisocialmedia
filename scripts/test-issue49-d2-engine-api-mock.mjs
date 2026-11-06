@@ -140,5 +140,29 @@ Object.setPrototypeOf(shortContainers,Object.assign(Object.create(Array.prototyp
 }));
 await denyAsync(()=>fake({status:200,data:shortContainers})
  .call({operation:'listContainers'}));
+// Codex P2: accessors in inventory parent/array may change count and identity.
+let volumeReads=0;
+const flippingVolumes={Warnings:[]};
+Object.defineProperty(flippingVolumes,'Volumes',{enumerable:true,get(){
+ return ++volumeReads<=6?[{Name:'kept'},{Name:'dropped'}]:[{Name:'kept'}];
+}});
+await denyAsync(()=>fake({status:200,data:flippingVolumes})
+ .call({operation:'listVolumes'}));
+const getterWarnings={Volumes:[{Name:'kept'}]};
+Object.defineProperty(getterWarnings,'Warnings',{enumerable:true,get(){
+ return [];
+}});
+await denyAsync(()=>fake({status:200,data:getterWarnings})
+ .call({operation:'listVolumes'}));
+const indexedContainers=[{Id:id}];
+Object.defineProperty(indexedContainers,0,{enumerable:true,configurable:true,
+ get(){return {Id:id};}});
+await denyAsync(()=>fake({status:200,data:indexedContainers})
+ .call({operation:'listContainers'}));
+const indexedVolumes=[{Name:'kept'}];
+Object.defineProperty(indexedVolumes,0,{enumerable:true,configurable:true,
+ get(){return {Name:'kept'};}});
+await denyAsync(()=>fake({status:200,data:{Volumes:indexedVolumes,Warnings:[]}})
+ .call({operation:'listVolumes'}));
 console.log('PASS ISSUE49 D2 MOCK NEGATIVES ('+negatives+' adversarial cases; no Docker/socket/SQL)');
 console.log('ISSUE49 D2: FAKE_ONLY / NO_GO_HOSTED_MIGRATION');
