@@ -3,6 +3,28 @@ Date: 2026-11-06. **FAKE_ONLY / PR DRAFT / NO_GO_HOSTED_MIGRATION**.
 
 M4 was scoped Windows Node QA 30/30 negative cases PASS on code SHA `df6796d7c76769f6498003417909d0b534c4e8e1`, with scoped Codex rereview no major issues (receipt #6693852183). This does **not** close outstanding historical threads or certify real Docker transport.
 
+## Verified checkpoint after H1.4 — 2026-11-06
+
+**Current PR HEAD before this documentation-only edit:** `9d34b71a2a39976bdbdda1fdd5ec5bf159aa846a`. **Verified open GitHub review threads: 16** (legacy D2: 10; historical RAW response: 4; M1 parity: 2).
+
+**Formally resolved this checkpoint (six threads only):**
+- `PRRT_kwDOVIWc5s60jpFg` — inherited `every/map` and inventory truncation
+- `PRRT_kwDOVIWc5s60qxVW` — inherited `constructor` / `ArraySpeciesCreate`
+- `PRRT_kwDOVIWc5s60q3Ov` — inherited `filter` in `imageInspect`
+- `PRRT_kwDOVIWc5s60q_M-` — test omitted required `imageId:PIN` and falsely passed negatives before exchange
+- `PRRT_kwDOVIWc5s60rFZM` — inherited `toJSON` changed image version after validation
+- `PRRT_kwDOVIWc5s60pWFQ` — independent full-path/body/expected-status comparison for 13 M0 descriptors
+
+Each thread received a technical reply and its GitHub review thread was marked resolved; verification confirms **16 remain**. Evidence: Windows Node `H1.4 6/6 + H1.2 6/6 + M0 13/13` PASS on the pinned code SHA, PR comment #6694412615; independent Codex scoped review of the same code SHA said **Didn't find any major issues**, PR comment #6694415067. No implications for previously unresolved P2s. This document edit does not alter tested code.
+
+**Next phase — H2, fail-closed replacement-boundary audit (DESIGN/FAKE_ONLY).** Before further patching mutable legacy fixtures:
+1. Trace every import, call site, and export of historical `issue49-d2-raw-response-mock.mjs`, `issue49-d2-raw-m1-parity-mock.mjs`, the D2 legacy engine mock, and the M2/M3/M4 candidate. Identify any remaining reachable bypass or import path; do not assume historical means unused.
+2. Separate fixture-only test constructors from a hypothetical future trusted raw-byte source. Prove that arbitrary object/Proxy/SharedArrayBuffer responses cannot be promoted into a trusted envelope by M2–M4.
+3. Run fresh negative tests for each reachable bypass, scoped Codex review and Windows pinned-SHA QA; close only matching P2 threads. Preserve any unresolved historic code issues in GitHub as blockers if those paths remain reachable.
+4. Keep `FAKE_ONLY / NOT_INTEGRATED / NO_GO_HOSTED_MIGRATION` and no real Docker/socket/SQL/Supabase or merge.
+
+**Historical inventory below is a snapshot from before these six closures, not the current count.**
+
 ## Thread classification (exact inventory from GitHub after M4)
 ### A. Legacy D2 `scripts/issue49-d2-engine-api-mock.mjs` — 11 P2 threads
 - `PRRT_kwDOVIWc5s60U6t6` operation mutation during await
