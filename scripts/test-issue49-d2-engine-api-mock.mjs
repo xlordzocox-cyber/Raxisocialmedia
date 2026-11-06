@@ -129,5 +129,14 @@ await denyAsync(()=>fake({status:200,data:[{
 await denyAsync(()=>fake({status:200,data:{Volumes:[{
  Name:'before',toJSON(){this.Name='after';return {Name:'after'};}
 }],Warnings:[]}}).call({operation:'listVolumes'}));
+// Truncation during serialization must never pass as an exhaustive inventory.
+await denyAsync(()=>fake({status:200,data:{
+ Volumes:[{Name:'kept'},{Name:'dropped'}],Warnings:[],
+ toJSON(){return {Volumes:[{Name:'kept'}],Warnings:[]};}
+}}).call({operation:'listVolumes'}));
+const shortContainers=[{Id:id},{Id:'c'.repeat(64)}];
+shortContainers.toJSON=()=>[{Id:id}];
+await denyAsync(()=>fake({status:200,data:shortContainers})
+ .call({operation:'listContainers'}));
 console.log('PASS ISSUE49 D2 MOCK NEGATIVES ('+negatives+' adversarial cases; no Docker/socket/SQL)');
 console.log('ISSUE49 D2: FAKE_ONLY / NO_GO_HOSTED_MIGRATION');
