@@ -34,5 +34,31 @@ for(const [operation,method] of cases){
   operation==='listContainers'?[A,B]:['volume_a','volume_b']);
  passed++;
 }
-console.log('PASS ISSUE49 D2 ARRAY METHODS: '+passed+'/4 inherited-getter regressions (FAKE_ONLY)');
+// Native map.call itself performs ArraySpeciesCreate on the untrusted array.
+// A hostile inherited constructor getter must never be consulted.
+for(const operation of ['listContainers','listVolumes']){
+ const entries=operation==='listContainers'?[{Id:A},{Id:B}]:[{Name:'volume_a'},{Name:'volume_b'}];
+ let getterCalls=0;
+ const proto=Object.create(Array.prototype);
+ Object.defineProperty(proto,'constructor',{get(){
+  getterCalls++;
+  entries.length=1;
+  return {[Symbol.species]:function(){return [];}};
+ }});
+ Object.setPrototypeOf(entries,proto);
+ const transport=createIssue49D2MockTransport({
+  gate:'ISSUE49_D2_FAKE_ONLY',
+  exchange:async()=>({status:200,data:operation==='listContainers'?entries:
+   {Volumes:entries,Warnings:[]}})
+ });
+ const response=await transport.call({operation});
+ const inventory=operation==='listContainers'?response:response.Volumes;
+ assert.equal(getterCalls,0,'ArraySpeciesCreate must not execute constructor getter');
+ assert.equal(inventory.length,2,'inherited species getter must not truncate inventory');
+ assert.deepEqual(inventory.map(x=>operation==='listContainers'?x.Id:x.Name),
+  operation==='listContainers'?[A,B]:['volume_a','volume_b']);
+ passed++;
+}
+
+console.log('PASS ISSUE49 D2 ARRAY METHODS: '+passed+'/6 inherited-getter regressions (FAKE_ONLY)');
 console.log('ISSUE49 D2 ARRAY METHODS: NO_DOCKER / NO_SQL / NO_GO_HOSTED_MIGRATION');
