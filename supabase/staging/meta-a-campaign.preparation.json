@@ -65,10 +65,12 @@
     "migrationDependencyOrderReviewed": "REVIEWED_SOURCE_ONLY",
     "migrationFileIntegrityPinned": "GIT_BLOB_SHA1",
     "localSecurityScan": "165_SCANNED_0_FINDINGS_SHA_0315c8de",
-    "npmDependencyAudit": "0_VULNERABILITIES_SHA_9ac9c0f_LOCKFILE_UNCHANGED"
+    "npmDependencyAudit": "0_VULNERABILITIES_SHA_9ac9c0f_LOCKFILE_UNCHANGED",
+    "workspaceOnboardingPrivilegeSafety": "RESTRICTED_COLUMN_INSERT_SOURCE_ONLY_PENDING_INDEPENDENT_REVIEW"
   },
   "goDecision": "NO_GO_HOSTED_CHANGES",
   "nextSteps": [
+    "Revalidate revised workspace onboarding source and staging B2 reference hashes; never use old table-wide INSERT source",
     "Obtain independent review of this updated documentation/manifest HEAD; evidence is attributed to earlier validated source SHA",
     "Independently review file digests, ordered migration dependencies and Supabase Auth prerequisites before staging writes",
     "Design staging-only service role and JWT security scenarios without secrets in tracked files",
@@ -87,7 +89,7 @@
     },
     {
       "path": "supabase/migrations/20261019030808_raxi_hq_v09_workspace_onboarding.sql",
-      "gitBlobSha1": "4e40c8d04396888e6efa55af77fd3c6f3b0fa21b"
+      "gitBlobSha1": "73be891f43b1489678e481a71be4e71964e434d8"
     },
     {
       "path": "supabase/migrations/20261019231655_raxi_hq_real_idea_write.sql",
