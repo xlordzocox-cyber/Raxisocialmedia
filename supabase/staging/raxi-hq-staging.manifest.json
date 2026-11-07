@@ -53,7 +53,7 @@
         "version": "20261019030808",
         "path": "supabase/migrations/20261019030808_raxi_hq_v09_workspace_onboarding.sql",
         "order": 3,
-        "sha256Lf": "67472da139bbe3146f6e21ff8f1a5992a41a73fe80fd52800a9448ef15d3e375"
+        "sha256Lf": "da4727a6809a7d69254de04782768f804739bd5e76e31ad42444a10814d103ab"
       },
       {
         "id": "20261019231655",
