@@ -34,13 +34,14 @@ for(const t of observed.tables){
  if(old.sha256!==t.sha256)diffs.push({table:t.name,oldSha256:old.sha256,newSha256:t.sha256});
 }
 const sameShape=JSON.stringify({...expected,tables:[]})===JSON.stringify({...observed,tables:[]});
+const schemaMatchesPinnedSnapshot= sameShape && diffs.length===0 && digest(observed)===manifest.expectedSchemaSha256;
 const onlyExpectedWorkspaceDrift= sameShape && diffs.length===1 && diffs[0].table==='raxi_workspaces';
 const result={
- status:onlyExpectedWorkspaceDrift?'EXPECTED_WORKSPACE_ACL_DRIFT':'UNEXPECTED_SCHEMA_DRIFT',
+ status:schemaMatchesPinnedSnapshot?'SCHEMA_MATCH':onlyExpectedWorkspaceDrift?'EXPECTED_WORKSPACE_ACL_DRIFT':'UNEXPECTED_SCHEMA_DRIFT',
  previousExpectedDigest:manifest.expectedSchemaSha256,
  candidateDigest:digest(observed),
  changedTables:diffs,otherCatalogComponentsMatch:sameShape,
  inspectionScope:'ISOLATED_PGLITE_ONLY',hostedActions:false,
 };
 console.log(JSON.stringify(result,null,2));
-if(!onlyExpectedWorkspaceDrift)process.exitCode=1;
+if(!schemaMatchesPinnedSnapshot && !onlyExpectedWorkspaceDrift)process.exitCode=1;
