@@ -4,7 +4,7 @@ import {readFile,realpath} from 'node:fs/promises';
 import {resolve,sep} from 'node:path';
 import {fileURLToPath} from 'node:url';
 export const STAGING_PROJECT=Object.freeze({ref:'zvhxjindgyvtasstfjut',name:'raxi-hq-staging',organizationId:'qpjzdqkvjzgqwvismeku',region:'us-east-2',postgresMajor:17});
-export const REVIEWED_STAGING_MANIFEST_SHA256='6ed2a090e58269ae1fac1209c011cb0e955e258fe7b05e29a0a8ba641cc2d09f';
+export const REVIEWED_STAGING_MANIFEST_SHA256='f73de8794049838133a3604a0909f96f3024c721da730bdcdb4095178f7cf671';
 const root=fileURLToPath(new URL('../../..',import.meta.url));
 const manifestPath='supabase/staging/raxi-hq-staging.manifest.json';
 export function canonical(value) {
