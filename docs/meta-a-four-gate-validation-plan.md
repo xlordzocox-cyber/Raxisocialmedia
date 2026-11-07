@@ -1,17 +1,26 @@
 # Meta A — secuencia verificable de regresiones, SQL negativo, PG17 y staging
 
-**Estado: PREPARACIÓN; sin PASS de regresión completa o PG17 atribuible a este PR.**
+**Estado: QA LOCAL VALIDADO; STAGING NO AUTORIZADO / NO DESPLEGADO.**
 **Rama:** `audit/meta-a-campaign-approval-negatives`. Meta A separada de PR #50, que conserva sus propios P2.
+
+## Evidencia final de QA local (2026-11-06/07)
+
+- **SHA validado:** `0315c8de0a5181a0ab40c9a3a5d7e1ce55e4b945` para `npm run typecheck` PASS, `node scripts/test.mjs --serial` **886/886 PASS** (0 FAIL, 0 skipped), `npm run build` PASS (592 módulos), y `node scripts/security-scan.mjs` **165 archivos / 0 hallazgos**. Ejecutado sobre detached worktree Windows pinneado; archivos versionados intactos. Evidencia del operador en conversación de QA y registro GitHub PR #53; estos comandos no demuestran autenticación Supabase real.
+- **Dependencias:** `npm audit --json --audit-level=moderate --ignore-scripts` reportó **0 critical/high/moderate/low** y exit 0 en SHA `9ac9c0fc553d7e3b831a84bb093e5fb0eda69034`. Los posteriores cambios fueron solamente archivos de pruebas; `package.json`/`package-lock.json` sin modificar. No atribuir un nuevo `npm audit` al SHA actual.
+- **Fallo histórico de recursos, no ocultado:** `npm test` con concurrencia predeterminada en SHA `9ac9c0f` produjo 836/838 con dos procesos Node `Fatal process out of memory: Zone` (sin aserción negativa acreditada). La repetición secuencial sobre `9ac9c0f` pasó 886/886 y build PASS. Se conserva el riesgo de OOM en máquinas con recursos limitados; preferir `--serial` como configuración de QA local.
+- **PostgreSQL 17 nativo:** SHA `9ac9c0fc553d7e3b831a84bb093e5fb0eda69034`, laboratorio aislado `raxi_campaign_qa`, versión 17.11, contenedor de identidad fijada, sin red/puertos/montajes, test de dos conexiones reales con espera de bloqueo de fila. Resultado: stale CAS `40001` tras commit del ganador, cero auditoría/aprobación fabricada, limpieza 0 usuarios/workspaces, bloqueo exclusivo liberado. **Alcance limitado a actualización de versión frente a una RPC obsoleta; no dos RPC válidas simultáneas.** Evidencia GitHub PR #53 comentario 6699389476. Los cambios posteriores no alteraron el harness ni SQL.
+- **Revisión externa:** Codex sobre SHA `9ac9c0f` completó 0 nuevos hallazgos, con 11/11 hilos históricos resueltos documentalmente. Nueva revisión independiente **PENDIENTE para HEAD de documentación**. Estos documentos de actualización cambian SHA y, por lo tanto, NO representan un nuevo PASS de la suite en su propio commit.
+- **Permisos:** `executionReady:false`, `goDecision:NO_GO_HOSTED_CHANGES`, `authorization.*:false` permanecen inalterados. JWT/Auth/RLS alojados, revocación real, staging E2E, SQL/Edge deploy y proveedores reales NO probados ni autorizados.
 
 ## 1. QA completo sobre SHA exacto
 
 - Confirmar `FETCH_HEAD` de esta rama contra HEAD documentado antes de ejecutar.
 - En worktree temporal aislado, usando dependencias *ya instaladas*, ejecutar desde `apps/raxi-hq`:
   1. `npm run typecheck`
-  2. `npm test` (incluye `metaACampaignSecurity.test.ts` en la lista)
+  2. `node scripts/test.mjs --serial` (incluye `metaACampaignSecurity.test.ts`; evita los OOM observados con concurrencia predeterminada)
   3. `npm run build`
   4. `git diff --check` contra base; inspección de paquetes y de secretos; no ejecutar scripts de integración remota.
-- Registrar los conteos exactos; marcar FAIL si cualquiera falla. Los diez casos fake-only sobre Edge ya pasaron en Windows en SHA `aa5d7b9d56e0700fe97efa7aba13b5bc50a6a9f1`, **no extrapolar** ese PASS al SHA de este archivo ni a la suite completa.
+- Registrar los conteos exactos; marcar FAIL si cualquiera falla. La suite completa pasó en Windows 886/886 sobre SHA `0315c8de0a5181a0ab40c9a3a5d7e1ce55e4b945`; **no extrapolar** automáticamente a futuras revisiones.
 - **No** activar `npm run dev` para esta validación ni aceptar datos simulados como LIVE.
 
 ## 2. Pruebas negativas de SQL
