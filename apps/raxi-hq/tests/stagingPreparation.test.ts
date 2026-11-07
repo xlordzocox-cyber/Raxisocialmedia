@@ -17,7 +17,7 @@ test('Meta A workspace onboarding keeps INSERT column scoped and RLS owner guard
  const candidate=raw().applicationPlan.steps.find((step:{path:string})=>step.path.endsWith('raxi_hq_v09_workspace_onboarding.sql'));
  assert.ok(candidate);
  assert.equal(sqlDigest(onboarding),candidate.sha256Lf);
- assert.match(core,/grant insert \(owner_user_id,slug,name\) on public\.raxi_workspaces to authenticated;/i);
+ assert.match(core,/grant insert \(owner_user_id,slug,name\), update \(name,updated_at\) on public\.raxi_workspaces to authenticated;/i);
  assert.match(core,/create policy "raxi_workspaces_owner_insert" on public\.raxi_workspaces for insert to authenticated with check \(owner_user_id = \(select auth\.uid\(\)\)\)/i);
  const grants=onboarding.match(/\bgrant\s+insert\s*(?:\([^;]*?\))?\s+on\s+public\.raxi_workspaces\s+to\s+authenticated\s*;/gi)??[];
  assert.equal(grants.length,1);
