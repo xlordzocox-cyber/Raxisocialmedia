@@ -28,8 +28,11 @@
     "pr": 53,
     "branch": "audit/meta-a-campaign-approval-negatives",
     "nativePg17NegativeTestsValidatedSha": "c2ddc26a4f88ca4b02fef05bf8dcc618db1b3f01",
-    "fullAppQaValidatedSha": "c1510201e7d802d3c772af973fac9235928fcb96",
-    "sqlSourceCommit": "2ff7823fe706c22d9e86cbeeb07d41dc18f389da"
+    "fullAppQaValidatedSha": "0315c8de0a5181a0ab40c9a3a5d7e1ce55e4b945",
+    "sqlSourceCommit": "2ff7823fe706c22d9e86cbeeb07d41dc18f389da",
+    "nativePg17ConcurrencyValidatedSha": "9ac9c0fc553d7e3b831a84bb093e5fb0eda69034",
+    "securityScanValidatedSha": "0315c8de0a5181a0ab40c9a3a5d7e1ce55e4b945",
+    "npmAuditValidatedSha": "9ac9c0fc553d7e3b831a84bb093e5fb0eda69034"
   },
   "orderedSqlCandidates": [
     "supabase/migrations/20261019030541_raxi_hq_v09_private_core.sql",
@@ -48,22 +51,25 @@
     "merge": false
   },
   "gates": {
-    "appTypecheckAndBuild": "PASS_PRIOR_SHA",
-    "appTests": "886_PASS_PRIOR_SHA",
+    "appTypecheckAndBuild": "PASS_SHA_0315c8de",
+    "appTests": "886_PASS_SHA_0315c8de_SERIAL",
     "localPostgres17Migrations": "PASS",
     "localPostgres17CampaignNegativeCases": "3_PASS",
     "localPostgres17RlsNegativeChecks": "PASS",
-    "nativePostgres17IndependentConcurrency": "PENDING",
+    "nativePostgres17IndependentConcurrency": "PASS_SHA_9ac9c0f_LOCAL_ISOLATED",
     "realSupabaseJwtAuthRevocation": "NOT_TESTED",
     "stagingSchemaMigration": "NOT_AUTHORIZED",
     "stagingEdgeDeployment": "NOT_AUTHORIZED",
     "stagingCrossTenantE2e": "NOT_TESTED",
-    "independentReviewOfManifest": "REQUEST_PENDING",
+    "independentReviewOfManifest": "PENDING_UPDATED_MANIFEST_REVIEW",
     "migrationDependencyOrderReviewed": "REVIEWED_SOURCE_ONLY",
-    "migrationFileIntegrityPinned": "GIT_BLOB_SHA1"
+    "migrationFileIntegrityPinned": "GIT_BLOB_SHA1",
+    "localSecurityScan": "165_SCANNED_0_FINDINGS_SHA_0315c8de",
+    "npmDependencyAudit": "0_VULNERABILITIES_SHA_9ac9c0f_LOCKFILE_UNCHANGED"
   },
   "goDecision": "NO_GO_HOSTED_CHANGES",
   "nextSteps": [
+    "Obtain independent review of this updated documentation/manifest HEAD; evidence is attributed to earlier validated source SHA",
     "Independently review file digests, ordered migration dependencies and Supabase Auth prerequisites before staging writes",
     "Design staging-only service role and JWT security scenarios without secrets in tracked files",
     "Obtain separate explicit approvals for staging SQL, Edge, Auth/users and spending",
