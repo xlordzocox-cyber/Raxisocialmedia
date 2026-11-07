@@ -25,6 +25,32 @@ test('Meta A workspace onboarding keeps INSERT column scoped and RLS owner guard
  assert.doesNotMatch(onboarding,/\bgrant\s+insert\s+on\s+public\.raxi_workspaces\s+to\s+authenticated\b/i);
  assert.doesNotMatch(onboarding,/\bgrant\s+all\b|\bgrant\s+insert\s*\(\s*(?:id|created_at|updated_at)/i);
 });
+test('Meta A workspace owner can INSERT only permitted columns in isolated PGlite',async()=>{
+ const db=await campaignDatabase(false);
+ const owner='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+ const intruder='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+ try {
+  await db.exec(`insert into auth.users(id) values ('${owner}'), ('${intruder}')`);
+  await db.exec(`select set_config('request.jwt.claims','{"sub":"${owner}"}',false)`);
+  await db.exec('set role authenticated');
+  await db.exec(`insert into public.raxi_workspaces(owner_user_id,slug,name) values ('${owner}','owned','Owned')`);
+  await assert.rejects(
+   db.exec(`insert into public.raxi_workspaces(owner_user_id,slug,name) values ('${intruder}','cross-tenant','Denied')`),
+   /row-level security|policy|permission denied/i,
+  );
+  await assert.rejects(
+   db.exec(`insert into public.raxi_workspaces(id,owner_user_id,slug,name) values ('cccccccc-cccc-4ccc-8ccc-cccccccccccc','${owner}','forced-id','Denied')`),
+   /permission denied/i,
+  );
+  await assert.rejects(
+   db.exec(`insert into public.raxi_workspaces(owner_user_id,slug,name,created_at) values ('${owner}','forced-time','Denied',now())`),
+   /permission denied/i,
+  );
+  await db.exec('reset role');
+  const result=await db.query(`select count(*)::int as count from public.raxi_workspaces where owner_user_id='${owner}'`);
+  assert.equal(result.rows[0]?.count,1);
+ } finally {try{await db.exec('reset role')}finally{await db.close()}}
+});
 test('PR21 reviewed manifest and SQL hashes bind the exact staging project, base commit and 4+3 ordered sources',async()=>{
  const m=await loadPreparationManifest();assert.equal(digest(m),REVIEWED_STAGING_MANIFEST_SHA256);
  assert.equal(m.executionReady,false);assert.equal(m.baseCommit,'b56b26567bc97078fa58ef16385b851d890d6408');
