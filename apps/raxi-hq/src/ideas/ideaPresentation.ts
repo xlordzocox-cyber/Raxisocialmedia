@@ -36,6 +36,6 @@ export const ideaChannelLabel: Record<IdeaChannel, string> = {
   INSTAGRAM_REEL: 'Instagram Reel',
   INSTAGRAM_STORY: 'Instagram Stories',
   TEASER: 'Teaser',
-  FANVIEW_FEED: 'FanView Feed',
-  FANVIEW_CHAT: 'FanView Chat',
+  FANVIEW_FEED: 'Fanvue Feed',
+  FANVIEW_CHAT: 'Fanvue Chat',
 };

@@ -32,7 +32,7 @@ test('presentation labels cover every canonical status, priority, source and cha
   assert.deepEqual(IDEA_STATUSES.map(value => ideaStatusLabel[value]), ['Nueva', 'En análisis', 'Aprobada para HQ', 'Rechazada', 'Archivada', 'Enviada al HQ']);
   assert.deepEqual(IDEA_PRIORITIES.map(value => ideaPriorityLabel[value]), ['Baja', 'Media', 'Alta', 'Urgente']);
   assert.deepEqual(IDEA_SOURCES.map(value => ideaSourceLabel[value]), ['Luis', 'Radar de tendencias', 'Analytics', 'Calendario editorial', 'Insight de memoria', 'Señal externa']);
-  assert.deepEqual(IDEA_CHANNELS.map(value => ideaChannelLabel[value]), ['Instagram Feed', 'Instagram Reel', 'Instagram Stories', 'Teaser', 'FanView Feed', 'FanView Chat']);
+  assert.deepEqual(IDEA_CHANNELS.map(value => ideaChannelLabel[value]), ['Instagram Feed', 'Instagram Reel', 'Instagram Stories', 'Teaser', 'Fanvue Feed', 'Fanvue Chat']);
 });
 
 test('idea panel shows MOCK summaries, keyboard-selectable ideas and local capture affordance', () => {
