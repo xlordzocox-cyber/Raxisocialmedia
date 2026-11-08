@@ -7,18 +7,24 @@ import type { RealIdeaState, RealIdeaStore } from './realIdeaStore';
 import type { RealCampaignStore } from './realCampaignStore';
 import { humanAttention, type HumanAttentionItem } from '../operations/humanAttentionSelectors';
 import { HumanAttentionPanel } from '../operations/HumanAttentionPanel';
+import { campaignEligibility } from '../campaigns/campaignEligibility';
+import { CampaignEligibilityPanel } from '../campaigns/CampaignEligibilityPanel';
+import type { CampaignReadContext } from './campaignReadContext';
 
 export function RealCampaignCenter({ store, ideas, ideaState = ideas.getSnapshot() }: { store: RealCampaignStore; ideas: RealIdeaStore; ideaState?: RealIdeaState }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const [open, setOpen] = useState(true), [selected, select] = useState<string>();
   const selectedRef = useRef(selected); selectedRef.current = selected;
   const snapshot = state.snapshot;
-  const attentionFor = (current = store.getSnapshot(), currentIdeas = ideas.getSnapshot()) => humanAttention(current, {
+  const readContext = (current = store.getSnapshot(), currentIdeas = ideas.getSnapshot()): CampaignReadContext => ({
     mode:'REAL',ownerId:currentIdeas.workspace?.ownerId,workspaceId:currentIdeas.workspace?.id,
     synchronized:!store.needsSynchronization(),ideaPending:ideas.hasPendingWrite(),
     ideasReady:currentIdeas.phase==='ready' && !!current.snapshot && currentIdeas.ideas.every(({idea})=>current.snapshot!.ideas.some(i=>i.id===idea.id && i.updatedAt===idea.updatedAt && i.status===idea.status)),
   });
-  const attention=attentionFor(state,ideaState);
+  const context = readContext(state, ideaState);
+  const attention = humanAttention(state, context);
+  const eligibility = campaignEligibility(state, context);
+  const attentionFor = (current = store.getSnapshot()) => humanAttention(current, readContext(current));
   const presentedSnapshot=useRef(snapshot);presentedSnapshot.current=attention.available?snapshot:null;
   const destination=useRef<HTMLDivElement>(null);
   const [navigation,setNavigation]=useState<{item:HumanAttentionItem;version:number}>();
@@ -52,10 +58,11 @@ export function RealCampaignCenter({ store, ideas, ideaState = ideas.getSnapshot
     {state.pending && <button disabled={store.needsSynchronization() || state.phase === 'saving' || state.phase === 'loading'} onClick={() => { void store.retry(); }}>Reintentar operación pendiente</button>}
     {store.canReconsider() && <button onClick={() => store.reconsider()}>Revisar decisión sobre la versión actual</button>}
     <HumanAttentionPanel view={attention} onNavigate={navigate}/>
+    {open && !snapshot && <CampaignEligibilityPanel />}
     <div ref={destination}>
     {snapshot && <fieldset className="real-campaign-fields" disabled={store.needsSynchronization() || ['loading','saving','unavailable'].includes(state.phase) || !!state.pending || ideas.hasPendingWrite()}>
       <OperationsInbox real id="real-operations-inbox" handoffs={snapshot.handoffs} open={open} campaigns={snapshot.session} onAction={action} onOpenCampaign={select} />
-      <CampaignWorkspace persistent id="real-campaign-workspace" session={snapshot.session} getSession={() => store.getSnapshot().snapshot!.session} open={open} selectedId={selected} getSelectedId={() => selectedRef.current} onSelect={select} onAction={action} />
+      <CampaignWorkspace persistent id="real-campaign-workspace" session={snapshot.session} getSession={() => store.getSnapshot().snapshot!.session} open={open} selectedId={selected} getSelectedId={() => selectedRef.current} onSelect={select} onAction={action} eligibility={eligibility} />
     </fieldset>}
     </div>
     <button disabled={state.phase === 'saving'} onClick={() => { void store.load(); }}>Recargar campañas desde Supabase</button>

@@ -6,6 +6,8 @@ import type { CampaignStrategyInput } from './strategyContracts';
 import { campaignStatusLabel, contentLevelLabel } from './campaignPresentation';
 import { ideaChannelLabel, ideaPriorityLabel, ideaProvenanceLabel } from '../ideas/ideaPresentation';
 import { StrategyStudio } from './StrategyStudio';
+import { CampaignEligibilityPanel } from './CampaignEligibilityPanel';
+import type { CampaignEligibility } from './campaignEligibility';
 import { AriaProductionPanel } from '../production/AriaProductionPanel';
 import { applyAriaPilotFailure, applyAriaPilotReceipt, isAriaPilotOrderCurrentInSession, reconcileAriaPilotOrder, requireCurrentAriaPilotOrder, type AriaPilotOrder, type AriaPilotOutcome } from '../production/ariaPilot';
 
@@ -21,10 +23,11 @@ export function withoutStrategyDraft(drafts: Readonly<Record<string, CampaignStr
   delete next[key];
   return next;
 }
-export function CampaignWorkspace({ id, session, getSession, open, selectedId, getSelectedId, onSelect, onAction, persistent = false }: {
+export function CampaignWorkspace({ id, session, getSession, open, selectedId, getSelectedId, onSelect, onAction, persistent = false, eligibility }: {
   id: string; persistent?: boolean; session: CampaignSession; getSession: () => CampaignSession; open: boolean; selectedId?: string;
   getSelectedId: () => string | undefined;
   onSelect: (id: string) => void; onAction: (action: CampaignCommand) => boolean | Promise<boolean>;
+  eligibility?: ReadonlyMap<string, CampaignEligibility>;
 }) {
   const [pendingTransition, setPendingTransition] = useState<PendingCampaignTransition>();
   // Form edits live only in this mounted workspace, separate from canonical revisions and audit.
@@ -63,6 +66,7 @@ export function CampaignWorkspace({ id, session, getSession, open, selectedId, g
           {activeTransition && <div className="campaign-confirm"><p>Confirmar cambio de {activeTransition.campaignId} a {campaignStatusLabel[activeTransition.to]}.</p>{transitionDraft && <p role="alert">CAMBIOS SIN GUARDAR · LOCAL · SESIÓN. {activeTransition.to === 'CANCELED' ? 'La cancelación es terminal: la edición dejará de estar disponible y el borrador solo permanecerá en esta sesión.' : 'El borrador se conservará y volverá a estar disponible al reanudar planificación.'}</p>}<button type="button" onClick={async () => { if (await onAction({ type: 'TRANSITION_CAMPAIGN', campaignId: activeTransition.campaignId, to: activeTransition.to })) setPendingTransition(undefined); }}>{transitionDraft ? activeTransition.to === 'CANCELED' ? 'Confirmar cancelación con cambios sin guardar' : 'Confirmar bloqueo con cambios sin guardar' : 'Confirmar estado'}</button><button type="button" onClick={() => setPendingTransition(undefined)}>Volver</button></div>}</div>}
       </article>}
     </div>
+    {persistent && selected && <CampaignEligibilityPanel result={eligibility?.get(selected.id)} />}
     {selected && <StrategyStudio key={selected.id} campaign={selected} session={session} onAction={onAction}
       draft={selectedDraft} formReset={formReset}
       onDraftChange={input => { if (selectedDraftKey) setStrategyDrafts(current => ({ ...current, [selectedDraftKey]: input })); }}
