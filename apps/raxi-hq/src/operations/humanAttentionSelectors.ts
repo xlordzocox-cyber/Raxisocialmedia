@@ -1,22 +1,16 @@
 import type { RealCampaignState } from '../persistence/realCampaignStore';
 import { currentStrategy } from '../campaigns/campaignSession';
+import { confirmedCampaignSnapshot, type CampaignReadContext } from '../persistence/campaignReadContext';
 
-/** Presentation context only: AuthStore and the canonical stores own admission. */
-export interface HumanAttentionContext {
-  ownerId?: string; workspaceId?: string; mode: 'REAL' | 'DEMO';
-  synchronized: boolean; ideasReady: boolean; ideaPending: boolean;
-}
+export type HumanAttentionContext = CampaignReadContext;
 export interface HumanAttentionItem {
   kind: 'proposal' | 'strategy'; id: string; title: string; origin: string; date: string;
   campaignId?: string; revision?: number;
 }
 export function humanAttention(state: RealCampaignState, context: HumanAttentionContext) {
-  const snapshot=state.snapshot;
-  const available=context.mode==='REAL' && context.ideasReady && !context.ideaPending && context.synchronized &&
-    state.phase==='ready' && !state.pending && !state.error && !!context.ownerId && !!context.workspaceId &&
-    snapshot?.ownerId===context.ownerId && snapshot?.workspaceId===context.workspaceId;
+  const snapshot=confirmedCampaignSnapshot(state,context);
   const items:HumanAttentionItem[]=[], warnings:string[]=[];
-  if(!available || !snapshot)return {available:false,items,warnings};
+  if(!snapshot)return {available:false,items,warnings};
   const {handoffs,ideas,session}=snapshot;
   const duplicate=<T,>(values:readonly T[],key:(value:T)=>string)=>{
     const seen=new Set<string>(),bad=new Set<string>();
