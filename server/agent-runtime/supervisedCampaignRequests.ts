@@ -102,6 +102,20 @@ export function supervisedCampaignRequests(deps: {
     if (result.error) throw result.error;
     return result.data;
   }
+  // An authenticated replay needs its own bounded read budget: an already committed
+  // receipt is recoverable without consuming the much smaller new-submit quota.
+  async function rateAdmission(identity: HostedIdentity, operation: 'PREFLIGHT' | 'SUBMIT' | 'REPLAY'): Promise<Response | null> {
+    const value = record(await rpc('raxi_supervised_request_rate_admit', { p_identity: identity, p_operation: operation }));
+    if (value.operation !== operation) throw Error('Rate admission operation mismatch');
+    if (value.status === 'ALLOWED' && Object.keys(value).length === 2) return null;
+    if (value.status === 'RATE_LIMITED' && Object.keys(value).length === 3 &&
+        integer(value.retryAfterSeconds, 1) && Number(value.retryAfterSeconds) <= 60) {
+      return Response.json({ status: 'RATE_LIMITED', reason: 'REQUEST_RATE_LIMIT',
+        retryAfterSeconds: value.retryAfterSeconds }, { status: 429,
+        headers: { 'Cache-Control': 'no-store', 'Retry-After': String(value.retryAfterSeconds) } });
+    }
+    throw Error('Unverified rate admission receipt');
+  }
   async function handle(request: Request, submit: boolean): Promise<Response> {
     if (request.method !== 'POST') return json(405, { status: 'INELIGIBLE', reason: 'METHOD_NOT_ALLOWED' });
     const token = /^Bearer ([^\s,]{1,16384})$/i.exec(request.headers.get('authorization') ?? '')?.[1];
@@ -117,8 +131,17 @@ export function supervisedCampaignRequests(deps: {
           !(Date.parse(identity.expiresAt) > Date.now())) return denied();
       const args = { p_identity: identity, p_command: command };
       if (submit) {
+        // Bound every replay lookup, even if the user repeatedly submits a known key.
+        const replayLimited = await rateAdmission(identity, 'REPLAY');
+        if (replayLimited) return replayLimited;
         const existing = await rpc('raxi_supervised_campaign_request_replay', args);
         if (existing !== null) return await confirmed(existing, command, identity);
+        // First-time submit and missing-receipt retry both retain the same requestKey.
+        const submitLimited = await rateAdmission(identity, 'SUBMIT');
+        if (submitLimited) return submitLimited;
+      } else {
+        const preflightLimited = await rateAdmission(identity, 'PREFLIGHT');
+        if (preflightLimited) return preflightLimited;
       }
       const raw = record(structuredClone(await rpc('raxi_campaign_snapshot', { p_workspace: command.workspaceId, p_actor: identity.actorId })));
       const snapshot = parseCampaignSnapshot(raw, identity.actorId, identity.workspaceId);
