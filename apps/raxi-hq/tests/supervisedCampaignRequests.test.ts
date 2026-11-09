@@ -56,6 +56,49 @@ test('closed HTTP boundary rejects unauthenticated and forged commands before SQ
     server: { rpc: async () => { throw Error('not reached'); } } }));
 });
 
+test('rate-limit boundary rejects unverified admissions before canonical snapshot or commit', async () => {
+  const input = draft(attentionFixture());
+  const calls: string[] = [];
+  let allowance: 'deny' | 'malformed' | 'replay-conflict' = 'deny';
+  const handlers = supervisedCampaignRequests({ projectRef, verify: async () => identity(),
+    server: { rpc: async (name, args) => {
+      calls.push(name);
+      if (name === 'raxi_supervised_request_rate_admit') {
+        if (allowance === 'malformed') return { data: { status: 'ALLOWED', operation: 'WRONG' }, error: null };
+        if (allowance === 'replay-conflict' && args.p_operation === 'REPLAY') {
+          return { data: { status: 'ALLOWED', operation: 'REPLAY' }, error: null };
+        }
+        return { data: { status: 'RATE_LIMITED', operation: args.p_operation, retryAfterSeconds: 17 }, error: null };
+      }
+      if (name === 'raxi_supervised_campaign_request_replay' && allowance === 'replay-conflict') {
+        return { data: { status: 'CONFLICT' }, error: null };
+      }
+      throw Error('canonical query must not be reached');
+    } },
+  });
+  const blocked = await handlers.preflight(request(input));
+  assert.equal(blocked.status, 429);
+  assert.equal(blocked.headers.get('Retry-After'), '17');
+  assert.deepEqual(await blocked.json(), { status: 'RATE_LIMITED', reason: 'REQUEST_RATE_LIMIT', retryAfterSeconds: 17 });
+  assert.deepEqual(calls, ['raxi_supervised_request_rate_admit']);
+  calls.length = 0;
+  const submitted = await handlers.submit(request({ ...input, snapshotHash: 'a'.repeat(64) }));
+  assert.equal(submitted.status, 429);
+  assert.deepEqual(calls, ['raxi_supervised_request_rate_admit']);
+  calls.length = 0;
+  allowance = 'malformed';
+  assert.deepEqual(await (await handlers.preflight(request(input))).json(),
+    { status: 'UNKNOWN', reason: 'CONFIRMATION_UNAVAILABLE' });
+  assert.deepEqual(calls, ['raxi_supervised_request_rate_admit']);
+  calls.length = 0;
+  allowance = 'replay-conflict';
+  const conflict = await handlers.submit(request({ ...input, snapshotHash: 'a'.repeat(64) }));
+  assert.equal(conflict.status, 409);
+  assert.deepEqual(await conflict.json(), { status: 'CONFLICT' });
+  // A known-key result never consumes the much smaller new-SUBMIT quota.
+  assert.deepEqual(calls, ['raxi_supervised_request_rate_admit', 'raxi_supervised_campaign_request_replay']);
+});
+
 test('preflight fails closed on incompatible or corrupt editorial evidence and scope', async () => {
   const fixture = attentionFixture();
   const approved = applyCampaignOperation(fixture, operation(fixture, actions(fixture)));
@@ -65,6 +108,9 @@ test('preflight fails closed on incompatible or corrupt editorial evidence and s
   let currentIdentity = identity();
   const handlers = supervisedCampaignRequests({ projectRef, verify: async () => currentIdentity,
     server: { rpc: async name => {
+      if (name === 'raxi_supervised_request_rate_admit') {
+        return { data: { status: 'ALLOWED', operation: 'PREFLIGHT' }, error: null };
+      }
       assert.equal(name, 'raxi_campaign_snapshot');
       if (unavailable) throw Error('synthetic network failure');
       return { data: structuredClone(current), error: null };
@@ -160,6 +206,11 @@ test('isolated PostgreSQL accepts only canonical intent, and reconciles concurre
       if (name === 'raxi_campaign_snapshot') {
         return { data: (await db.query<{ v: unknown }>('select public.raxi_campaign_snapshot($1,$2) v', [args.p_workspace, args.p_actor])).rows[0].v, error: null };
       }
+      if (name === 'raxi_supervised_request_rate_admit') {
+        // Existing canonical scenario exercises an admissible request without
+        // exhausting the trial quota. Native SQL admission is tested below.
+        return { data: { status: 'ALLOWED', operation: args.p_operation }, error: null };
+      }
       assert.ok(['raxi_supervised_host_identity', 'raxi_supervised_campaign_request_replay', 'raxi_supervised_campaign_request_commit'].includes(name));
       const arity = name.endsWith('_commit') ? '$1,$2,$3,$4' : name.endsWith('_replay') ? '$1,$2' : '$1';
       if (name.endsWith('_commit')) await beforeCommit?.(args);
@@ -179,6 +230,32 @@ test('isolated PostgreSQL accepts only canonical intent, and reconciles concurre
     };
     const mount = () => supervisedCampaignRequests({ projectRef, verify: supabaseSupervisedAuth({ projectRef, auth, server }), server });
     const handlers = mount();
+    // Native SQL counter logic, with independent quotas sharing the same
+    // verified workspace and actor; seed near each fixed-window boundary.
+    await db.exec('reset role');
+    for (const [operation, initial] of [['PREFLIGHT', 29], ['SUBMIT', 2], ['REPLAY', 59]] as const) {
+      await db.query(`insert into public.raxi_supervised_request_rate_counters
+        (workspace_id,actor_user_id,operation,window_start,request_count)
+        values($1,$2,$3,to_timestamp((floor(extract(epoch from clock_timestamp()) / 60)::bigint * 60)::double precision),$4)
+        `, [workspace, owner, operation, initial]);
+    }
+    await db.exec('set role service_role');
+    const rate = async (operation: string, subject = identity()) =>
+      (await db.query<{ v: { status: string; operation: string; retryAfterSeconds?: number } }>(
+        'select public.raxi_supervised_request_rate_admit($1,$2) v', [JSON.stringify(subject), operation])).rows[0].v;
+    for (const operation of ['PREFLIGHT', 'SUBMIT', 'REPLAY'] as const) {
+      assert.deepEqual(await rate(operation), { status: 'ALLOWED', operation });
+      const blocked = await rate(operation);
+      assert.equal(blocked.status, 'RATE_LIMITED');
+      assert.equal(blocked.operation, operation);
+      assert.ok(Number.isInteger(blocked.retryAfterSeconds) && blocked.retryAfterSeconds! >= 1 && blocked.retryAfterSeconds! <= 60);
+    }
+    assert.equal((await db.query<{ total: number }>(
+      'select coalesce(sum(request_count),0)::int total from public.raxi_supervised_request_rate_counters')).rows[0].total, 93);
+    await assert.rejects(rate('UNTRUSTED'), error => !!error && typeof error === 'object' &&
+      'code' in error && error.code === '22023');
+    // No production quota is authorized yet. The remainder of this integration
+    // test uses an explicitly stubbed, independently tested admission port.
     const count = async () => (await db.query<{ n: number }>("select count(*)::int n from public.raxi_audit_events where action='SUPERVISED_CAMPAIGN_REQUESTED'")).rows[0].n;
     for (const token of ['anonymous', 'expired', 'other', 'invalid']) {
       assert.ok((await handlers.preflight(request(input, token))).status >= 400);
