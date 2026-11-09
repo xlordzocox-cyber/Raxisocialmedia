@@ -19,7 +19,7 @@ revoke all on public.raxi_supervised_request_rate_counters from public,anon,auth
 grant select,insert,update on public.raxi_supervised_request_rate_counters to service_role;
 
 create function public.raxi_supervised_request_rate_admit(p_identity jsonb, p_operation text) returns jsonb
-language plpgsql security invoker set search_path='' as $
+language plpgsql security invoker set search_path='' as $$
 declare
   v_workspace uuid;
   v_actor uuid;
@@ -58,7 +58,7 @@ begin
     return jsonb_build_object('status','RATE_LIMITED','operation',p_operation,'retryAfterSeconds',v_retry);
   end if;
   return jsonb_build_object('status','ALLOWED','operation',p_operation);
-end; $;
+end; $$;
 revoke all on function public.raxi_supervised_request_rate_admit(jsonb,text) from public,anon,authenticated;
 grant execute on function public.raxi_supervised_request_rate_admit(jsonb,text) to service_role;
 
