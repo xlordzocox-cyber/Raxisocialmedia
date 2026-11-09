@@ -25,7 +25,7 @@ export function campaignEligibility(state: RealCampaignState, context: CampaignR
   return results;
 }
 
-function evaluateCampaign(snapshot: CampaignSnapshot, campaign: CampaignRecord): CampaignEligibility {
+export function evaluateCampaign(snapshot: CampaignSnapshot, campaign: CampaignRecord): CampaignEligibility {
   const blocked = (reason: string): CampaignEligibility => ({ eligible: false, reason, deliverables: [] });
   const { session } = snapshot;
   if (campaign.provenance !== 'REAL' || session.campaigns.filter(item => item.id === campaign.id).length !== 1) {
