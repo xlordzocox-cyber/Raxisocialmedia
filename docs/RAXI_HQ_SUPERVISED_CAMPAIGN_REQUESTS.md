@@ -133,6 +133,19 @@ Los laboratorios permanecen preservados. El primero usa \`tmpfs\` y **no debe re
 
 **Seguridad de la frontera:** \`service_role\` es una credencial privilegiada; \`p_evidence\` es confiable solo después de verificación editorial por el host y correlación relacional por la RPC. El reviewer debe desafiar cambios de snapshot entre preflight/submit, recibos de otra revisión/actor/workspace, evidencia alternativa de auditoría, clases de datos de tamaño extremo, grants de escritura directa al ledger, disponibilidad del JWT real y revocación entre llamadas. El host no puede usar esta propuesta como aprobación de ejecución del Director.
 
+### Incremento local de seguridad en PR #59 — guard de tamaño, QA pendiente
+
+**Estado: implementado en el borrador, NO validado ni aplicado remotamente.** Después de la matriz nativa anterior se incorporaron controles de bytes en dos fronteras:
+
+- `supervisedCampaignRequests.ts`: la evidencia editorial generada por el host debe ocupar **como máximo 240 KiB en UTF-8 JSON compacto** para que `preflight` responda `ELIGIBLE`. Si excede ese presupuesto, responde `422 INELIGIBLE / EVIDENCE_TOO_LARGE`. Esto ocurre **después del replay**; recuperar recibos anteriores no requiere una reevaluación editorial. Se agregaron pruebas unitarias de fronteras ASCII/UTF-8.
+- `supervised_campaign_requests.sql`: antes de una **nueva inserción**, la RPC rechaza `p_evidence` mayor a **256 KiB** y rechaza cualquier `details` completo de recibo mayor a **256 KiB**, con SQLSTATE `22023`. El tamaño se mide con `octet_length(...::text)` (representación textual de JSONB). No cambia los recibos anteriores ni su replay. Se agregó caso negativo de entrada mayor al límite y aserciones del tamaño persistido.
+
+**La diferencia entre 240 KiB y 256 KiB es intencional:** reserva margen para representación JSONB y metadatos. No constituye una equivalencia exacta para casos extremos; prevalece el límite de la RPC. Estas cifras son **valores provisionales sujetos a medición y aceptación del operador**, no política de producción aprobada. La evidencia actual de tests con más de 64 KiB debe seguir siendo válida; si resulta mayor al límite se debe revisar el presupuesto y no relajar silenciosamente el control.
+
+**No declarar PASS de este incremento** hasta ejecutar suite focalizada/completa, typecheck, build, diff check, audit y pruebas PG17 **en laboratorio sintético nuevo/autorizado**. No reejecutar `prepare` en los contenedores existentes ya poblados, no reiniciar el laboratorio original en tmpfs. Todo SHA posterior requiere nueva revisión de Codex y evidencia específica.
+
+**Continúa NO IMPLEMENTADO:** rate limiting distribuido por identidad/workspace/ruta, cuotas y monitorización de crecimiento del ledger, política formal de retención/archivo y endpoint alojado. No montar el endpoint antes de diseñar y probar esos controles; no presentar los candidatos de frecuencia anteriores como activos.
+
 ### Bloqueantes antes de declarar listo para merge o staging alojado
 
 1. **Revisión independiente registrada** del HEAD exacto y sus diffs, de servidor + SQL + contratos, sin convertir comentarios del autor en aprobación externa.
