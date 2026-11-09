@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { campaignDatabase } from './campaignDatabase';
 import { attentionFixture, attentionOwner as owner, attentionWorkspace as workspace } from './humanAttentionFixture';
 import { applyCampaignOperation, parseCampaignSnapshot, type CampaignSnapshot, type RealCampaignAction } from '../src/persistence/campaignCommands';
-import { supervisedCampaignRequests } from '../../../server/agent-runtime/supervisedCampaignRequests';
+import { supervisedCampaignRequests, MAX_SUPERVISED_HOST_EVIDENCE_BYTES, supervisedEvidenceWithinBudget } from '../../../server/agent-runtime/supervisedCampaignRequests';
 import { supabaseSupervisedAuth, type ServerRpcPort, type UserAuthPort } from '../../../server/agent-runtime/supabaseSupervisedAuth';
 
 const projectRef = 'zzzzzzzzzzzzzzzzzzzz';
@@ -29,6 +29,14 @@ const request = (value: unknown, token: string | null = 'local-fixture') => new 
 });
 const identity = () => ({ provenance: 'SUPABASE_AUTH_STAGING' as const, workspaceId: workspace, actorId: owner, sessionId, projectRef,
   expiresAt: new Date(Date.now() + 60000).toISOString() });
+
+test('supervised evidence byte ceiling is based on UTF-8, not JavaScript characters', () => {
+  const limit = MAX_SUPERVISED_HOST_EVIDENCE_BYTES;
+  assert.equal(supervisedEvidenceWithinBudget('a'.repeat(limit - 2)), true);
+  assert.equal(supervisedEvidenceWithinBudget('a'.repeat(limit - 1)), false);
+  assert.equal(supervisedEvidenceWithinBudget('界'.repeat(Math.floor((limit - 2) / 3))), true);
+  assert.equal(supervisedEvidenceWithinBudget('界'.repeat(Math.floor((limit - 2) / 3) + 1)), false);
+});
 
 test('closed HTTP boundary rejects unauthenticated and forged commands before SQL', async () => {
   const s = attentionFixture(), input = draft(s);
@@ -206,6 +214,8 @@ test('isolated PostgreSQL accepts only canonical intent, and reconciles concurre
     await assert.rejects(direct({ ...command, deliverableId: 'STRATEGY-ITEM-999' }), hasCode('23514'));
     await assert.rejects(direct({ ...command, purpose: 'RUN_PROVIDER' }), hasCode('22023'));
     await assert.rejects(direct({ ...command, approved: true }), hasCode('22023'));
+    // Even the trusted service-role RPC must refuse oversized data without a write.
+    await assert.rejects(direct(command, { ...evidence, padding: 'x'.repeat(262144) }), hasCode('22023'));
     await assert.rejects(db.exec('truncate table public.raxi_audit_events'), hasCode('42501'));
     assert.equal(await count(), 0);
     await db.exec('begin isolation level repeatable read');
@@ -242,6 +252,7 @@ test('isolated PostgreSQL accepts only canonical intent, and reconciles concurre
     beforeCommit = undefined;
     assert.equal(await count(), 1);
     assert.ok((await db.query<{ bytes: number }>("select octet_length((details->'evidence')::text) bytes from public.raxi_audit_events where action='SUPERVISED_CAMPAIGN_REQUESTED'")).rows[0].bytes > 65536);
+    assert.ok((await db.query<{ bytes: number }>("select octet_length(details::text) bytes from public.raxi_audit_events where action='SUPERVISED_CAMPAIGN_REQUESTED'")).rows[0].bytes <= 262144);
     lose = false;
     const recovered = await mount().submit(request(command));
     assert.equal(recovered.status, 200, await recovered.clone().text());
