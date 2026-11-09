@@ -16,6 +16,11 @@ type Command = RequestDraft & { snapshotHash: string };
 const fields = ['workspaceId', 'campaignId', 'strategyRevision', 'deliverableId', 'expectedCampaignVersion', 'requestKey', 'purpose'];
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const hashPattern = /^[0-9a-f]{64}$/;
+// Conservative host preflight gate. SQL separately caps the persisted JSONB receipt at 256 KiB.
+export const MAX_SUPERVISED_HOST_EVIDENCE_BYTES = 240 * 1024;
+export function supervisedEvidenceWithinBudget(evidence: unknown): boolean {
+  return new TextEncoder().encode(JSON.stringify(evidence)).byteLength <= MAX_SUPERVISED_HOST_EVIDENCE_BYTES;
+}
 const matches = (pattern: RegExp, value: unknown): value is string => typeof value === 'string' && pattern.test(value);
 const integer = (value: unknown, minimum: number) => typeof value === 'number' && Number.isSafeInteger(value) && value >= minimum;
 function record(value: unknown): Record<string, unknown> {
@@ -134,6 +139,11 @@ export function supervisedCampaignRequests(deps: {
         approvalEvent: source.session.audit.find(item => item.action === 'STRATEGY_APPROVED' &&
           item.campaignId === command.campaignId && item.revision === command.strategyRevision),
       };
+      // Refuse oversized snapshots before advertising ELIGIBLE or attempting any write.
+      // Replay is checked first so older committed receipts remain recoverable.
+      if (!supervisedEvidenceWithinBudget(evidence)) {
+        return json(422, { status: 'INELIGIBLE', reason: 'EVIDENCE_TOO_LARGE' });
+      }
       const { serverTime: _serverTime, ...expected } = raw;
       const { snapshotHash: providedHash, ...draft } = command;
       const snapshotHash = await fingerprint({ evidence, request: draft });
