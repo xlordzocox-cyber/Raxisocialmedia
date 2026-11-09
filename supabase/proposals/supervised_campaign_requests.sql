@@ -11,7 +11,7 @@ create table public.raxi_supervised_request_rate_counters (
   actor_user_id uuid not null,
   operation text not null check (operation in ('PREFLIGHT','SUBMIT','REPLAY')),
   window_start timestamptz not null,
-  request_count integer not null check (request_count between 1 and 60),
+  request_count integer not null check (request_count between 0 and 60),
   primary key (workspace_id,actor_user_id,operation)
 );
 alter table public.raxi_supervised_request_rate_counters enable row level security;
@@ -25,6 +25,7 @@ declare
   v_actor uuid;
   v_limit integer;
   v_bucket timestamptz;
+  v_previous_window timestamptz;
   v_count integer;
   v_retry integer;
 begin
@@ -33,30 +34,44 @@ begin
   end if;
   v_limit := case p_operation when 'PREFLIGHT' then 30 when 'SUBMIT' then 3 when 'REPLAY' then 60 else null end;
   if v_limit is null then raise exception 'invalid rate operation' using errcode='22023'; end if;
+  if current_setting('transaction_isolation')<>'read committed' then
+    raise exception 'read committed required' using errcode='25001';
+  end if;
   -- Server-validated identity is rechecked against the session and workspace in SQL.
   perform public.raxi_supervised_host_identity(p_identity);
   v_workspace := (p_identity->>'workspaceId')::uuid;
   v_actor := (p_identity->>'actorId')::uuid;
+  -- Create a zero-count slot atomically; it is never committed alone.
+  -- Do not choose the effective minute until the row lock has been acquired.
+  insert into public.raxi_supervised_request_rate_counters
+    (workspace_id,actor_user_id,operation,window_start,request_count)
+    values (v_workspace,v_actor,p_operation,clock_timestamp(),0)
+    on conflict (workspace_id,actor_user_id,operation) do nothing;
+  select window_start,request_count into v_previous_window,v_count
+    from public.raxi_supervised_request_rate_counters
+    where workspace_id=v_workspace and actor_user_id=v_actor and operation=p_operation
+    for update;
+  if not found then raise exception 'rate counter unavailable' using errcode='42501'; end if;
+  -- DB clock is observed only AFTER waiting for the counter row, including
+  -- another transaction holding it across the fixed-minute boundary.
   v_bucket := to_timestamp((floor(extract(epoch from clock_timestamp()) / 60)::bigint * 60)::double precision);
-
-  insert into public.raxi_supervised_request_rate_counters as c
-    (workspace_id, actor_user_id, operation, window_start, request_count)
-    values (v_workspace,v_actor,p_operation,v_bucket,1)
-    on conflict (workspace_id, actor_user_id, operation)
-    do update set
-      window_start=excluded.window_start,
-      request_count=case when c.window_start<excluded.window_start then 1 else c.request_count+1 end
-    where c.window_start<excluded.window_start
-      or (c.window_start=excluded.window_start and c.request_count<v_limit)
-    returning request_count into v_count;
-
-  -- Recheck after any wait on the unique counter row. An expired/revoked session
-  -- raises and rolls back this RPC's counter write, rather than granting admission.
-  perform public.raxi_supervised_host_identity(p_identity);
-  if v_count is null then
+  if v_previous_window is distinct from v_bucket then
+    update public.raxi_supervised_request_rate_counters
+      set window_start=v_bucket,request_count=1
+      where workspace_id=v_workspace and actor_user_id=v_actor and operation=p_operation;
+  elsif v_count<v_limit then
+    update public.raxi_supervised_request_rate_counters
+      set request_count=v_count+1
+      where workspace_id=v_workspace and actor_user_id=v_actor and operation=p_operation;
+  else
+    -- A denial changes neither this counter nor the audit ledger.
+    perform public.raxi_supervised_host_identity(p_identity);
     v_retry := greatest(1,least(60,ceil(extract(epoch from (v_bucket+interval '1 minute'-clock_timestamp())))::integer));
     return jsonb_build_object('status','RATE_LIMITED','operation',p_operation,'retryAfterSeconds',v_retry);
   end if;
+
+  -- A revoked or expired session during lock wait rolls back the count update.
+  perform public.raxi_supervised_host_identity(p_identity);
   return jsonb_build_object('status','ALLOWED','operation',p_operation);
 end; $$;
 revoke all on function public.raxi_supervised_request_rate_admit(jsonb,text) from public,anon,authenticated;
