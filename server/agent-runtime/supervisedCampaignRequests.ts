@@ -1,3 +1,4 @@
+import { MAX_STRATEGY_REVISIONS } from '../../apps/raxi-hq/src/campaigns/strategyValidation';
 import { evaluateCampaign } from '../../apps/raxi-hq/src/campaigns/campaignEligibility';
 import { parseCampaignSnapshot, sameValue } from '../../apps/raxi-hq/src/persistence/campaignCommands';
 import { stagingProject, type HostedIdentity, type ServerRpcPort } from './supabaseSupervisedAuth';
@@ -47,7 +48,8 @@ async function readBody(request: Request, submit: boolean) {
   if (Object.keys(value).length !== allowed.length || !allowed.every(key => Object.hasOwn(value, key)) ||
       !matches(uuid, value.workspaceId) || !matches(uuid, value.requestKey) ||
       !matches(/^CAMPAIGN-\d{3}$/, value.campaignId) || !matches(/^STRATEGY-ITEM-\d{3}$/, value.deliverableId) ||
-      !integer(value.strategyRevision, 1) || !integer(value.expectedCampaignVersion, 0) ||
+      !integer(value.strategyRevision, 1) || Number(value.strategyRevision) > MAX_STRATEGY_REVISIONS ||
+      !integer(value.expectedCampaignVersion, 0) ||
       value.purpose !== 'PREPARE_VISUAL_BRIEF' || (submit && !matches(hashPattern, value.snapshotHash))) {
     throw Error('Command denied');
   }

@@ -1,5 +1,7 @@
 -- REVIEW PROPOSAL ONLY. Depends on campaign/Strategy migration and the B1 identity RPC.
 -- Apply only in an authorized isolated environment. No runtime tasks or approvals are written.
+revoke truncate on public.raxi_audit_events from public, anon, authenticated, service_role;
+
 create unique index raxi_supervised_campaign_request_key on public.raxi_audit_events
   (workspace_id, actor_user_id, (details->'command'->>'requestKey'))
   where action='SUPERVISED_CAMPAIGN_REQUESTED';
@@ -30,6 +32,9 @@ begin
   if current_user<>'service_role' or p_command->>'workspaceId' is distinct from p_identity->>'workspaceId' then
     raise exception 'request scope denied' using errcode='42501';
   end if;
+  if current_setting('transaction_isolation')<>'read committed' then
+    raise exception 'read committed required' using errcode='25001';
+  end if;
   perform public.raxi_supervised_host_identity(p_identity);
   select * into prior from public.raxi_audit_events
     where workspace_id=(p_identity->>'workspaceId')::uuid and actor_user_id=(p_identity->>'actorId')::uuid
@@ -52,11 +57,28 @@ declare
   snapshot jsonb;
   request_id uuid;
   accepted_at timestamptz;
+  evidence_campaign jsonb;
+  evidence_strategy jsonb;
+  evidence_receipt jsonb;
+  evidence_event jsonb;
+  evidence_count bigint;
 begin
   if current_user<>'service_role' or p_command->>'workspaceId' is distinct from p_identity->>'workspaceId' then
     raise exception 'request scope denied' using errcode='42501';
   end if;
   perform public.raxi_supervised_host_identity(p_identity);
+  if jsonb_typeof(p_command) is distinct from 'object'
+    or (p_command - array['workspaceId','campaignId','strategyRevision','deliverableId','expectedCampaignVersion','requestKey','purpose','snapshotHash']) <> '{}'::jsonb
+    or coalesce(p_command->>'campaignId','') !~ '^CAMPAIGN-[0-9]{3}$'
+    or coalesce(p_command->>'deliverableId','') !~ '^STRATEGY-ITEM-[0-9]{3}$'
+    or jsonb_typeof(p_command->'strategyRevision') is distinct from 'number'
+    or coalesce(p_command->>'strategyRevision','') !~ '^([1-9]|10)$'
+    or jsonb_typeof(p_command->'expectedCampaignVersion') is distinct from 'number'
+    or coalesce(p_command->>'expectedCampaignVersion','') !~ '^(0|[1-9][0-9]{0,15})$'
+    or coalesce(p_command->>'requestKey','') !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+    or coalesce(p_command->>'snapshotHash','') !~ '^[0-9a-f]{64}$'
+    or p_command->>'purpose' is distinct from 'PREPARE_VISUAL_BRIEF'
+  then raise exception 'invalid request command' using errcode='22023'; end if;
   workspace := (p_identity->>'workspaceId')::uuid;
   actor := (p_identity->>'actorId')::uuid;
   -- Same serialization boundary as campaign-command. Replay check must happen after waiting.
@@ -68,16 +90,37 @@ begin
   if snapshot is distinct from p_expected or snapshot->'version' is distinct from p_command->'expectedCampaignVersion' then
     return jsonb_build_object('status','STALE');
   end if;
-  if jsonb_typeof(p_evidence) is distinct from 'object' or (p_evidence - array['campaign','strategy','approvalReceipt','approvalEvent']) <> '{}'::jsonb
-    or p_evidence->'campaign'->>'id' is distinct from p_command->>'campaignId'
-    or p_evidence->'campaign'->>'status' is distinct from 'PLANNING'
-    or p_evidence->'strategy'->>'campaignId' is distinct from p_command->>'campaignId'
-    or p_evidence->'strategy'->'revision' is distinct from p_command->'strategyRevision'
-    or p_evidence->'strategy'->>'status' is distinct from 'APPROVED'
-    or not exists (select 1 from jsonb_array_elements(snapshot->'session'->'campaigns') c where c=p_evidence->'campaign')
-    or not exists (select 1 from jsonb_array_elements(snapshot->'session'->'strategies') s where s=p_evidence->'strategy')
-    or not exists (select 1 from jsonb_array_elements(snapshot->'receipts') r where r=p_evidence->'approvalReceipt')
-    or not exists (select 1 from jsonb_array_elements(snapshot->'session'->'audit') e where e=p_evidence->'approvalEvent')
+  -- Read the relational subjects and their original human decision together.
+  -- The host performs richer editorial validation; it cannot choose unrelated evidence.
+  select c.payload,s.payload,
+    jsonb_build_object('operationId',a.idempotency_key,'command',a.context->'command'), e.value,count(*) over ()
+  into evidence_campaign,evidence_strategy,evidence_receipt,evidence_event,evidence_count
+  from public.raxi_campaigns c
+  join public.raxi_strategy_revisions s on s.workspace_id=c.workspace_id and s.campaign_id=c.id
+  join public.raxi_strategy_deliverables d on d.workspace_id=s.workspace_id and d.strategy_id=s.id
+  join public.raxi_approvals a on a.workspace_id=s.workspace_id and a.subject_id=s.id
+  join public.raxi_audit_events h on h.workspace_id=a.workspace_id and h.action='CAMPAIGN_COMMAND_COMMITTED'
+    and h.actor_kind='HUMAN' and h.actor_user_id=a.actor_user_id and h.details->'command'=a.context->'command'
+  cross join lateral jsonb_array_elements(h.details->'events') e(value)
+  where c.workspace_id=workspace and c.external_id=p_command->>'campaignId'
+    and c.status='PLANNING' and c.provenance='REAL'
+    and s.revision=(p_command->>'strategyRevision')::integer and s.status='APPROVED' and s.approved_by=actor
+    and s.approved_at<=clock_timestamp() and s.payload->>'approvedBy'='LUIS'
+    and s.approved_at=(s.payload->>'approvedAt')::timestamptz
+    and not exists (select 1 from public.raxi_strategy_revisions newer
+      where newer.workspace_id=s.workspace_id and newer.campaign_id=s.campaign_id and newer.revision>s.revision)
+    and d.external_id=p_command->>'deliverableId' and d.channel='INSTAGRAM_FEED' and d.content_level='PUBLIC_SOCIAL' and d.format='PHOTO'
+    and (select count(*) from jsonb_array_elements(s.payload->'deliverables') i where i->>'id'=d.external_id)=1
+    and exists (select 1 from jsonb_array_elements(s.payload->'deliverables') i where i=d.payload)
+    and a.subject_kind='STRATEGY' and a.action='APPROVED' and a.actor_user_id=actor and a.context->'snapshot'=s.payload
+    and a.context->'command'->>'workspaceId'=workspace::text and a.context->'command'->>'operationId'=a.idempotency_key
+    and a.context->'command'->'action'=jsonb_build_object('type','APPROVE_STRATEGY','campaignId',c.external_id,'revision',s.revision,'confirmed',true)
+    and (a.context->'command'->>'expectedVersion')::bigint < (p_command->>'expectedCampaignVersion')::bigint
+    and e.value->>'action'='STRATEGY_APPROVED' and e.value->>'campaignId'=c.external_id
+    and e.value->'revision'=to_jsonb(s.revision) and e.value->>'actor'='LUIS'
+    and e.value->>'timestamp'=s.payload->>'approvedAt';
+  if evidence_count is distinct from 1 or p_evidence is distinct from jsonb_build_object('campaign',evidence_campaign,'strategy',evidence_strategy,
+      'approvalReceipt',evidence_receipt,'approvalEvent',evidence_event)
   then raise exception 'request evidence denied' using errcode='23514'; end if;
   request_id := gen_random_uuid();
   accepted_at := clock_timestamp();

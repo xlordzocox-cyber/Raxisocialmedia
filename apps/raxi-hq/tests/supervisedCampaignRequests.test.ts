@@ -38,7 +38,7 @@ test('closed HTTP boundary rejects unauthenticated and forged commands before SQ
   assert.equal((await handlers.preflight(request(input, null))).status, 401);
   for (const extra of [{ actorId: owner }, { approved: true }, { provider: 'aria' }, { model: 'test' }, { cost: 0 },
     { credential: 'synthetic' }, { privilege: 'admin' }, { campaignId: ['CAMPAIGN-001'] },
-    { expectedCampaignVersion: -1 }, { strategyRevision: 0 }, { purpose: 'x'.repeat(4200) }]) {
+    { expectedCampaignVersion: -1 }, { strategyRevision: 0 }, { strategyRevision: 11 }, { purpose: 'x'.repeat(4200) }]) {
     assert.equal((await handlers.preflight(request({ ...input, ...extra }))).status, 400);
   }
   assert.equal((await handlers.submit(request(input))).status, 400);
@@ -147,14 +147,14 @@ test('isolated PostgreSQL accepts only canonical intent, and reconciles concurre
     const input = draft(initial);
     let lose = false;
     let corruptReceipt = false;
-    let beforeCommit: (() => Promise<void>) | undefined;
+    let beforeCommit: ((args: Record<string, unknown>) => Promise<void>) | undefined;
     const server: ServerRpcPort = { rpc: async (name, args) => {
       if (name === 'raxi_campaign_snapshot') {
         return { data: (await db.query<{ v: unknown }>('select public.raxi_campaign_snapshot($1,$2) v', [args.p_workspace, args.p_actor])).rows[0].v, error: null };
       }
       assert.ok(['raxi_supervised_host_identity', 'raxi_supervised_campaign_request_replay', 'raxi_supervised_campaign_request_commit'].includes(name));
       const arity = name.endsWith('_commit') ? '$1,$2,$3,$4' : name.endsWith('_replay') ? '$1,$2' : '$1';
-      if (name.endsWith('_commit')) await beforeCommit?.();
+      if (name.endsWith('_commit')) await beforeCommit?.(args);
       const params = [args.p_identity, args.p_command, args.p_expected, args.p_evidence].filter(value => value !== undefined).map(value => JSON.stringify(value));
       const data = (await db.query<{ v: unknown }>(`select public.${name}(${arity}) v`, params)).rows[0].v;
       if (name.endsWith('_commit') && lose) throw Error('response lost after SQL commit');
@@ -184,6 +184,39 @@ test('isolated PostgreSQL accepts only canonical intent, and reconciles concurre
     assert.equal(await count(), 0);
     const command = { ...input, snapshotHash };
     assert.equal((await handlers.submit(request({ ...command, snapshotHash: '0'.repeat(64) }))).status, 409);
+    // Exercise the database boundary directly, bypassing the editorial evaluator.
+    let captured: Record<string, unknown> = {};
+    beforeCommit = async args => {
+      beforeCommit = undefined;
+      captured = structuredClone(args);
+      throw Error('synthetic failure before SQL');
+    };
+    assert.equal((await handlers.submit(request(command))).status, 503);
+    const evidence = captured.p_evidence as Record<string, unknown>;
+    const direct = (candidate: unknown = command, proof: unknown = evidence, expected: unknown = captured.p_expected) =>
+      db.query<{ v: { status: string } }>('select public.raxi_supervised_campaign_request_commit($1,$2,$3,$4) v',
+        [identity(), candidate, expected, proof].map(value => JSON.stringify(value)));
+    const hasCode = (code: string) => (error: unknown) =>
+      !!error && typeof error === 'object' && 'code' in error && error.code === code;
+    for (const proof of [
+      { ...evidence, approvalReceipt: initial.receipts[0] },
+      { ...evidence, approvalEvent: initial.session.audit[0] },
+      { ...evidence, approvalEvent: null },
+    ]) await assert.rejects(direct(command, proof), hasCode('23514'));
+    await assert.rejects(direct({ ...command, deliverableId: 'STRATEGY-ITEM-999' }), hasCode('23514'));
+    await assert.rejects(direct({ ...command, purpose: 'RUN_PROVIDER' }), hasCode('22023'));
+    await assert.rejects(direct({ ...command, approved: true }), hasCode('22023'));
+    await assert.rejects(db.exec('truncate table public.raxi_audit_events'), hasCode('42501'));
+    assert.equal(await count(), 0);
+    await db.exec('begin isolation level repeatable read');
+    try { await assert.rejects(direct(), hasCode('25001')); }
+    finally { await db.exec('rollback'); }
+    await db.exec('begin');
+    try {
+      assert.equal((await direct()).rows[0].v.status, 'REQUESTED');
+      assert.equal(await count(), 1);
+    } finally { await db.exec('rollback'); }
+    assert.equal(await count(), 0);
     beforeCommit = async () => {
       beforeCommit = undefined;
       await db.exec('reset role');
@@ -234,7 +267,10 @@ test('isolated PostgreSQL accepts only canonical intent, and reconciles concurre
       await run({ type: 'START_STRATEGY_REVISION', campaignId: campaign.id, revision: 1, confirmed: true, reason: 'Synthetic revision' });
     };
     assert.equal((await handlers.submit(request({ ...racingKey, snapshotHash: racing.snapshotHash }))).status, 409);
-    assert.equal((await handlers.preflight(request({ ...racingKey, expectedCampaignVersion: (await read()).version }))).status, 422);
+    const { serverTime: _serverTime, ...superseded } = await read();
+    assert.equal((await handlers.preflight(request({ ...racingKey, expectedCampaignVersion: superseded.version }))).status, 422);
+    await assert.rejects(direct({ ...command, requestKey: crypto.randomUUID(), deliverableId: 'STRATEGY-ITEM-002',
+      expectedCampaignVersion: superseded.version }, evidence, superseded), hasCode('23514'));
     assert.deepEqual(await (await handlers.submit(request(command))).json(), receipt);
     assert.equal(await count(), 1);
     assert.ok((await db.query<{ bytes: number }>("select octet_length((details->'evidence')::text) bytes from public.raxi_audit_events where action='SUPERVISED_CAMPAIGN_REQUESTED'")).rows[0].bytes > 65536);
