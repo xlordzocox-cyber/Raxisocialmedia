@@ -2,6 +2,66 @@
 -- Apply only in an authorized isolated environment. No runtime tasks or approvals are written.
 revoke truncate on public.raxi_audit_events from public, anon, authenticated, service_role;
 
+
+-- DRAFT: distributed fixed-minute admission counters. No hosted deployment or public endpoint.
+-- One row per verified (workspace, actor, operation), never one row per request or minute.
+-- Candidate values only: PREFLIGHT 30/min, SUBMIT 3/min, REPLAY 60/min.
+create table public.raxi_supervised_request_rate_counters (
+  workspace_id uuid not null references public.raxi_workspaces(id) on delete cascade,
+  actor_user_id uuid not null,
+  operation text not null check (operation in ('PREFLIGHT','SUBMIT','REPLAY')),
+  window_start timestamptz not null,
+  request_count integer not null check (request_count between 1 and 60),
+  primary key (workspace_id,actor_user_id,operation)
+);
+alter table public.raxi_supervised_request_rate_counters enable row level security;
+revoke all on public.raxi_supervised_request_rate_counters from public,anon,authenticated,service_role;
+grant select,insert,update on public.raxi_supervised_request_rate_counters to service_role;
+
+create function public.raxi_supervised_request_rate_admit(p_identity jsonb, p_operation text) returns jsonb
+language plpgsql security invoker set search_path='' as $
+declare
+  v_workspace uuid;
+  v_actor uuid;
+  v_limit integer;
+  v_bucket timestamptz;
+  v_count integer;
+  v_retry integer;
+begin
+  if current_user<>'service_role' then
+    raise exception 'rate admission denied' using errcode='42501';
+  end if;
+  v_limit := case p_operation when 'PREFLIGHT' then 30 when 'SUBMIT' then 3 when 'REPLAY' then 60 else null end;
+  if v_limit is null then raise exception 'invalid rate operation' using errcode='22023'; end if;
+  -- Server-validated identity is rechecked against the session and workspace in SQL.
+  perform public.raxi_supervised_host_identity(p_identity);
+  v_workspace := (p_identity->>'workspaceId')::uuid;
+  v_actor := (p_identity->>'actorId')::uuid;
+  v_bucket := to_timestamp((floor(extract(epoch from clock_timestamp()) / 60)::bigint * 60)::double precision);
+
+  insert into public.raxi_supervised_request_rate_counters as c
+    (workspace_id, actor_user_id, operation, window_start, request_count)
+    values (v_workspace,v_actor,p_operation,v_bucket,1)
+    on conflict (workspace_id, actor_user_id, operation)
+    do update set
+      window_start=excluded.window_start,
+      request_count=case when c.window_start<excluded.window_start then 1 else c.request_count+1 end
+    where c.window_start<excluded.window_start
+      or (c.window_start=excluded.window_start and c.request_count<v_limit)
+    returning request_count into v_count;
+
+  -- Recheck after any wait on the unique counter row. An expired/revoked session
+  -- raises and rolls back this RPC's counter write, rather than granting admission.
+  perform public.raxi_supervised_host_identity(p_identity);
+  if v_count is null then
+    v_retry := greatest(1,least(60,ceil(extract(epoch from (v_bucket+interval '1 minute'-clock_timestamp())))::integer));
+    return jsonb_build_object('status','RATE_LIMITED','operation',p_operation,'retryAfterSeconds',v_retry);
+  end if;
+  return jsonb_build_object('status','ALLOWED','operation',p_operation);
+end; $;
+revoke all on function public.raxi_supervised_request_rate_admit(jsonb,text) from public,anon,authenticated;
+grant execute on function public.raxi_supervised_request_rate_admit(jsonb,text) to service_role;
+
 create unique index raxi_supervised_campaign_request_key on public.raxi_audit_events
   (workspace_id, actor_user_id, (details->'command'->>'requestKey'))
   where action='SUPERVISED_CAMPAIGN_REQUESTED';
