@@ -62,6 +62,7 @@ declare
   evidence_receipt jsonb;
   evidence_event jsonb;
   evidence_count bigint;
+  receipt_details jsonb;
 begin
   if current_user<>'service_role' or p_command->>'workspaceId' is distinct from p_identity->>'workspaceId' then
     raise exception 'request scope denied' using errcode='42501';
@@ -86,6 +87,11 @@ begin
   if not found then raise exception 'request scope denied' using errcode='42501'; end if;
   prior := public.raxi_supervised_campaign_request_replay(p_identity,p_command);
   if prior is not null then return prior; end if;
+  -- New writes are size-limited; historical replays remain recoverable.
+  -- The host guard is deliberately smaller to leave room for JSONB formatting and metadata.
+  if octet_length(p_evidence::text)>262144 then
+    raise exception 'request evidence exceeds storage budget' using errcode='22023';
+  end if;
   snapshot := public.raxi_campaign_snapshot(workspace,actor) - 'serverTime';
   if snapshot is distinct from p_expected or snapshot->'version' is distinct from p_command->'expectedCampaignVersion' then
     return jsonb_build_object('status','STALE');
@@ -122,11 +128,16 @@ begin
   if evidence_count is distinct from 1 or p_evidence is distinct from jsonb_build_object('campaign',evidence_campaign,'strategy',evidence_strategy,
       'approvalReceipt',evidence_receipt,'approvalEvent',evidence_event)
   then raise exception 'request evidence denied' using errcode='23514'; end if;
+  receipt_details := jsonb_build_object('command',p_command,'evidence',p_evidence,
+    'authorization','PENDING_HUMAN_EXECUTION_AUTH');
+  if octet_length(receipt_details::text)>262144 then
+    raise exception 'request receipt exceeds storage budget' using errcode='22023';
+  end if;
   request_id := gen_random_uuid();
   accepted_at := clock_timestamp();
   insert into public.raxi_audit_events(workspace_id,action,actor_kind,actor_user_id,resource_kind,resource_id,details,occurred_at)
     values(workspace,'SUPERVISED_CAMPAIGN_REQUESTED','HUMAN',actor,'SUPERVISED_CAMPAIGN_REQUEST',request_id::text,
-      jsonb_build_object('command',p_command,'evidence',p_evidence,'authorization','PENDING_HUMAN_EXECUTION_AUTH'),accepted_at)
+      receipt_details,accepted_at)
     on conflict do nothing;
   if not found then return jsonb_build_object('status','CONFLICT'); end if;
   return public.raxi_supervised_campaign_request_replay(p_identity,p_command);
