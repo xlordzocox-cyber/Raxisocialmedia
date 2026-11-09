@@ -376,7 +376,9 @@ test('isolated PostgreSQL accepts only canonical intent, and reconciles concurre
     await db.query("select set_config('request.jwt.claims',$1,false)", [JSON.stringify({ sub: other })]);
     assert.equal(await count(), 0);
     await assert.rejects(db.query('select public.raxi_supervised_campaign_request_replay($1,$2)', [JSON.stringify(identity()), JSON.stringify(command)]));
+    await assert.rejects(rate('PREFLIGHT'), hasCode('42501'));
     await db.exec('reset role; set role anon');
     await assert.rejects(db.query('select public.raxi_supervised_campaign_request_commit($1,$2,$3,$4)', [JSON.stringify(identity()), JSON.stringify(command), '{}', '{}']));
+    await assert.rejects(rate('REPLAY'), hasCode('42501'));
   } finally { await db.close(); }
 });
