@@ -256,6 +256,17 @@ test('isolated PostgreSQL accepts only canonical intent, and reconciles concurre
     assert.deepEqual(await rate('PREFLIGHT', otherRateIdentity), { status: 'ALLOWED', operation: 'PREFLIGHT' });
     assert.equal((await db.query<{ n: number }>(
       'select count(*)::int n from public.raxi_supervised_request_rate_counters')).rows[0].n, 4);
+    // Deterministic window rollover without changing the PostgreSQL clock.
+    // The old full bucket resets to one under the same tuple row lock.
+    await db.exec('reset role');
+    await db.query(`update public.raxi_supervised_request_rate_counters
+      set window_start=clock_timestamp()-interval '2 minutes',request_count=30
+      where workspace_id=$1 and actor_user_id=$2 and operation='PREFLIGHT'`, [workspace,owner]);
+    await db.exec('set role service_role');
+    assert.deepEqual(await rate('PREFLIGHT'), { status: 'ALLOWED', operation: 'PREFLIGHT' });
+    assert.equal((await db.query<{ n: number }>(`select request_count::int n
+      from public.raxi_supervised_request_rate_counters
+      where workspace_id=$1 and actor_user_id=$2 and operation='PREFLIGHT'`, [workspace,owner])).rows[0].n, 1);
     await assert.rejects(rate('REPLAY', { ...identity(), expiresAt: '2000-01-01T00:00:00Z' }),
       error => !!error && typeof error === 'object' && 'code' in error && error.code === '42501');
     await assert.rejects(rate('UNTRUSTED'), error => !!error && typeof error === 'object' &&
