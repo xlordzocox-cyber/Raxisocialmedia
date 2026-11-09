@@ -252,6 +252,12 @@ test('isolated PostgreSQL accepts only canonical intent, and reconciles concurre
     }
     assert.equal((await db.query<{ total: number }>(
       'select coalesce(sum(request_count),0)::int total from public.raxi_supervised_request_rate_counters')).rows[0].total, 93);
+    const otherRateIdentity = { ...identity(), actorId: other, sessionId: otherSession, workspaceId: otherWorkspace };
+    assert.deepEqual(await rate('PREFLIGHT', otherRateIdentity), { status: 'ALLOWED', operation: 'PREFLIGHT' });
+    assert.equal((await db.query<{ n: number }>(
+      'select count(*)::int n from public.raxi_supervised_request_rate_counters')).rows[0].n, 4);
+    await assert.rejects(rate('REPLAY', { ...identity(), expiresAt: '2000-01-01T00:00:00Z' }),
+      error => !!error && typeof error === 'object' && 'code' in error && error.code === '42501');
     await assert.rejects(rate('UNTRUSTED'), error => !!error && typeof error === 'object' &&
       'code' in error && error.code === '22023');
     // No production quota is authorized yet. The remainder of this integration
