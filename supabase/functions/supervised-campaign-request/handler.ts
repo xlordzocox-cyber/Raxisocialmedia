@@ -26,7 +26,7 @@ export function createSupervisedCampaignEdgeHandler(deps: {
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
-        headers: { ...headers, 'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info',
+        headers: { ...headers, 'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info, x-raxi-operation',
           'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Max-Age': '60' },
       });
     }
@@ -37,13 +37,18 @@ export function createSupervisedCampaignEdgeHandler(deps: {
     if (!deps.enabled || !deps.handlers) {
       return Response.json({ status: 'DISABLED', reason: 'STAGING_APPROVAL_REQUIRED' }, { status: 503, headers });
     }
+    // Supabase Edge Function is invoked by its single registered function slug;
+    // clients select the strictly closed operation via a custom request header.
     const path = new URL(request.url).pathname;
-    if (!path.endsWith('/supervised-campaign-request/preflight') &&
-        !path.endsWith('/supervised-campaign-request/submit')) {
+    if (!path.endsWith('/supervised-campaign-request')) {
       return Response.json({ status: 'INELIGIBLE', reason: 'ROUTE_NOT_FOUND' }, { status: 404, headers });
     }
+    const operation = request.headers.get('x-raxi-operation');
+    if (operation !== 'preflight' && operation !== 'submit') {
+      return Response.json({ status: 'INELIGIBLE', reason: 'OPERATION_REQUIRED' }, { status: 400, headers });
+    }
     try {
-      const handler = path.endsWith('/preflight') ? deps.handlers.preflight : deps.handlers.submit;
+      const handler = operation === 'preflight' ? deps.handlers.preflight : deps.handlers.submit;
       const result = await handler(request);
       const output = new Response(result.body, {
         status: result.status, statusText: result.statusText, headers: result.headers,
