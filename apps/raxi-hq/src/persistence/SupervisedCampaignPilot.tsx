@@ -20,6 +20,37 @@ function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
+// The idempotency key is not a credential. Retain it per signed-in actor/workspace
+// in this browser tab so an unknown submit can be recovered after a reload.
+function keyFor(snapshot: CampaignSnapshot) {
+  return 'raxi-hq-pr59:pending:' + snapshot.ownerId + ':' + snapshot.workspaceId + ':CAMPAIGN-001';
+}
+function restore(snapshot: CampaignSnapshot): Pending | null {
+  try {
+    if (typeof sessionStorage === 'undefined') return null;
+    const raw = sessionStorage.getItem(keyFor(snapshot));
+    if (!raw || raw.length > 4096) return null;
+    const value = object(JSON.parse(raw));
+    const draft = object(value?.draft);
+    if (!draft || draft.workspaceId !== snapshot.workspaceId || draft.campaignId !== 'CAMPAIGN-001' ||
+      !uuidPattern.test(String(draft.requestKey)) || !Number.isSafeInteger(draft.strategyRevision) ||
+      !Number.isSafeInteger(draft.expectedCampaignVersion) ||
+      !/^STRATEGY-ITEM-\\d{3}$/.test(String(draft.deliverableId)) ||
+      draft.purpose !== 'PREPARE_VISUAL_BRIEF' || typeof value?.submitAttempted !== 'boolean' ||
+      !(value.hash === null || (typeof value.hash === 'string' && hashPattern.test(value.hash)))) return null;
+    return { draft: draft as unknown as RequestDraft, hash: value.hash as string | null,
+      submitAttempted: value.submitAttempted };
+  } catch { return null; }
+}
+function persist(snapshot: CampaignSnapshot, value: Pending | null): boolean {
+  try {
+    if (typeof sessionStorage === 'undefined') return false;
+    if (value) sessionStorage.setItem(keyFor(snapshot), JSON.stringify(value));
+    else sessionStorage.removeItem(keyFor(snapshot));
+    return true;
+  } catch { return false; }
+}
+
 export function SupervisedCampaignPilot({
   snapshot, eligibility, blocked,
 }: {
@@ -31,18 +62,18 @@ export function SupervisedCampaignPilot({
   const eligible = campaign && eligibility.get(campaign.id);
   const deliverables = eligible?.deliverables.filter(item => item.eligible) ?? [];
   const item = deliverables.length === 1 ? deliverables[0] : null;
-  const [pending, setPending] = useState<Pending | null>(null);
-  const [phase, setPhase] = useState<Phase>('idle');
+  const [pending, setPending] = useState<Pending | null>(() => restore(snapshot));
+  const [phase, setPhase] = useState<Phase>(() => restore(snapshot)?.submitAttempted ? 'unknown' : 'idle');
   const [confirmed, setConfirmed] = useState(false);
   const [receiptId, setReceiptId] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState(() => restore(snapshot)?.submitAttempted ?
+    'Hay una solicitud previa sin confirmación. Recupera usando la MISMA clave.' : '');
   const busy = useRef(false);
   const generation = useRef(0);
 
   // Fence a late response when changing account/workspace or unmounting.
   useEffect(() => {
     const currentGeneration = ++generation.current;
-    setPending(null); setPhase('idle'); setConfirmed(false); setReceiptId(null); setMessage('');
     busy.current = false;
     return () => { if (generation.current === currentGeneration) ++generation.current; };
   }, [snapshot.workspaceId, snapshot.ownerId]);
@@ -50,6 +81,9 @@ export function SupervisedCampaignPilot({
   if (!campaign) return null;
 
   const canPrepare = !blocked && !!eligible?.eligible && !!eligible.revision && !!item && enabled && !!supabase;
+  const canRecover = !blocked && enabled && !!supabase && !!pending?.submitAttempted &&
+    !!pending.hash && pending.draft.workspaceId === snapshot.workspaceId &&
+    pending.draft.campaignId === 'CAMPAIGN-001';
   const call = async (operation: 'preflight' | 'submit', body: object) => {
     if (!supabase) throw Error('Backend unavailable');
     const { data, error } = await supabase.functions.invoke('supervised-campaign-request', {
@@ -71,14 +105,16 @@ export function SupervisedCampaignPilot({
     };
     busy.current = true;
     const ticket = generation.current;
-    setPending({ draft, hash: null, submitAttempted: false });
+    const initial: Pending = { draft, hash: null, submitAttempted: false };
+    persist(snapshot, initial); setPending(initial);
     setPhase('checking'); setMessage('');
     try {
       const value = await call('preflight', draft);
       if (ticket !== generation.current) return;
       if (value.status !== 'ELIGIBLE' || typeof value.snapshotHash !== 'string' ||
           !hashPattern.test(value.snapshotHash)) throw Error('No eligible confirmation');
-      setPending({ draft, hash: value.snapshotHash, submitAttempted: false });
+      const verified: Pending = { draft, hash: value.snapshotHash, submitAttempted: false };
+      persist(snapshot, verified); setPending(verified);
       setConfirmed(false); setPhase('eligible');
     } catch {
       if (ticket !== generation.current) return;
@@ -88,12 +124,20 @@ export function SupervisedCampaignPilot({
   };
 
   const submit = async () => {
-    if (!canPrepare || busy.current || !pending?.hash || !confirmed ||
-        pending.draft.expectedCampaignVersion !== snapshot.version || phase === 'requested') return;
+    if (busy.current || !pending?.hash || phase === 'requested') return;
+    if (pending.submitAttempted ? !canRecover :
+      (!canPrepare || !confirmed || pending.draft.expectedCampaignVersion !== snapshot.version)) return;
     const command = { ...pending.draft, snapshotHash: pending.hash };
     busy.current = true;
     const ticket = generation.current;
-    setPending({ ...pending, submitAttempted: true });
+    const attempt: Pending = { ...pending, submitAttempted: true };
+    // Fail closed if the key cannot be persisted before the first write request.
+    if (!persist(snapshot, attempt)) {
+      busy.current = false;
+      setPhase('unknown'); setMessage('No fue posible conservar la clave de recuperación en esta pestaña. No se envió nada.');
+      return;
+    }
+    setPending(attempt);
     setPhase('sending'); setMessage('');
     try {
       const result = await call('submit', command);
@@ -104,9 +148,10 @@ export function SupervisedCampaignPilot({
           result.actorId !== snapshot.ownerId ||
           !received || received.requestKey !== command.requestKey ||
           received.snapshotHash !== command.snapshotHash ||
-          received.campaignId !== 'CAMPAIGN-001' || received.deliverableId !== item!.deliverable.id) {
+          received.campaignId !== 'CAMPAIGN-001' || received.deliverableId !== pending.draft.deliverableId) {
         throw Error('Unconfirmed request');
       }
+      persist(snapshot, null); setPending(null);
       setReceiptId(result.requestId); setPhase('requested'); setConfirmed(false);
     } catch {
       if (ticket !== generation.current) return;
@@ -132,7 +177,7 @@ export function SupervisedCampaignPilot({
     {canPrepare && phase === 'sending' && <p role="status">Esperando recibo de PostgreSQL…</p>}
     {phase === 'unknown' && <>
       <p role="alert">{message}</p>
-      {canPrepare && pending?.submitAttempted && pending.hash && <button type="button" onClick={() => { void submit(); }}>Reintentar MISMA solicitud</button>}
+      {canRecover && <button type="button" onClick={() => { void submit(); }}>Recuperar MISMA solicitud</button>}
       {canPrepare && !pending?.submitAttempted && <button type="button" onClick={() => { void check(); }}>Reconsultar misma clave</button>}
     </>}
     {phase === 'requested' && receiptId && <p role="status">Solicitud registrada · recibo {receiptId}. Pendiente de autorización humana independiente.</p>}
