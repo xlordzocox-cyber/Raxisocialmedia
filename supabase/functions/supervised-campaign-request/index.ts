@@ -6,7 +6,8 @@ import { createSupervisedCampaignEdgeHandler } from './handler.ts';
 // NO connection to the production project and no provider/agent execution imports.
 const stagingProjectRef = 'zvhxjindgyvtasstfjut';
 const stagingUrl = 'https://' + stagingProjectRef + '.supabase.co';
-if (Deno.env.get('SUPABASE_URL') !== stagingUrl) throw Error('Staging project mismatch');
+const configuredUrl = Deno.env.get('SUPABASE_URL');
+if (!configuredUrl || new URL(configuredUrl).origin !== stagingUrl) throw Error('Staging project mismatch');
 
 const enabled = Deno.env.get('RAXI_SUPERVISED_REQUESTS_ENABLED') === 'true';
 const allowedOrigins = (Deno.env.get('RAXI_SUPERVISED_ALLOWED_ORIGINS') ?? '')
