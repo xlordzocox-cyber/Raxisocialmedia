@@ -1,5 +1,9 @@
 /** Server-only ports. No client construction, connection, secrets or network on import. */
-import { localId } from './localSupervisedRepository';
+// Self-contained signed-identity identifier check; Edge must never bundle local agent runtime.
+const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
+function localId(value: unknown): asserts value is string {
+  if (typeof value !== 'string' || !uuid.test(value)) throw Error('Invalid identifier');
+}
 export const PRODUCTION_PROJECT = 'jrkefsylpfriiqefcmzq';
 export interface HostedIdentity {
  provenance:'SUPABASE_AUTH_STAGING'; actorId:string; sessionId:string; workspaceId:string;

@@ -9,6 +9,7 @@ import { humanAttention, type HumanAttentionItem } from '../operations/humanAtte
 import { HumanAttentionPanel } from '../operations/HumanAttentionPanel';
 import { campaignEligibility } from '../campaigns/campaignEligibility';
 import { CampaignEligibilityPanel } from '../campaigns/CampaignEligibilityPanel';
+import { SupervisedCampaignPilot } from './SupervisedCampaignPilot';
 import type { CampaignReadContext } from './campaignReadContext';
 
 export function RealCampaignCenter({ store, ideas, ideaState = ideas.getSnapshot() }: { store: RealCampaignStore; ideas: RealIdeaStore; ideaState?: RealIdeaState }) {
@@ -64,6 +65,8 @@ export function RealCampaignCenter({ store, ideas, ideaState = ideas.getSnapshot
       <OperationsInbox real id="real-operations-inbox" handoffs={snapshot.handoffs} open={open} campaigns={snapshot.session} onAction={action} onOpenCampaign={select} />
       <CampaignWorkspace persistent id="real-campaign-workspace" session={snapshot.session} getSession={() => store.getSnapshot().snapshot!.session} open={open} selectedId={selected} getSelectedId={() => selectedRef.current} onSelect={select} onAction={action} eligibility={eligibility} />
     </fieldset>}
+    {snapshot && <SupervisedCampaignPilot key={`${snapshot.ownerId}:${snapshot.workspaceId}`} snapshot={snapshot} eligibility={eligibility}
+      blocked={store.needsSynchronization() || state.phase !== 'ready' || !!state.pending || ideas.hasPendingWrite()} />}
     </div>
     <button disabled={state.phase === 'saving'} onClick={() => { void store.load(); }}>Recargar campañas desde Supabase</button>
   </section>;
