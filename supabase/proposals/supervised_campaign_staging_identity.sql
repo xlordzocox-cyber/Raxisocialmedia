@@ -19,8 +19,10 @@ begin
   if current_user <> 'service_role' then
     raise exception 'server only' using errcode='42501';
   end if;
-  if jsonb_typeof(p_identity) is distinct from 'object'
-    or (select count(*) from jsonb_object_keys(p_identity)) <> 6
+  if jsonb_typeof(p_identity) is distinct from 'object' then
+    raise exception 'identity claims denied' using errcode='42501';
+  end if;
+  if (select count(*) from jsonb_object_keys(p_identity)) <> 6
     or exists(select 1 from jsonb_object_keys(p_identity) f
       where f not in ('provenance','actorId','sessionId','workspaceId','projectRef','expiresAt'))
     or p_identity->>'provenance' is distinct from 'SUPABASE_AUTH_STAGING'
