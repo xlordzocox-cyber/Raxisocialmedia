@@ -42,6 +42,8 @@ export function SupervisedCampaignPilot({
   // Fence a late response when changing account/workspace or unmounting.
   useEffect(() => {
     const currentGeneration = ++generation.current;
+    setPending(null); setPhase('idle'); setConfirmed(false); setReceiptId(null); setMessage('');
+    busy.current = false;
     return () => { if (generation.current === currentGeneration) ++generation.current; };
   }, [snapshot.workspaceId, snapshot.ownerId]);
 
@@ -82,7 +84,7 @@ export function SupervisedCampaignPilot({
       if (ticket !== generation.current) return;
       setMessage('No se pudo confirmar elegibilidad. Conservamos la misma clave de solicitud.');
       setPhase('unknown');
-    } finally { busy.current = false; }
+    } finally { if (ticket === generation.current) busy.current = false; }
   };
 
   const submit = async () => {
@@ -110,7 +112,7 @@ export function SupervisedCampaignPilot({
       if (ticket !== generation.current) return;
       setMessage('Resultado no confirmado. No crees otra solicitud: reintenta con la misma clave.');
       setPhase('unknown');
-    } finally { busy.current = false; }
+    } finally { if (ticket === generation.current) busy.current = false; }
   };
 
   return <section className="campaign-session-warning" aria-label="Primera solicitud supervisada">
