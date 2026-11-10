@@ -6,3 +6,7 @@ verify_jwt = true
 # Proposed v1.0 service. Deployment requires review and authorization.
 [functions.campaign-command]
 verify_jwt = true
+
+# DRAFT-only: disabled by default until independent security and staging authorization.
+[functions.supervised-campaign-request]
+verify_jwt = true
