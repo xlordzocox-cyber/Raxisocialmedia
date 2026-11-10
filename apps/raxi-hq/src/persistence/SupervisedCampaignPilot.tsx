@@ -35,7 +35,7 @@ function restore(snapshot: CampaignSnapshot): Pending | null {
     if (!draft || draft.workspaceId !== snapshot.workspaceId || draft.campaignId !== 'CAMPAIGN-001' ||
       !uuidPattern.test(String(draft.requestKey)) || !Number.isSafeInteger(draft.strategyRevision) ||
       !Number.isSafeInteger(draft.expectedCampaignVersion) ||
-      !/^STRATEGY-ITEM-\\d{3}$/.test(String(draft.deliverableId)) ||
+      !/^STRATEGY-ITEM-\d{3}$/.test(String(draft.deliverableId)) ||
       draft.purpose !== 'PREPARE_VISUAL_BRIEF' || typeof value?.submitAttempted !== 'boolean' ||
       !(value.hash === null || (typeof value.hash === 'string' && hashPattern.test(value.hash)))) return null;
     return { draft: draft as unknown as RequestDraft, hash: value.hash as string | null,
