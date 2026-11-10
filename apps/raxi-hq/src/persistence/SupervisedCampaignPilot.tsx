@@ -10,7 +10,7 @@ type RequestDraft = {
   purpose: 'PREPARE_VISUAL_BRIEF';
 };
 type Pending = { draft: RequestDraft; hash: string | null; submitAttempted: boolean };
-type Phase = 'idle' | 'checking' | 'eligible' | 'sending' | 'unknown' | 'requested';
+type Phase = 'idle' | 'checking' | 'eligible' | 'sending' | 'unknown' | 'stale' | 'requested';
 const hashPattern = /^[0-9a-f]{64}$/;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const enabled = import.meta.env.VITE_RAXI_SUPERVISED_REQUESTS_ENABLED === 'true' &&
@@ -90,7 +90,13 @@ export function SupervisedCampaignPilot({
       body,
       headers: { 'x-raxi-operation': operation },
     });
-    if (error) throw Error('Unconfirmed server response');
+    if (error) {
+      const context = (error as { context?: unknown }).context;
+      if (operation === 'preflight' && context instanceof Response && context.status === 409) {
+        throw Error('PREFLIGHT_STALE');
+      }
+      throw Error('Unconfirmed server response');
+    }
     const value = object(data);
     if (!value) throw Error('Unconfirmed receipt');
     return value;
@@ -98,7 +104,11 @@ export function SupervisedCampaignPilot({
 
   const check = async () => {
     if (!canPrepare || busy.current || pending?.submitAttempted || phase === 'requested') return;
-    const draft: RequestDraft = pending?.draft ?? {
+    const sameDraft = pending?.draft && !pending.submitAttempted &&
+      pending.draft.expectedCampaignVersion === snapshot.version &&
+      pending.draft.strategyRevision === eligible!.revision &&
+      pending.draft.deliverableId === item!.deliverable.id;
+    const draft: RequestDraft = sameDraft ? pending!.draft : {
       workspaceId: snapshot.workspaceId, campaignId: campaign.id, strategyRevision: eligible!.revision!,
       deliverableId: item!.deliverable.id, expectedCampaignVersion: snapshot.version,
       requestKey: crypto.randomUUID(), purpose: 'PREPARE_VISUAL_BRIEF',
@@ -116,11 +126,22 @@ export function SupervisedCampaignPilot({
       const verified: Pending = { draft, hash: value.snapshotHash, submitAttempted: false };
       persist(snapshot, verified); setPending(verified);
       setConfirmed(false); setPhase('eligible');
-    } catch {
+    } catch (error) {
       if (ticket !== generation.current) return;
-      setMessage('No se pudo confirmar elegibilidad. Conservamos la misma clave de solicitud.');
-      setPhase('unknown');
+      if (error instanceof Error && error.message === 'PREFLIGHT_STALE') {
+        setMessage('La versión de campañas cambió. Recarga campañas desde Supabase y descarta esta consulta no enviada.');
+        setPhase('stale');
+      } else {
+        setMessage('No se pudo confirmar elegibilidad. Conservamos la misma clave de solicitud.');
+        setPhase('unknown');
+      }
     } finally { if (ticket === generation.current) busy.current = false; }
+  };
+
+  const discardPreflight = () => {
+    // Only read-only preflight can be discarded. Never drop an attempted submit.
+    if (busy.current || pending?.submitAttempted || phase === 'requested') return;
+    persist(snapshot, null); setPending(null); setConfirmed(false); setMessage(''); setPhase('idle');
   };
 
   const submit = async () => {
@@ -172,14 +193,18 @@ export function SupervisedCampaignPilot({
       <p role="status">Elegibilidad confirmada. Esta acción todavía NO autoriza generación.</p>
       <label><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
         Confirmo crear solamente el recibo supervisado de esta fotografía pública.</label>
-      <button type="button" disabled={!confirmed} onClick={() => { void submit(); }}>Solicitar brief supervisado</button>
+      <button type="button" disabled={!confirmed || pending?.draft.expectedCampaignVersion !== snapshot.version}
+        onClick={() => { void submit(); }}>Solicitar brief supervisado</button>
     </>}
     {canPrepare && phase === 'sending' && <p role="status">Esperando recibo de PostgreSQL…</p>}
+    {phase === 'stale' && <p role="alert">{message}</p>}
     {phase === 'unknown' && <>
       <p role="alert">{message}</p>
       {canRecover && <button type="button" onClick={() => { void submit(); }}>Recuperar MISMA solicitud</button>}
       {canPrepare && !pending?.submitAttempted && <button type="button" onClick={() => { void check(); }}>Reconsultar misma clave</button>}
     </>}
+    {pending && !pending.submitAttempted && phase !== 'checking' && phase !== 'requested' &&
+      <button type="button" onClick={discardPreflight}>Descartar consulta no enviada y preparar versión vigente</button>}
     {phase === 'requested' && receiptId && <p role="status">Solicitud registrada · recibo {receiptId}. Pendiente de autorización humana independiente.</p>}
   </section>;
 }
