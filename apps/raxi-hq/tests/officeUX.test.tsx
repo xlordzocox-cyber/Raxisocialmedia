@@ -124,6 +124,22 @@ test('inspector withdraws a task on inconsistent or incomplete refresh and recov
   await act(async()=>view.unmount());
 });
 
+test('gesture that begins on an agent never becomes a department tap',()=>{
+  const {scene}=sceneFixture();
+  const handlers=new Map<string,(event?:{stopPropagation?:()=>void})=>void>();
+  const sprite={on(name:string,handler:(event?:{stopPropagation?:()=>void})=>void){handlers.set(name,handler);}};
+  const selections:string[]=[];
+  scene.onSelect=(id:string)=>selections.push(id);
+  scene.bindAgentEvents(sprite as never,'a');
+  assert.equal(scene.dragMoved,undefined);
+  handlers.get('pointerdown')?.();
+  assert.equal(scene.dragMoved,true,'agent-originated gesture suppresses stage room tap');
+  let stopped=false;
+  handlers.get('pointertap')?.({stopPropagation(){stopped=true;}});
+  assert.equal(stopped,true,'agent selection does not bubble to room handler');
+  assert.deepEqual(selections,['a']);
+});
+
 test('room focus smoothly magnifies the selected department without inventing agents',()=>{
   const {scene,world}=sceneFixture();
   const before=structuredClone(scene.state);
