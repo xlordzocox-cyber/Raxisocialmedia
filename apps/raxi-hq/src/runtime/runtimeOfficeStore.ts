@@ -16,8 +16,8 @@ export function projectRuntime(raw:unknown,owner:string,workspace:string,elapsed
   const task=s.tasks.find(t=>t.id===e.task_id);if(!task)throw Error('Orphan runtime event');
   if(task.simulated||e.source_kind!=='AGENT_EXECUTOR'||e.evidence_status!=='VERIFIED'||e.payload?.simulated!==false)continue;
   const stage=e.payload.stage;if(!['DIRECTOR','RESEARCHER'].includes(stage)||!e.agent_id)continue;
-  // Only these two durable transitions have an equivalent HQ visual event.
-  // OUTCOME_UNKNOWN, LEASE_UNKNOWN and future types must not be mislabeled AGENT_BLOCKED.
+  // Dispatch admission is WAITING, never proof of provider execution.
+  // ACK/RESULT are separate receipts; UNKNOWN and future types remain unprojected.
   const dispatch=e.event_type==='RUNTIME_DISPATCH_AUTHORIZED' && e.payload.phase==='DISPATCH_AUTHORIZED' &&
    e.payload.operationalReceiptOnly===true && e.payload.providerAcknowledged===false &&
    task.status==='QUEUED' && Date.parse(e.payload.leaseUntil)>now;
@@ -32,12 +32,12 @@ export function projectRuntime(raw:unknown,owner:string,workspace:string,elapsed
  return {hq,tasks:structuredClone(s.tasks)};
 }
 /**
- * A newly observed, durable runtime acknowledgement may trigger one visual route.
+ * A newly observed, durable runtime dispatch/acknowledgement may trigger one visual route.
  * This is a UI metaphor for a verified state transition, not a claim about the
  * agent's physical location. Never replay history from cold start/reconnection.
  *
  * Crucially, this does not create an event, task, permission or execution: all
- * evidence and RUNNING/lease checks come from the canonical server projection.
+ * evidence and QUEUED/WAITING or RUNNING/lease checks come from the server projection.
  */
 export function applyVerifiedRuntimeMotion(previous: HQState | null, next: HQState): HQState {
  if(!previous || previous.mode!=='LIVE_READ_ONLY' || next.mode!=='LIVE_READ_ONLY' ||
@@ -54,8 +54,8 @@ export function applyVerifiedRuntimeMotion(previous: HQState | null, next: HQSta
   const currentStart=event.type==='TASK_STARTED' && agent?.status==='RUNNING' && task?.status==='RUNNING';
   if(!agent || !task || agent.currentTaskId!==event.taskId || task.ownerAgentId!==agent.id ||
      (!currentDispatch && !currentStart) || Object.hasOwn(previous.agents,agent.id))continue;
-  // Intake zones are a visual convention; the only claim of real work is the
-  // authenticated, verified runtime event/active lease. Existing sprites do not teleport.
+  // Intake zones are a visual convention, NOT physical positions. A verified
+  // dispatch is preparation, not provider execution; existing sprites never teleport.
   const from=agent.role==='DIRECTOR'?'GITHUB_HUB':agent.role==='RESEARCHER'?'WAR_ROOM':undefined;
   if(!from || from===agent.zone)continue;
   updated??={...next.agents};
