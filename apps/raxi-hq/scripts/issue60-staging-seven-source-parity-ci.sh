@@ -72,22 +72,10 @@ printf 'create table public.raxi_qa_identity_fingerprint(expected_definition tex
 docker exec -i -u postgres "$container" psql -h /var/run/postgresql -U postgres \
  -d postgres -X -v ON_ERROR_STOP=1 -Atc \
  "do \$\$ begin if encode(sha256(convert_to(pg_get_functiondef('public.raxi_supervised_host_identity(jsonb)'::regprocedure),'UTF8')),'hex') is distinct from '$fingerprint' then raise exception 'PR59 identity live SHA256 mismatch'; end if; end \$\$;" 
-# Atomic runtime installation rehearsal against the SEVEN staged baseline sources.
-# It must not rely on a temporary service_role GRANT ALL between transactions.
-{
- printf 'BEGIN;\n'
- for file in \
-  supabase/proposals/agent_runtime.sql \
-  supabase/proposals/supervised_host_stage_a.sql \
-  supabase/proposals/issue60_stage_b_staging_identity_compatible.candidate.sql \
-  supabase/proposals/issue60_runtime_dispatch_receipt.sql; do
-  printf '\n-- Exact source: %s\n' "$file"
-  cat "$file"
-  printf '\n'
- done
- printf 'COMMIT;\n'
-} | docker exec -i -u postgres "$container" psql -h /var/run/postgresql -U postgres \
- -d postgres -X -v ON_ERROR_STOP=1 -f -
+# Verify that the exact approved review candidate is what this test executes.
+check_blob "supabase/proposals/issue60_staging_runtime_atomic_review_only.sql" "c61fd383e1b779ba74da012a9193aa73c349268f"
+# One psql connection and one SQL transaction (preflight, all four sources, postflight).
+run_sql supabase/proposals/issue60_staging_runtime_atomic_review_only.sql
 run_sql supabase/tests/issue60_pr59_identity_compatibility_checks.sql
 run_sql supabase/tests/issue60-pg17-dispatch-receipt.sql
 # Negative SQL tests execute *the candidate itself* against malicious replacements.
