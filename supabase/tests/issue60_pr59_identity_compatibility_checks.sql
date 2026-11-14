@@ -6,7 +6,7 @@ DECLARE current_definition text; installed regprocedure;
 BEGIN
  SELECT pg_get_functiondef(to_regprocedure('public.raxi_supervised_host_identity(jsonb)'))
   INTO current_definition;
- IF current_definition IS DISTINCT FROM
+ IF encode(sha256(convert_to(current_definition,'UTF8')),'hex') IS DISTINCT FROM
     (SELECT expected_definition FROM public.raxi_qa_identity_fingerprint LIMIT 1) THEN
   RAISE EXCEPTION 'Stage B changed the preexisting PR59 identity function';
  END IF;
