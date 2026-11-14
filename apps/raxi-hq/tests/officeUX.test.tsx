@@ -166,24 +166,6 @@ test('reduced-motion room focus finishes in one tick and keeps REAL source disco
   assert.equal(Object.keys(scene.state.agents).length,0);
 });
 
-test('mobile room shortcuts are semantic buttons and leave runtime operations disabled',async()=>{
-  let view!:ReactTestRenderer;
-  const auth=new AuthStore({getUser:async()=>({data:{user:null},error:null}),
-    onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}),
-    signOut:async()=>({error:null})} as unknown as SupabaseClient['auth']);
-  try{
-    await act(async()=>{view=create(<AuthProvider store={auth}><App/></AuthProvider>);});
-    const nav=view.root.findAllByProps({'aria-label':'Acercar cámara a departamentos'})[0];
-    assert.ok(nav,'accessible office navigator');
-    const buttons=nav.findAllByType('button');
-    assert.equal(buttons.length,8,'one full view and seven departments');
-    assert.equal(buttons[0].props['aria-pressed'],true);
-    assert.equal(buttons.every(b=>b.props.type==='button'),true);
-    assert.equal(buttons.every(b=>typeof b.props.onClick==='function'),true);
-    assert.match(JSON.stringify(nav.toJSON?.()??buttons.map(b=>b.props.children)),/Supermemory Core/);
-    await act(async()=>view.unmount());
-  } finally {hqStore.stop();}
-});
 test('manual focus snapshots rendered position and refocuses the same selected agent',()=>{
   const {scene}=sceneFixture();const before=structuredClone(scene.state);
   assert.equal(scene.focusAgent('a'),true);assert.deepEqual(scene.focusTarget,{x:-20,y:10});
@@ -271,6 +253,12 @@ test('mounted StrictMode App shares sprite/dock selection intent, preserves oper
   let view!:ReactTestRenderer;
   try {
     await act(async()=>{view=create(tree());});
+    const zoneNav=view.root.findByProps({'aria-label':'Acercar cámara a departamentos'});
+    const zoneButtons=zoneNav.findAllByType('button');
+    assert.equal(zoneButtons.length,8,'global view and seven camera-only rooms');
+    assert.equal(zoneButtons[0].props['aria-pressed'],true);
+    assert.equal(zoneButtons.every(button=>button.props.type==='button'&&typeof button.props.onClick==='function'),true);
+    assert.match(JSON.stringify(zoneButtons.map(button=>button.props.children)),/Supermemory Core/);
     await act(async()=>{await hqStore.switchMode('MOCK');});
     const before=structuredClone(hqStore.getSnapshot());const baseline=reads;
     const dock=view.root.findByType(AgentDock);const id=Object.keys(before.agents)[1];
