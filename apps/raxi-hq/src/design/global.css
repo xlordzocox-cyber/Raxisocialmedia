@@ -134,7 +134,7 @@ dl { font-size: 12px; } dt { color: var(--muted); margin-top: 10px; } dd { margi
 .hq-fixed-office .office-toolbar {flex:0 0 auto;padding:5px 10px;gap:5px;}
 .hq-fixed-office .office-zone-nav {flex:0 0 auto;padding:6px 9px;}
 .hq-fixed-office .office-zone-nav button {min-height:38px;}
-.hq-fixed-office .office-zone-status {flex:0 0 auto;}
+.hq-fixed-office .office-zone-status {flex:0 0 29px;height:29px;min-height:29px;max-height:29px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:6px 10px;font-size:11px;}
 .hq-fixed-office .office-roster-bridge {flex:0 0 auto;padding:5px 10px;gap:7px;font-size:11px;}
 .hq-fixed-office .office-roster-bridge button {min-height:35px;padding:5px 9px;}
 .hq-fixed-office .canvas-host,
@@ -189,4 +189,24 @@ dl { font-size: 12px; } dt { color: var(--muted); margin-top: 10px; } dd { margi
   .hq-lower-workspace {grid-template-columns:minmax(0,1fr) 66px;}
   .hq-module-name {font-size:9px;}
   .hq-module-rail button {min-height:52px;}
+}
+
+/* Small landscape/mobile screens must retain a usable independent work panel. */
+@media(max-height:520px) {
+  .hq-command-shell {padding:3px;gap:3px;}
+  .hq-command-header {min-height:34px;padding:3px 8px;}
+  .hq-command-header h1 {font-size:16px;}
+  .hq-command-header p {display:none;}
+  .hq-session-controls button {min-height:30px;padding:3px 7px;}
+  .hq-fixed-office {flex:0 0 clamp(104px,34dvh,170px);}
+  .hq-office-caption {padding:2px 8px;font-size:11px;}
+  .hq-fixed-office .office-toolbar {padding:2px 7px;}
+  .hq-fixed-office .office-toolbar button {padding:2px 7px;min-height:24px;}
+  .hq-fixed-office .office-zone-nav,.hq-fixed-office .office-roster-bridge {display:none;}
+  .hq-fixed-office .office-zone-status {height:19px;min-height:19px;max-height:19px;flex-basis:19px;padding:2px 8px;}
+  .hq-command-shell .hq-fixed-office .office .canvas-host {min-height:35px;}
+  .hq-work-heading {padding:4px 7px;}
+  .hq-work-heading h2 {font-size:13px;}
+  .hq-lower-workspace {min-height:108px;}
+  .hq-module-rail button {min-height:46px;}
 }
