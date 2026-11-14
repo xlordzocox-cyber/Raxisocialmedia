@@ -95,3 +95,23 @@ test('Cannot test the same workspace as unauthorized, or claim revocation and se
  assert.equal(r.sessionRevocation,'NOT_TESTED');assert.equal(r.secondRealUser,'NOT_TESTED');
  assert.equal(f.calls.includes('ownerRpc:'+unknown),false);
 });
+
+
+test('P2 foreign-workspace event cannot be reported as valid own RPC despite correct snapshot header',async()=>{
+ const f=fixture();
+ const task={id:'task-1',status:'QUEUED',title:'Autorización restringida',simulated:false,result:null};
+ const event={id:1,workspace_id:unknown,agent_id:'director-1',task_id:'task-1',
+  event_type:'RUNTIME_DISPATCH_AUTHORIZED',source_kind:'AGENT_EXECUTOR',evidence_status:'VERIFIED',
+  occurred_at:new Date().toISOString(),payload:{simulated:false,stage:'DIRECTOR',
+   leaseUntil:new Date(Date.now()+60_000).toISOString(),phase:'DISPATCH_AUTHORIZED',
+   operationalReceiptOnly:true,providerAcknowledged:false}};
+ f.setOwnBody({...snapshot,tasks:[task],events:[event]});
+ const rejected=await run(f);
+ assert.equal(rejected.user,'PASS');
+ assert.equal(rejected.ownerWorkspace,'FAIL','foreign event must invalidate the entire scope');
+ assert.equal(rejected.unknownWorkspace,'NOT_TESTED','do not proceed after data leakage');
+ const valid=fixture();
+ valid.setOwnBody({...snapshot,tasks:[task],events:[{...event,workspace_id:workspace}]});
+ const accepted=await run(valid);
+ assert.equal(accepted.ownerWorkspace,'PASS','valid same-workspace event remains acceptable');
+});
