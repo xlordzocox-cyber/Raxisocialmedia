@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { IdeaRecord } from '../ideas/ideaContracts';
 import { summarizeIdeas } from '../ideas/ideaSelectors';
 import { IdeaCenterPanel } from '../ideas/IdeaCenterPanel';
@@ -42,7 +42,7 @@ export function IdeasBuilding() {
   </svg>;
 }
 
-export function CampusOverview({ ideas, clock = runtimeClock }: { ideas: readonly IdeaRecord[]; clock?: Clock }) {
+export function CampusOverview({ ideas, clock = runtimeClock, view = 'all' }: { ideas: readonly IdeaRecord[]; clock?: Clock; view?: 'all'|'ideas'|'campaigns'|'runtime' }) {
   const [open, setOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -56,6 +56,10 @@ export function CampusOverview({ ideas, clock = runtimeClock }: { ideas: readonl
   if (campaignsRef.current === null) campaignsRef.current = createCampaignSession();
   const [campaigns, setCampaigns] = useState(campaignsRef.current);
   const [actionError, setActionError] = useState<string>();
+  useEffect(()=>{
+    if(view==='ideas')setOpen(true);
+    if(view==='campaigns')setWorkspaceOpen(true);
+  },[view]);
   const apply = (action: IdeaSessionCommand): boolean => {
     try {
       const next = dispatchIdeaAction(sessionRef.current!, clock, action);
@@ -87,8 +91,8 @@ export function CampusOverview({ ideas, clock = runtimeClock }: { ideas: readonl
   const visibleIdeas = sessionIdeas(session);
   const summary = summarizeIdeas(visibleIdeas);
   return <section className="campus" aria-label="Raxi HQ Campus">
-    <div className="campus-heading"><div><span className="campus-eyebrow">RAXI HQ CAMPUS</span><h2>Un lugar para operar y pensar lo que sigue.</h2></div><span className="campus-phase">v0.8 · Producción Aria</span></div>
-    <div className="campus-buildings">
+    <div hidden={view==='campaigns'||view==='runtime'} className="campus-heading"><div><span className="campus-eyebrow">RAXI HQ CAMPUS</span><h2>Un lugar para operar y pensar lo que sigue.</h2></div><span className="campus-phase">v0.8 · Producción Aria</span></div>
+    <div hidden={view==='campaigns'||view==='runtime'} className="campus-buildings">
       <button type="button" className="campus-building campus-building--operations" aria-label="Abrir bandeja del Centro de Operaciones" aria-expanded={inboxOpen} aria-controls={OPERATIONS_INBOX_ID} onClick={() => setInboxOpen(value => !value)}>
         <div className="campus-art"><OperationsBuilding /></div>
         <div className="campus-building-copy"><span className="campus-building-kicker"><i aria-hidden="true" /> ACTIVO · OFFICE v0.5</span><strong>Centro de<br />Operaciones</strong><span className="campus-building-description">Decisiones HQ · campañas internas</span><span className="campus-telemetry"><span><b>{session.handoffs.length}</b> propuestas internas recibidas</span><span><b>{campaigns.campaigns.length}</b> campañas de sesión</span></span><span className="campus-building-footer">{inboxOpen ? 'Cerrar bandeja' : 'Abrir bandeja'} <span aria-hidden="true">{inboxOpen ? '↑' : '↗'}</span></span></div>
@@ -98,12 +102,17 @@ export function CampusOverview({ ideas, clock = runtimeClock }: { ideas: readonl
         <span className="campus-building-copy"><span className="campus-building-kicker"><i aria-hidden="true" /> CENTRO DE IDEAS · MOCK + SESIÓN LOCAL</span><strong>Centro de<br />Ideas</strong><span className="campus-building-description">Radar y captura local de propuestas</span><span className="campus-telemetry"><span><b>{summary.totalIdeas}</b> {summary.totalIdeas === 1 ? 'idea' : 'ideas'}</span><span><b>{session.manualDrafts.length}</b> borradores locales</span><span><b>{summary.underReviewCount}</b> en análisis</span><span><b>{summary.approvedForHqCount}</b> {summary.approvedForHqCount === 1 ? 'lista' : 'listas'} para HQ</span></span><span className="campus-building-footer">{open ? 'Cerrar panel' : 'Explorar ideas'} <span aria-hidden="true">{open ? '↑' : '↗'}</span></span></span>
       </button>
     </div>
-    <div className="campaign-workspace-link"><button type="button" aria-expanded={workspaceOpen} aria-controls={CAMPAIGN_WORKSPACE_ID} onClick={() => setWorkspaceOpen(value => !value)}>{workspaceOpen ? 'Cerrar Campaign Workspace' : 'Abrir Campaign Workspace'} · {campaigns.campaigns.length}</button></div>
+    <div hidden={view==='ideas'||view==='runtime'} className="campaign-workspace-link"><button type="button" aria-expanded={workspaceOpen} aria-controls={CAMPAIGN_WORKSPACE_ID} onClick={() => setWorkspaceOpen(value => !value)}>{workspaceOpen ? 'Cerrar Campaign Workspace' : 'Abrir Campaign Workspace'} · {campaigns.campaigns.length}</button></div>
     {actionError && <p className="idea-form-error" role="alert">{actionError}</p>}
+    <div hidden={view==='ideas'||view==='runtime'}>
     <OperationsInbox id={OPERATIONS_INBOX_ID} handoffs={session.handoffs} open={inboxOpen} campaigns={campaigns} onAction={applyCampaign} onOpenCampaign={id => { selectCampaign(id); setWorkspaceOpen(true); }} />
     <CampaignWorkspace id={CAMPAIGN_WORKSPACE_ID} session={campaigns} getSession={() => campaignsRef.current!}
       open={workspaceOpen} selectedId={selectedCampaignId} getSelectedId={() => selectedCampaignIdRef.current}
       onSelect={selectCampaign} onAction={applyCampaign} />
+    </div>
+    <div hidden={view==='campaigns'||view==='runtime'}>
     <IdeaCenterPanel id={IDEA_PANEL_ID} ideas={visibleIdeas} open={open} session={session} onAction={apply} error={actionError} />
+    </div>
+    {view==='runtime'&&<p role="status">DEMO · no existe ejecución auténtica. Los agentes de ejemplo no son un runtime real.</p>}
   </section>;
 }
