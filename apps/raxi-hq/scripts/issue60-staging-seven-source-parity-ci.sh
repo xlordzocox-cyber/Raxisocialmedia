@@ -72,10 +72,106 @@ printf 'create table public.raxi_qa_identity_fingerprint(expected_definition tex
 docker exec -i -u postgres "$container" psql -h /var/run/postgresql -U postgres \
  -d postgres -X -v ON_ERROR_STOP=1 -Atc \
  "do \$\$ begin if encode(sha256(convert_to(pg_get_functiondef('public.raxi_supervised_host_identity(jsonb)'::regprocedure),'UTF8')),'hex') is distinct from '$fingerprint' then raise exception 'PR59 identity live SHA256 mismatch'; end if; end \$\$;" 
-# Verify that the exact approved review candidate is what this test executes.
-check_blob "supabase/proposals/issue60_staging_runtime_atomic_review_only.sql" "c61fd383e1b779ba74da012a9193aa73c349268f"
-# One psql connection and one SQL transaction (preflight, all four sources, postflight).
-run_sql supabase/proposals/issue60_staging_runtime_atomic_review_only.sql
+# Rehearse the migration runner's own wrapping transaction; the body itself
+# must never contain BEGIN/COMMIT or it can commit before metadata is recorded.
+check_blob "supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql" "27c3527342b312bf21b7a35b27d5f0f9aa14cfda"
+if grep -Eq '^(BEGIN|COMMIT|ROLLBACK);[[:space:]]*run_sql supabase/tests/issue60_pr59_identity_compatibility_checks.sql
+run_sql supabase/tests/issue60-pg17-dispatch-receipt.sql
+# Negative SQL tests execute *the candidate itself* against malicious replacements.
+# Each run uses BEGIN and an isolated psql connection: an expected error causes
+# the function mutation to roll back automatically on connection close.
+for variant in comment_only inverted_project_no_session no_session; do
+  echo "Testing rejected PR59 identity drift: $variant"
+  script="$(
+    case "$variant" in
+      comment_only)
+        cat <<'SQL'
+CREATE OR REPLACE FUNCTION public.raxi_supervised_host_identity(p_identity jsonb) returns boolean
+language plpgsql security invoker set search_path='' as $weak$
+BEGIN
+ -- Project comment zvhxjindgyvtasstfjut is NOT evidence of validation.
+ RETURN true;
+END;
+$weak$;
+SQL
+        ;;
+      inverted_project_no_session)
+        cat <<'SQL'
+CREATE OR REPLACE FUNCTION public.raxi_supervised_host_identity(p_identity jsonb) returns boolean
+language plpgsql security invoker set search_path='' as $weak$
+BEGIN
+ IF p_identity->>'projectRef'='zvhxjindgyvtasstfjut' THEN
+  RAISE EXCEPTION 'inverted project validation';
+ END IF;
+ RETURN true;
+END;
+$weak$;
+SQL
+        ;;
+      no_session)
+        cat <<'SQL'
+CREATE OR REPLACE FUNCTION public.raxi_supervised_host_identity(p_identity jsonb) returns boolean
+language plpgsql security invoker set search_path='' as $weak$
+BEGIN
+ IF p_identity->>'projectRef' is distinct from 'zvhxjindgyvtasstfjut' THEN
+  RAISE EXCEPTION 'project denied';
+ END IF;
+ -- Missing session, owner and expiry checks: unacceptable.
+ RETURN true;
+END;
+$weak$;
+SQL
+        ;;
+    esac
+  )"
+  result="$(
+    {
+      printf 'BEGIN;\n'
+      printf '%s\n' "$script"
+      cat supabase/proposals/issue60_stage_b_staging_identity_compatible.candidate.sql
+    } | docker exec -i -u postgres "$container" psql -h /var/run/postgresql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f - 2>&1
+  )" && { echo "FAIL: weakened identity was admitted: $variant"; exit 1; }
+  if ! grep -q 'staging PR59 identity sha256 or ACL mismatch' <<< "$result"; then
+    echo "FAIL: expected SHA256 preflight rejection, got unexpected failure in $variant"
+    echo "$result" | tail -n 10
+    exit 1
+  fi
+  echo "PASS: $variant denied by approved-identity SHA256 guard"
+done
+# Confirm negative transactions did not leave behind weakened functions.
+run_sql supabase/tests/issue60_pr59_identity_compatibility_checks.sql
+
+echo "PASS: seven-staged-source PR59+runtime atomic PG17 parity; no hosted changes"
+ supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql; then
+  echo "FAIL: embedded migration transaction control"; exit 1
+fi
+# Deliberately abort midway through source 1 and verify no partial objects
+# survive a runner-managed transaction.
+output="$(
+ {
+  printf 'BEGIN;\n'
+  cat supabase/proposals/agent_runtime.sql
+  cat <<'EXPECTED_ABORT'
+DO $rollback_probe$
+BEGIN
+  RAISE EXCEPTION 'EXPECTED_NATIVE_RUNNER_ABORT';
+END;
+$rollback_probe$;
+EXPECTED_ABORT
+ } | docker exec -i -u postgres "$container" psql -h /var/run/postgresql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f - 2>&1
+)" && { echo "FAIL: expected injected failure did not abort"; exit 1; }
+grep -q 'EXPECTED_NATIVE_RUNNER_ABORT' <<< "$output" ||
+ { echo "FAIL: injected failure was not the cause"; exit 1; }
+no_partial="$(docker exec -i -u postgres "$container" psql -h /var/run/postgresql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -Atc "SELECT to_regclass('public.raxi_agent_runs') IS NULL AND to_regclass('public.raxi_runtime_policies') IS NULL AND to_regprocedure('public.raxi_runtime_office(uuid)') IS NULL;")"
+[[ "$no_partial" == "t" ]] || { echo "FAIL: runner abort left partial SQL"; exit 1; }
+echo "PASS: forced migration failure rolled back all partial SQL"
+# Execute the runner-safe package as the runner does: outer BEGIN/COMMIT.
+{
+ printf 'BEGIN;\n'
+ cat supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql
+ printf '\nCOMMIT;\n'
+} | docker exec -i -u postgres "$container" psql -h /var/run/postgresql -U postgres \
+ -d postgres -X -v ON_ERROR_STOP=1 -f -
 run_sql supabase/tests/issue60_pr59_identity_compatibility_checks.sql
 run_sql supabase/tests/issue60-pg17-dispatch-receipt.sql
 # Negative SQL tests execute *the candidate itself* against malicious replacements.
