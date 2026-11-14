@@ -43,6 +43,10 @@ for file in \
  run_sql "$file"
 done
 run_sql supabase/proposals/agent_runtime.sql
+# Load the full 7-source reviewed baseline (in the isolated fixture only).
+run_sql supabase/proposals/supervised_host_stage_a.sql
+run_sql supabase/proposals/supervised_host_stage_b.sql
+# The Issue60 ACL/receipt add-on must be after baseline runtime + host.
 run_sql supabase/proposals/issue60_runtime_dispatch_receipt.sql
 run_sql supabase/tests/issue60-pg17-dispatch-receipt.sql
 echo "PASS: ephemeral native PostgreSQL 17 Issue #60 QA; no hosted effects"
