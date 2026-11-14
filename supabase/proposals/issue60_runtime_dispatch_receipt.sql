@@ -9,10 +9,12 @@ create function public.raxi_runtime_dispatch_receipt() returns trigger
 language plpgsql security invoker set search_path='' as $raxi_dispatch$
 declare v_task public.raxi_agent_tasks;
 begin
-  if old.dispatch_authorized_at is null
-     and new.dispatch_authorized_at is not null
-     and old.status='CLAIMED'
-     and new.status='CLAIMED' then
+  -- This fires for ANY changed dispatch timestamp, including NULL resets,
+  -- replacements, and combined status/timestamp mutations.
+  if old.dispatch_authorized_at is not null or new.dispatch_authorized_at is null or
+     old.status<>'CLAIMED' or new.status<>'CLAIMED' then
+    raise exception 'dispatch timestamp transition denied' using errcode='42501';
+  end if;
     -- Defense in depth: a direct table UPDATE must never bypass revoked policy
     -- or a stale lease. This does NOT replace service_role least privilege.
     if current_user<>'service_role' or new.lease_until<=clock_timestamp() or
@@ -45,7 +47,6 @@ begin
       jsonb_build_object('stage',new.stage,'simulated',new.simulated,
         'providerAcknowledged',false,'operationalReceiptOnly',true)
     );
-  end if;
   return new;
 end;
 $raxi_dispatch$;
@@ -53,8 +54,15 @@ revoke all on function public.raxi_runtime_dispatch_receipt() from public,anon,a
 create trigger raxi_runtime_dispatch_receipt
 after update of dispatch_authorized_at on public.raxi_agent_runs
 for each row
-when (old.dispatch_authorized_at is null and new.dispatch_authorized_at is not null)
+when (old.dispatch_authorized_at is distinct from new.dispatch_authorized_at)
 execute function public.raxi_runtime_dispatch_receipt();
+
+-- Fail closed even if another privileged writer attempts a duplicate event
+-- using the same run ID. Keep this scoped to the new operational receipt type.
+create unique index raxi_runtime_dispatch_one_receipt_per_run
+ on public.raxi_agent_events (workspace_id,(payload->>'runId'))
+ where event_type='RUNTIME_DISPATCH_AUTHORIZED';
+
 
 -- Add-on security delta ONLY. Do not alter the 7-source pinned staging
 -- manifest or the legacy agent_runtime.sql SHA. Apply transactionally after
