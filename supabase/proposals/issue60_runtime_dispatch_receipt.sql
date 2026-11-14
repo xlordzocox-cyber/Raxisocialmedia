@@ -6,12 +6,23 @@
 -- validation, not that the remote model accepted a request or completed work.
 -- A transaction rollback removes both these event/audit rows.
 create function public.raxi_runtime_dispatch_receipt() returns trigger
-language plpgsql security invoker set search_path='' as $$
+language plpgsql security invoker set search_path='' as $
+declare v_task public.raxi_agent_tasks;
 begin
   if old.dispatch_authorized_at is null
      and new.dispatch_authorized_at is not null
      and old.status='CLAIMED'
      and new.status='CLAIMED' then
+    -- Defense in depth: a direct table UPDATE must never bypass revoked policy
+    -- or a stale lease. This does NOT replace service_role least privilege.
+    if current_user<>'service_role' or new.lease_until<=clock_timestamp() or
+       new.provider_receipt is not null then
+      raise exception 'invalid dispatch authority or lease' using errcode='42501';
+    end if;
+    select * into v_task from public.raxi_agent_tasks
+     where id=new.task_id and workspace_id=new.workspace_id for share;
+    if not found then raise exception 'runtime task absent' using errcode='42501'; end if;
+    perform public.raxi_runtime_assert_authorization(v_task);
     insert into public.raxi_agent_events (
       workspace_id,agent_id,task_id,event_type,source_kind,
       evidence_status,occurred_at,payload
