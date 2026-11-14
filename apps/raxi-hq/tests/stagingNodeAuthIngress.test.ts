@@ -1,6 +1,7 @@
 /** Offline regression: fake Auth and admission. No SDK connection, JWT or secrets. */
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {createStagingAuthReadinessProbe} from '../../../server/agent-runtime/stagingAuthReadinessProbe';
 import {
  createUnpublishedStagingNodeIngress,STAGING_AUTH_DIAGNOSTIC_PATH,
  type UnpublishedIngressConfig,type TrustedIngressContext,
@@ -90,17 +91,13 @@ test('Missing JWT, invalid content type and oversized or forged lengths cannot r
   {headers:{'Content-Length':'-1'}},
   {headers:{'Content-Length':'1000000'}},
   {headers:{'Content-Length':'01'}},
-  {body:'x'.repeat(300)},
  ];
  for(const c of cases){
   const response=await h.request(c);
-  // 300-byte stream is denied by the existing underlying 256-byte probe,
-  // not the ingress; only the declared Content-Length is checked here.
-  if(c.body!==undefined)continue;
   assert.notEqual(response.status,200,JSON.stringify(c));
  }
- assert.equal(h.admissions,1,'Unspecified streaming length requires downstream bounded reader');
- assert.equal(h.authCalls,1);
+ assert.equal(h.admissions,0);
+ assert.equal(h.authCalls,0);
 });
 test('Durable external admission must allow before any Auth or privileged RPC',async()=>{
  const denied=harness();denied.deny();
@@ -150,4 +147,25 @@ test('No wildcard, production, malformed or off-team preview can become the appr
  assert.throws(()=>createUnpublishedStagingNodeIngress({
   approvedOrigin:origin,admission:null as never,authenticationHandler:async()=>new Response(null),
  }));
+});
+
+test('Unspecified body length is bounded by the composed existing Auth probe',async()=>{
+ let identities=0;
+ const auth=createStagingAuthReadinessProbe({
+  liveEnabled:false,providersEnabled:false,actionsEnabled:false,
+  identify:async()=>{identities++;throw Error('Should not reach Auth for >256 bytes');},
+ });
+ const gate=createUnpublishedStagingNodeIngress({
+  approvedOrigin:origin,
+  admission:{admit:async()=> 'ALLOW'},
+  authenticationHandler:auth,
+ });
+ const r=await gate(new Request(origin+path,{
+  method:'POST',
+  headers:{Origin:origin,'Content-Type':'application/json',Authorization:'Bearer '+token},
+  body:JSON.stringify({workspaceId:'60000000-0000-4000-8000-000000000001',padding:'x'.repeat(300)}),
+ }),ctx);
+ assert.equal(r.status,403);
+ assert.equal(identities,0);
+ assert.equal(r.headers.get('Access-Control-Allow-Origin'),null);
 });
