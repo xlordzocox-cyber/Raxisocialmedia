@@ -10,6 +10,7 @@ import { routeBetweenZones } from '../src/office/pathfinding';
 import { stationCapacity, zones, zoneOrder } from '../src/office/zones';
 import { getStatusVisual } from '../src/office/agents/agentVisualState';
 import { zoomAt, clampCamera, advanceCameraFocus } from '../src/office/camera';
+import { officeZoneAtPoint, officeZoneZoomFactor } from '../src/office/zoneCamera';
 import { OfficeScene } from '../src/office/OfficeScene';
 import { getOwnAgent } from '../src/domain/agents';
 import type { AgentSprite } from '../src/office/agents/AgentSprite';
@@ -25,6 +26,24 @@ import type { AgentStatus } from '../src/domain/agents';
 function initial(): HQState {
   return { agents: Object.fromEntries(structuredClone(mockAgents).map(a => [a.id, a])), tasks: Object.fromEntries(mockTasks.map(t => [t.id,t])), campaigns: { [mockCampaign.id]: mockCampaign }, events: [], handoffs: [], memorySignals: [], readOnly: true, mockMode: true, mode:'MOCK', sourceHealth:{source:'mock',mode:'MOCK',connection:'CONNECTED',eventsLoaded:0,agentsLoaded:0,tasksLoaded:0} };
 }
+test('mobile zone hit testing only accepts drawn room silhouettes',()=>{
+  for(const id of zoneOrder) {
+    const {x,y}=zones[id].anchor;
+    assert.equal(officeZoneAtPoint({x,y}),id,'center of '+id);
+    assert.equal(officeZoneAtPoint({x,y:y+35}),id,'floor of '+id);
+    assert.equal(officeZoneAtPoint({x,y:y-65}),id,'wall label of '+id);
+  }
+  for(const point of [{x:-100,y:-100},{x:520,y:-300},{x:1040,y:400},{x:NaN,y:10},{x:Infinity,y:500}]) {
+    assert.equal(officeZoneAtPoint(point),undefined,'non-room tap');
+  }
+  // The back room is visually underneath War Room's upper wall.
+  assert.equal(officeZoneAtPoint({x:520,y:136}),'WAR_ROOM','painted-on-top room wins');
+  assert.equal(officeZoneAtPoint({x:520,y:122}),'SUPERMEMORY_CORE','visible memory floor remains selectable');
+  assert.equal(officeZoneZoomFactor(360),2.4);
+  assert.equal(officeZoneZoomFactor(600),2.4);
+  assert.equal(officeZoneZoomFactor(800),1.85);
+  assert.equal(officeZoneZoomFactor(Number.NaN),1.85);
+});
 test('camera zoom preserves pointer anchor and clamps zoom/pan bounds', () => {
   const camera={x:20,y:30,scale:{x:0.5,y:0.5,set(value:number){this.x=value;this.y=value;}}};
   const stage=camera as unknown as Container;
@@ -67,6 +86,7 @@ test('Centrar cancels focus and the next scene frame preserves the centered came
     depthLayer:{sortChildren(){}},effects:[],
     constrainCamera(){clampCamera(world as unknown as Container,{minX:-450,maxX:40,minY:-45,maxY:105});},
     onZoom(_percent:number){},
+    clearZoneFocus(){},
   };
   OfficeScene.prototype.resetCamera.call(scene as unknown as OfficeScene);
   assert.equal(scene.focusTarget,undefined);
@@ -85,6 +105,7 @@ test('camera focus replay after reset is deterministic', () => {
     const scene={app:{screen:{width:630,height:630}},world,fitScale:1,focusTarget:target,
       constrainCamera(){clampCamera(world as unknown as Container,{minX:-450,maxX:40,minY:-45,maxY:105});},
       onZoom(_percent:number){},
+    clearZoneFocus(){},
     };
     OfficeScene.prototype.resetCamera.call(scene as unknown as OfficeScene);
     assert.equal(scene.focusTarget,undefined);

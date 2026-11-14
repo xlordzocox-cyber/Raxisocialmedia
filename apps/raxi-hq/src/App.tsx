@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { hqStore, useHQState } from './store/hqStore';
 import { OfficeScene } from './office/OfficeScene';
+import { zoneOrder, zones } from './office/zones';
+import type { ZoneId } from './domain/agents';
 import { AgentDock } from './office/ui/AgentDock';
 import { AgentInspector } from './office/ui/AgentInspector';
 import { AgentTaskBoard } from './office/ui/AgentTaskBoard';
@@ -44,6 +46,7 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
   const sceneRef = useRef<OfficeScene | undefined>(undefined);
   const [hoveredId,setHoveredId] = useState<string>();
   const [zoomPercent,setZoomPercent] = useState(100);
+  const [focusedZone,setFocusedZone] = useState<ZoneId>();
   const [focusCritical,setFocusCritical] = useState(false);
   const [error, setError] = useState<string>();
   const [runtimeOffice,setRuntimeOffice] = useState<ScopedRuntimeSnapshot|null>(null);
@@ -83,7 +86,7 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
   };
   useEffect(() => {
     let scene: OfficeScene;
-    try { scene = new OfficeScene(host.current!, selectAndFocus,setHoveredId,setZoomPercent,setFocusCritical); sceneRef.current=scene; }
+    try { scene = new OfficeScene(host.current!, selectAndFocus,setHoveredId,setZoomPercent,setFocusCritical,setFocusedZone); sceneRef.current=scene; }
     catch (cause) { setError(String(cause)); return; }
     const update = () => scene.update(officeStateRef.current);
     const unsubscribe = hqStore.subscribe(update);
@@ -114,8 +117,8 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
       ? <CampusOverview ideas={ideaCenter!.ideas} />
       : <RealIdeaCenter store={realIdeas} campaigns={campaignRepository ? workspace => getRealCampaignStore(workspace, owner => new RealCampaignStore(campaignRepository(owner), owner, workspace)) : undefined} onRuntimeSnapshot={onRuntimeSnapshot} />}
     {campusMode === 'REAL' && <ExecutionObserverPanel state={state} />}
-    <section className="campaign"><b>{officeState.mode === 'MOCK' ? campaign ? 'Centro de Operaciones · Office v0.5 · Demo MOCK' : 'Cargando…' : officeState.mode === 'HISTORICAL_REPLAY' ? 'REPRODUCCIÓN HISTÓRICA · no es actividad en vivo' : usingRuntime ? 'Centro de Operaciones · Runtime IA real · solo lectura' : 'Centro de Operaciones · Office v0.5 · Munder en vivo · solo lectura'}</b><span>{officeState.mode === 'MOCK' ? `${campaign?.progress ?? 0}% · ${campaign?.status}` : `${officeState.sourceHealth.connection} · ${connectionLabel}`}</span></section>
-    <div className="workspace"><section className="office"><div className="office-toolbar"><span>Arrastra el suelo · rueda para zoom · click para inspeccionar</span><div><button aria-label="Alejar cámara" onClick={()=>sceneRef.current?.zoom(0.85)}>−</button><output aria-label="Zoom de cámara">{zoomPercent}%</output><button aria-label="Acercar cámara" onClick={()=>sceneRef.current?.zoom(1.18)}>+</button><button aria-pressed={focusCritical} onClick={()=>sceneRef.current?.setCriticalEventFocus(!focusCritical)}>Seguir críticos</button><button onClick={()=>sceneRef.current?.resetCamera()}>Centrar</button></div></div><div ref={host} className="canvas-host" />{hovered && <div className="hover-card"><b>{hovered.displayName}</b><span>{hovered.role}</span><span>{hovered.status} · {hovered.zone}</span><span>{hovered.securityState}</span></div>}{error && <p role="alert">{error}</p>}<AgentDock view={agentView} onSelect={selectAndFocus} /></section>
+    <section className="campaign"><b>{officeState.mode === 'MOCK' ? campaign ? 'Centro de Operaciones · Office v0.5 · Demo MOCK' : 'Cargando…' : officeState.mode === 'HISTORICAL_REPLAY' ? 'REPRODUCCIÓN HISTÓRICA · no es actividad en vivo' : usingRuntime ? 'Centro de Operaciones · Runtime IA real · solo lectura' : 'Centro de Operaciones · Office v0.5 · Munder · solo lectura'}</b><span>{officeState.mode === 'MOCK' ? `${campaign?.progress ?? 0}% · ${campaign?.status}` : `${officeState.sourceHealth.connection} · ${connectionLabel}`}</span></section>
+    <div className="workspace"><section className="office"><div className="office-toolbar"><span className="office-help-desktop">Arrastra el suelo · rueda para zoom · click para inspeccionar</span><span className="office-help-mobile">Toca una sala para acercarte · arrastra para mover · usa +/− para zoom</span><div><button aria-label="Alejar cámara" onClick={()=>sceneRef.current?.zoom(0.85)}>−</button><output aria-label="Zoom de cámara">{zoomPercent}%</output><button aria-label="Acercar cámara" onClick={()=>sceneRef.current?.zoom(1.18)}>+</button><button aria-pressed={focusCritical} onClick={()=>sceneRef.current?.setCriticalEventFocus(!focusCritical)}>Seguir críticos</button><button onClick={()=>sceneRef.current?.resetCamera()}>Centrar</button></div></div><nav className="office-zone-nav" aria-label="Acercar cámara a departamentos"><button type="button" className="office-zone-home" onClick={()=>sceneRef.current?.resetCamera()} aria-pressed={!focusedZone}>Vista completa</button>{zoneOrder.map(id=><button key={id} type="button" aria-pressed={focusedZone===id} onClick={()=>sceneRef.current?.focusZone(id)}>{zones[id].label}</button>)}</nav>{focusedZone&&<p className="office-zone-status" role="status">Vista cercana: {zones[focusedZone].label} · navegación visual, sin activar agentes.</p>}<div ref={host} className="canvas-host" />{hovered && <div className="hover-card"><b>{hovered.displayName}</b><span>{hovered.role}</span><span>{hovered.status} · {hovered.zone}</span><span>{hovered.securityState}</span></div>}{error && <p role="alert">{error}</p>}<AgentDock view={agentView} onSelect={selectAndFocus} /></section>
       <AgentInspector view={agentView} /></div>
     <AgentTaskBoard state={officeState} view={agentView} scope={user?.id ?? ''}/>
     <HandoffTimeline state={officeState} view={agentView}/>
