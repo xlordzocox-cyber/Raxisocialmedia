@@ -220,6 +220,33 @@ test('issue #60: researcher route is backed by its own verified event and denied
  assert.throws(()=>projectRuntime({...base,tasks:[{...base.tasks[0],id:'other-task'}],events:[started]},owner,workspace),'orphan task evidence fails closed');
 });
 
+
+test('issue #60 dispatch is WAITING, verified and never a claim that the provider has started',()=>{
+ const now='2026-11-04T12:00:00Z';
+ const base={workspaceId:workspace,ownerId:owner,serverTime:now,
+  tasks:[{id:'task-dispatch',status:'QUEUED',title:'Approved dispatch',simulated:false,result:null}],
+  events:[] as unknown[]};
+ const admitted={id:10,workspace_id:workspace,task_id:'task-dispatch',agent_id:'director-agent',
+  event_type:'RUNTIME_DISPATCH_AUTHORIZED',source_kind:'AGENT_EXECUTOR',evidence_status:'VERIFIED',
+  occurred_at:now,payload:{simulated:false,stage:'DIRECTOR',leaseUntil:'2026-11-04T12:01:00Z',
+   operationalReceiptOnly:true,providerAcknowledged:false,phase:'DISPATCH_AUTHORIZED'}};
+ const before=projectRuntime(base,owner,workspace).hq;
+ const projected=projectRuntime({...base,events:[admitted]},owner,workspace).hq;
+ assert.deepEqual(projected.events.map(item=>item.type),['TASK_ASSIGNED']);
+ assert.equal(projected.agents['director-agent'].status,'WAITING');
+ assert.equal(projected.tasks['task-dispatch'].status,'QUEUED');
+ const motionState=applyVerifiedRuntimeMotion(before,projected);
+ assert.equal(motionState.agents['director-agent'].zone,'GITHUB_HUB');
+ assert.equal(motionState.agents['director-agent'].destinationZone,'WAR_ROOM');
+ const motion=new AgentMotion(motionState.agents['director-agent'],0);
+ motion.sync(motionState.agents['director-agent']);assert.equal(motion.walking,true);
+ assert.deepEqual(projectRuntime({...base,events:[{...admitted,payload:{...admitted.payload,phase:'UNKNOWN'}}]},owner,workspace).hq.agents,{});
+ assert.deepEqual(projectRuntime({...base,events:[{...admitted,payload:{...admitted.payload,providerAcknowledged:true}}]},owner,workspace).hq.agents,{});
+ assert.deepEqual(projectRuntime({...base,events:[admitted]},owner,workspace,61_000).hq.agents,{});
+ assert.equal(applyVerifiedRuntimeMotion(null,projected).agents['director-agent'].destinationZone,undefined);
+ assert.deepEqual(projectRuntime({...base,tasks:[{...base.tasks[0],status:'COMPLETED'}],events:[admitted]},owner,workspace).hq.agents,{});
+});
+
 test('mounted runtime panel in StrictMode stays disabled without service and cleans up reads on account change',async()=>{
  Object.defineProperty(globalThis,'IS_REACT_ACT_ENVIRONMENT',{value:true,configurable:true});
  let view!:ReactTestRenderer;const client={rpc:async()=>({data:null,error:{code:'PGRST202'}})} as unknown as SupabaseClient;
