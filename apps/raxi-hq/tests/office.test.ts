@@ -83,6 +83,7 @@ test('Centrar cancels focus and the next scene frame preserves the centered came
     depthLayer:{sortChildren(){}},effects:[],
     constrainCamera(){clampCamera(world as unknown as Container,{minX:-450,maxX:40,minY:-45,maxY:105});},
     onZoom(_percent:number){},
+    clearZoneFocus(){},
   };
   OfficeScene.prototype.resetCamera.call(scene as unknown as OfficeScene);
   assert.equal(scene.focusTarget,undefined);
@@ -101,6 +102,7 @@ test('camera focus replay after reset is deterministic', () => {
     const scene={app:{screen:{width:630,height:630}},world,fitScale:1,focusTarget:target,
       constrainCamera(){clampCamera(world as unknown as Container,{minX:-450,maxX:40,minY:-45,maxY:105});},
       onZoom(_percent:number){},
+    clearZoneFocus(){},
     };
     OfficeScene.prototype.resetCamera.call(scene as unknown as OfficeScene);
     assert.equal(scene.focusTarget,undefined);
