@@ -275,6 +275,24 @@ test('mounted StrictMode App shares sprite/dock selection intent, preserves oper
     assert.equal(zoneButtons[0].props['aria-pressed'],true);
     assert.equal(zoneButtons.every(button=>button.props.type==='button'&&typeof button.props.onClick==='function'),true);
     assert.match(JSON.stringify(zoneButtons.map(button=>button.props.children)),/Supermemory Core/);
+    const zoneScroller=zoneNav.findByProps({'aria-label':'Elegir departamento'});
+    assert.equal(zoneScroller.findAllByType('button').length,7,'only the departments scroll; Vista completa stays separate');
+    assert.equal(zoneNav.findAllByProps({className:'office-zone-home'}).length,1,'full-view action remains permanently available');
+    const realDemoGroup=view.root.findByProps({'aria-label':'Explorar agentes sin ejecución real'});
+    assert.match(JSON.stringify(realDemoGroup.props.children),/REAL/);
+    await act(async()=>{
+      view.root.findByProps({'aria-label':'Ver agentes de demostración'}).props.onClick();
+      await Promise.resolve();await Promise.resolve();
+    });
+    assert.equal(hqStore.getSnapshot().mode,'MOCK','explicit shortcut selects the isolated demo source');
+    assert.equal(Object.keys(hqStore.getSnapshot().agents).length,mockAgents.length);
+    assert.ok(view.root.findByProps({'aria-label':'Volver a Campus REAL'}),'user can return without scrolling to the campus header');
+    await act(async()=>{
+      view.root.findByProps({'aria-label':'Volver a Campus REAL'}).props.onClick();
+      await Promise.resolve();await Promise.resolve();
+    });
+    assert.equal(hqStore.getSnapshot().mode,'LIVE_READ_ONLY');
+    assert.equal(Object.keys(hqStore.getSnapshot().agents).length,0,'DEMO agents never remain in REAL');
     await act(async()=>{await hqStore.switchMode('MOCK');});
     const before=structuredClone(hqStore.getSnapshot());const baseline=reads;
     const dock=view.root.findByType(AgentDock);const id=Object.keys(before.agents)[1];
