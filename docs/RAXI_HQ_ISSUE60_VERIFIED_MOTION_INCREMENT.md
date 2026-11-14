@@ -28,6 +28,14 @@ Al recibir un **nuevo** evento `TASK_ASSIGNED` derivado de `RUNTIME_DISPATCH_AUT
 
 Este SQL sigue siendo **propuesta independiente**, para no cambiar el checksum del antiguo `agent_runtime.sql` ni el manifiesto. Necesita ensayo físico PG17 y auditoría del permiso que dispara el trigger antes de su adopción.
 
+## Brecha del canvas principal detectada al revisar la integración
+
+El canvas principal de `App.tsx` lee el singleton `hqStore` (`LIVE_READ_ONLY` de la fuente Munder); su fuente predeterminada sigue siendo `disconnectedLiveSource`. En cambio, `RuntimeOfficePanel.tsx` crea un `RuntimeOfficeStore` y un **segundo canvas** de `OfficeScene` sólo si existen agentes confirmados.
+
+Por tanto, **este PR NO conecta todavía el runtime a la oficina principal**. No basta con habilitar las RPC de runtime: debe existir una integración explícita y autenticada del snapshot runtime a la misma `HQState` que consume la oficina grande. No mezclar snapshots de Munder y runtime ni aceptar eventos fuera del workspace de sesión; preservar la separación MOCK / LIVE / HISTORICAL.
+
+**Criterio pendiente de Issue #60:** Director e Investigador reales aparecen en el canvas principal de `App`, con Dock e Inspector coherentes, eventos auditados, animaciones causales y estado desconocido al perder la fuente. La existencia de un canvas adicional nunca se anunciará como tarea terminada.
+
 ## Restricción importante detectada
 
 En la propuesta SQL de runtime vigente, `runOne()` llama `step('dispatch')` **antes** de invocar el adaptador, pero ese paso no emite un evento público. La RPC registra `RUNTIME_ACKNOWLEDGED` **después** de que el proveedor responde, y luego `RUNTIME_RESULT_COMMITTED`. El nuevo recibo de despacho permitiría visualizar la transición antes de la llamada al proveedor si existe una lectura durante la ventana de ejecución. Si el trabajo se completa íntegramente entre dos lecturas (polling de 5s), la oficina seguirá sin animar el historial como si sucediera ahora, de manera intencional.
