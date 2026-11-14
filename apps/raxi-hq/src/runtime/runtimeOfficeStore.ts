@@ -1,5 +1,7 @@
 import type { HQState } from '../domain/hq';
 import type { HQEvent } from '../domain/events';
+/** Read-only, owner/workspace-scoped projection sent to the primary office. */
+export type RuntimeOfficeSink = (scope:{owner:string;workspace:string},hq:HQState|null)=>void;
 interface RuntimeTask {id:string;status:string;title:string;simulated:boolean;result:unknown}
 interface RuntimeEvent {id:number;workspace_id:string;agent_id:string|null;task_id:string;event_type:string;source_kind:string;evidence_status:string;occurred_at:string;payload:{simulated:boolean;stage:string;leaseUntil:string;phase?:string;operationalReceiptOnly?:boolean;providerAcknowledged?:boolean}}
 interface OfficeSnapshot {workspaceId:string;ownerId:string;serverTime:string;tasks:RuntimeTask[];events:RuntimeEvent[]}
