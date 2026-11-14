@@ -331,6 +331,8 @@ test('issue #60 main office bridge selects only same-owner connected runtime and
  assert.deepEqual(Object.keys(selected.tasks),['owned-task']);
  assert.equal(mainOfficeSource(fallback,record,'other-user','REAL'),fallback);
  assert.equal(mainOfficeSource(fallback,record,owner,'DEMO'),fallback);
+ const historical={...fallback,mode:'HISTORICAL_REPLAY' as const};
+ assert.equal(mainOfficeSource(historical,record,owner,'REAL'),historical,'explicit historical view wins over runtime');
  assert.equal(mainOfficeSource(fallback,null,owner,'REAL'),fallback);
  assert.equal(mainOfficeSource(fallback,{...record,workspace:''},owner,'REAL'),fallback);
  assert.equal(mainOfficeSource(fallback,{...record,hq:{...live,sourceHealth:{...live.sourceHealth,connection:'DISCONNECTED'}}},owner,'REAL'),fallback);
