@@ -51,7 +51,7 @@ Confirmar manualmente que el proyecto y el SHA aprobados son los mismos, la capa
 ## 4. Ejecución futura (requiere autorización expresa sobre este archivo exacto)
 
 1. Confirmar el destino STAGING exacto y el archivo `27c3527342b312bf21b7a35b27d5f0f9aa14cfda` sin cambios ni sustituciones.
-2. Instalar el único SQL `issue60_staging_runtime_atomic_review_only.sql` como **una única migración**. Contiene `SET LOCAL`, preflight, los cuatro SQL y postflight, **sin `BEGIN` ni `COMMIT` embebidos**. El gestor de migraciones Supabase maneja el límite transaccional y registra la versión. **No enviar el archivo antiguo `issue60_staging_runtime_atomic_review_only.sql` al gestor de migraciones:** es exclusivamente un artefacto de laboratorio y podría causar commits parciales. No ejecutar por fragmentos.
+2. Instalar el único SQL `issue60_staging_runtime_atomic_review_only.sql` como **una única migración**. Contiene `SET LOCAL`, preflight, los cuatro SQL y postflight, **sin `BEGIN` ni `COMMIT` embebidos**. El gestor de migraciones Supabase maneja el límite transaccional y registra la versión. El archivo de laboratorio antiguo que contenía `BEGIN/COMMIT` fue **eliminado de la rama** para evitar un uso accidental. Su historial queda en GitHub, pero NO es apto para `apply_migration`. No ejecutar por fragmentos.
 3. El preflight rechaza: versión PG distinta, identidad PR59 distinta, privilegios incorrectos, tablas RPC runtime ya existentes o constraint de aprobaciones inesperada.
 4. El postflight rechaza: cambio de identidad PR59, RLS ausente, permisos indebidos, RPC de lectura/host con ACL no permitida o trigger de recibos ausente.
 5. **No habilitar host ni proveedores en esta etapa.** Los registros continuarán en 0. No generar perfiles ficticios para renderizar personajes.
@@ -64,7 +64,7 @@ Después, para afirmar seguridad operativa se necesita **un JWT real de Supabase
 
 ## 6. Reversión y control del riesgo
 
-- **Antes de la confirmación de la migración por Supabase:** un error SQL debe revertir la transacción externa del gestor. El laboratorio inyecta un fallo deliberado después de crear objetos parciales y verifica que desaparecen. No incluir `BEGIN`/`COMMIT` en el cuerpo de la migración.
+- **Antes de la confirmación de la migración por Supabase:** un error SQL debe revertir la transacción externa del gestor. El laboratorio inyecta un fallo deliberado después de crear objetos parciales y verifica que desaparecen. [GitHub Actions #43625771857](https://github.com/xlordzocox-cyber/Raxisocialmedia/actions/runs/43625771857) PASS. No incluir `BEGIN`/`COMMIT` en el cuerpo de la migración.
 - **Después de COMMIT:** NO borrar o truncar automáticamente tablas, auditoría ni recibos. Deshabilitar ejecución/ingress (que permanecen deshabilitados desde el principio); inspeccionar estado y planear migración correctiva que preserve evidencias. Una reversión destructiva exige revisión y autorización específica.
 - No cambiar `VITE_RAXI_SUPERVISED_REQUESTS_ENABLED=false` de Preview ni flags privados. `service_role` NUNCA en frontend.
 - Siguiente gate tras SQL y JWT: host supervisado **desactivado**, luego consentimiento separado sobre tarea real, modelo/proveedor, presupuesto, horario y apagado. Un evento de despacho NO es confirmación de ejecución de proveedor.
