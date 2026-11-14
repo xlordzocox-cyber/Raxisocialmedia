@@ -1,7 +1,7 @@
 import type { HQState } from '../domain/hq';
 import type { HQEvent } from '../domain/events';
 interface RuntimeTask {id:string;status:string;title:string;simulated:boolean;result:unknown}
-interface RuntimeEvent {id:number;workspace_id:string;agent_id:string|null;task_id:string;event_type:string;source_kind:string;evidence_status:string;occurred_at:string;payload:{simulated:boolean;stage:string;leaseUntil:string}}
+interface RuntimeEvent {id:number;workspace_id:string;agent_id:string|null;task_id:string;event_type:string;source_kind:string;evidence_status:string;occurred_at:string;payload:{simulated:boolean;stage:string;leaseUntil:string;phase?:string;operationalReceiptOnly?:boolean;providerAcknowledged?:boolean}}
 interface OfficeSnapshot {workspaceId:string;ownerId:string;serverTime:string;tasks:RuntimeTask[];events:RuntimeEvent[]}
 const empty=():HQState=>({agents:{},tasks:{},campaigns:{},events:[],handoffs:[],memorySignals:[],readOnly:true,mockMode:false,mode:'LIVE_READ_ONLY',sourceHealth:{source:'runtime',mode:'LIVE_READ_ONLY',connection:'DISCONNECTED',agentsLoaded:0,tasksLoaded:0,eventsLoaded:0}});
 export { empty as emptyRuntimeHQ };
@@ -18,10 +18,13 @@ export function projectRuntime(raw:unknown,owner:string,workspace:string,elapsed
   const stage=e.payload.stage;if(!['DIRECTOR','RESEARCHER'].includes(stage)||!e.agent_id)continue;
   // Only these two durable transitions have an equivalent HQ visual event.
   // OUTCOME_UNKNOWN, LEASE_UNKNOWN and future types must not be mislabeled AGENT_BLOCKED.
-  const type:HQEvent['type']|undefined=e.event_type==='RUNTIME_ACKNOWLEDGED'?'TASK_STARTED':e.event_type==='RUNTIME_RESULT_COMMITTED'?'TASK_COMPLETED':undefined;
+  const dispatch=e.event_type==='RUNTIME_DISPATCH_AUTHORIZED' && e.payload.phase==='DISPATCH_AUTHORIZED' &&
+   e.payload.operationalReceiptOnly===true && e.payload.providerAcknowledged===false &&
+   task.status==='QUEUED' && Date.parse(e.payload.leaseUntil)>now;
+  const type:HQEvent['type']|undefined=dispatch?'TASK_ASSIGNED':e.event_type==='RUNTIME_ACKNOWLEDGED'?'TASK_STARTED':e.event_type==='RUNTIME_RESULT_COMMITTED'?'TASK_COMPLETED':undefined;
   if(!type)continue;
   const running=type==='TASK_STARTED'&&task.status==='RUNNING'&&Date.parse(e.payload.leaseUntil)>now;
-  hq.agents[e.agent_id]={id:e.agent_id,displayName:stage==='DIRECTOR'?'Director IA':'Investigador',role:stage,status:running?'RUNNING':task.status==='COMPLETED'?'COMPLETED':task.status==='BLOCKED'?'BLOCKED':'IDLE',zone:stage==='DIRECTOR'?'WAR_ROOM':'RESEARCH_LAB',currentTaskId:task.id,capabilities:['authorized-read-only-task'],securityState:'READ_ONLY',lastEventAt:e.occurred_at};
+  hq.agents[e.agent_id]={id:e.agent_id,displayName:stage==='DIRECTOR'?'Director IA':'Investigador',role:stage,status:dispatch?'WAITING':running?'RUNNING':task.status==='COMPLETED'?'COMPLETED':task.status==='BLOCKED'?'BLOCKED':'IDLE',zone:stage==='DIRECTOR'?'WAR_ROOM':'RESEARCH_LAB',currentTaskId:task.id,capabilities:['authorized-read-only-task'],securityState:'READ_ONLY',lastEventAt:e.occurred_at};
   hq.tasks[task.id]={id:task.id,title:task.title,status:task.status==='RUNNING'&&!running?'UNCONFIRMED':task.status,ownerAgentId:e.agent_id};
   hq.events.push({id:'RUNTIME-'+e.id,timestamp:e.occurred_at,type,label:e.event_type,actorId:e.agent_id,taskId:e.task_id,source:'runtime',verified:true});
  }
@@ -43,12 +46,14 @@ export function applyVerifiedRuntimeMotion(previous: HQState | null, next: HQSta
  const seen=new Set(previous.events.map(event=>event.id));
  let updated:HQState['agents']|undefined;
  for(const event of next.events) {
-  if(event.type!=='TASK_STARTED' || !event.verified || event.source!=='runtime' ||
+  if((event.type!=='TASK_STARTED' && event.type!=='TASK_ASSIGNED') || !event.verified || event.source!=='runtime' ||
      seen.has(event.id) || !event.actorId || !event.taskId)continue;
   const agent=Object.hasOwn(next.agents,event.actorId)?next.agents[event.actorId]:undefined;
   const task=Object.hasOwn(next.tasks,event.taskId)?next.tasks[event.taskId]:undefined;
+  const currentDispatch=event.type==='TASK_ASSIGNED' && agent?.status==='WAITING' && task?.status==='QUEUED';
+  const currentStart=event.type==='TASK_STARTED' && agent?.status==='RUNNING' && task?.status==='RUNNING';
   if(!agent || !task || agent.currentTaskId!==event.taskId || task.ownerAgentId!==agent.id ||
-     agent.status!=='RUNNING' || task.status!=='RUNNING' || Object.hasOwn(previous.agents,agent.id))continue;
+     (!currentDispatch && !currentStart) || Object.hasOwn(previous.agents,agent.id))continue;
   // Intake zones are a visual convention; the only claim of real work is the
   // authenticated, verified runtime event/active lease. Existing sprites do not teleport.
   const from=agent.role==='DIRECTOR'?'GITHUB_HUB':agent.role==='RESEARCHER'?'WAR_ROOM':undefined;
