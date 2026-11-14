@@ -124,6 +124,66 @@ test('inspector withdraws a task on inconsistent or incomplete refresh and recov
   await act(async()=>view.unmount());
 });
 
+test('room focus smoothly magnifies the selected department without inventing agents',()=>{
+  const {scene,world}=sceneFixture();
+  const before=structuredClone(scene.state);
+  const selected:(string|undefined)[]=[];
+  scene.onZoneFocusChange=(id?:string)=>selected.push(id);
+  assert.equal(scene.focusZone('ARIA_LINK'),true);
+  assert.equal(scene.activeZoneId,'ARIA_LINK');
+  assert.equal(scene.zoneFocusTarget,'ARIA_LINK');
+  for(let i=0;i<250&&scene.zoneFocusTarget;i++)scene.tick(16);
+  assert.equal(scene.zoneFocusTarget,undefined,'focus animation settles');
+  assert.equal(world.scale.x,1.85);
+  assert.equal(scene.focusCriticalEvents,false);
+  assert.deepEqual(scene.state,before,'camera-only interaction leaves domain state intact');
+  assert.equal(scene.focusZone('__proto__'),false,'untrusted invalid room rejected');
+  assert.deepEqual(selected,['ARIA_LINK']);
+  scene.zoom(1.1);
+  assert.equal(scene.activeZoneId,undefined,'manual camera takes control');
+  assert.equal(scene.zoneFocusTarget,undefined);
+  assert.equal(selected.at(-1),undefined);
+  assert.equal(scene.focusZone('QA_LAB'),true);
+  scene.resetCamera();
+  assert.equal(scene.activeZoneId,undefined);
+  assert.equal(scene.zoneFocusTarget,undefined);
+  assert.equal(world.scale.x,1.05);
+  assert.deepEqual(scene.state,before);
+});
+
+test('reduced-motion room focus finishes in one tick and keeps REAL source disconnected',()=>{
+  const {scene,world}=sceneFixture();
+  scene.state={...snapshot(),mode:'LIVE_READ_ONLY',mockMode:false,
+    agents:{},events:[],sourceHealth:{source:'munder',mode:'LIVE_READ_ONLY',connection:'DISCONNECTED',eventsLoaded:0,agentsLoaded:0,tasksLoaded:0}};
+  scene.reducedMotion={matches:true};
+  const original=structuredClone(scene.state);
+  assert.equal(scene.focusZone('GITHUB_HUB'),true);
+  scene.tick(16);
+  assert.equal(scene.zoneFocusTarget,undefined);
+  assert.equal(world.scale.x,1.85);
+  assert.deepEqual(scene.state,original);
+  assert.equal(scene.state.sourceHealth.connection,'DISCONNECTED');
+  assert.equal(Object.keys(scene.state.agents).length,0);
+});
+
+test('mobile room shortcuts are semantic buttons and leave runtime operations disabled',async()=>{
+  let view!:ReactTestRenderer;
+  const auth=new AuthStore({getUser:async()=>({data:{user:null},error:null}),
+    onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}),
+    signOut:async()=>({error:null})} as unknown as SupabaseClient['auth']);
+  try{
+    await act(async()=>{view=create(<AuthProvider store={auth}><App/></AuthProvider>);});
+    const nav=view.root.findAllByProps({'aria-label':'Acercar cámara a departamentos'})[0];
+    assert.ok(nav,'accessible office navigator');
+    const buttons=nav.findAllByType('button');
+    assert.equal(buttons.length,8,'one full view and seven departments');
+    assert.equal(buttons[0].props['aria-pressed'],true);
+    assert.equal(buttons.every(b=>b.props.type==='button'),true);
+    assert.equal(buttons.every(b=>typeof b.props.onClick==='function'),true);
+    assert.match(JSON.stringify(nav.toJSON?.()??buttons.map(b=>b.props.children)),/Supermemory Core/);
+    await act(async()=>view.unmount());
+  } finally {hqStore.stop();}
+});
 test('manual focus snapshots rendered position and refocuses the same selected agent',()=>{
   const {scene}=sceneFixture();const before=structuredClone(scene.state);
   assert.equal(scene.focusAgent('a'),true);assert.deepEqual(scene.focusTarget,{x:-20,y:10});
