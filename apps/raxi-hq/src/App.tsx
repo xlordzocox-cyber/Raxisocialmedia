@@ -37,7 +37,7 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
   const realIdeas = getRealIdeaStore(ownerId => new RealIdeaStore(ideaRepository(ownerId), ownerId));
   // The active scope comes from the authenticated, validated persistence store.
   const realIdeaSnapshot = useSyncExternalStore(realIdeas.subscribe,realIdeas.getSnapshot,realIdeas.getSnapshot);
-  const activeWorkspaceId = realIdeaSnapshot.phase === 'ready' && realIdeaSnapshot.workspace?.ownerId === user?.id
+  const activeWorkspaceId = (realIdeaSnapshot.phase === 'ready' || realIdeaSnapshot.phase === 'saving') && realIdeaSnapshot.workspace?.ownerId === user?.id
     ? realIdeaSnapshot.workspace.id : undefined;
   const host = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<OfficeScene | undefined>(undefined);
@@ -51,13 +51,13 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
   const onRuntimeSnapshot = useCallback<RuntimeOfficeSink>((scope,hq)=>{
     // Read current store state at delivery time; stale child callbacks cannot impersonate the new workspace.
     const current=realIdeas.getSnapshot();
-    if(scope.owner!==user?.id||current.phase!=='ready'||current.workspace?.ownerId!==user?.id||
+    if(campusMode!=='REAL'||scope.owner!==user?.id||!['ready','saving'].includes(current.phase)||current.workspace?.ownerId!==user?.id||
        !matchesActiveRuntimeScope(scope,user?.id,current.workspace?.id))return;
     setRuntimeOffice(previous=>{
       if(!hq)return previous?.owner===scope.owner && previous.workspace===scope.workspace?null:previous;
       return {owner:scope.owner,workspace:scope.workspace,hq};
     });
-  },[realIdeas,user?.id]);
+  },[campusMode,realIdeas,user?.id]);
   useEffect(()=>{
     // Keep runtime snapshots only for the current confirmed REAL workspace.
     setRuntimeOffice(previous=>campusMode==='REAL'&&previous&&
