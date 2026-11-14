@@ -251,7 +251,11 @@ test('issue #60 dispatch is WAITING, verified and never a claim that the provide
 test('issue #60 SQL dispatch receipt is atomic and does not claim provider acknowledgment',async()=>{
  const f=await fixture(true);
  try {
+  // Existing regression fixture must install DDL as migration owner, not as
+  // service_role. The official PR66 QA already uses the same role boundary.
+  await f.db.exec('reset role');
   await f.db.exec(readFileSync('../../supabase/proposals/issue60_runtime_dispatch_receipt.sql','utf8'));
+  await f.db.exec('set role service_role');
   const taskId=await f.create();
   const run=(await f.repository.claim(taskId,'dispatch-receipt-test'))!.run;
   await f.repository.step(run.id,run.lease_token,'dispatch');
