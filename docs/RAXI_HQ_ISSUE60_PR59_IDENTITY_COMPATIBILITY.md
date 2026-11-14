@@ -14,7 +14,7 @@
 
 - `issue60_stage_b_staging_identity_compatible.candidate.sql` conserva todos los demás contratos Stage B, **sin borrar ni reemplazar** esa función.
 - Exige identidad previa con propietario `SECURITY INVOKER`, EXECUTE para `service_role` y rechazo de `anon`/`authenticated`. Exige referencia al proyecto staging.
-- En laboratorio PG17, se crea una función **sintética** con la misma firma (no copia de datos ni credenciales) y se comprueba su definición byte a byte antes/después de aplicar la candidata. También se prueba que `raxi_supervised_host_command` queda restringido a `service_role`.
+- En laboratorio PG17, se crea la función **con definición real exacta de PR59** obtenida de solo lectura con `pg_get_functiondef` (sin copiar usuarios, sesiones, contraseñas ni credenciales), fijando SHA-256 `a99f644a5b4506d9db3fe426435bf4fefba30839592eea6ebdad4fee059a0fbf`. Se comprueba la huella antes/después del candidato y el acceso restringido a `service_role`. Las tres negativas sustituyen temporalmente la definición en una transacción efímera y esperan bloqueo del propio preflight SQL: projectRef solo en comentario, comparación invertida y omisión de sesión/owner/vigencia.
 - Luego pasa las negativas existentes de recibos únicos, política revocada, lease expirado y rollback.
 - **Límite del ensayo:** no prueba el cuerpo real de Auth ni JWT alojado. El catálogo del proyecto auténtico solo se leyó sin escribir.
 
