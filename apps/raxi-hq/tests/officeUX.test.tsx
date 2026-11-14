@@ -15,6 +15,8 @@ import { AgentDock } from '../src/office/ui/AgentDock';
 import { AgentInspector } from '../src/office/ui/AgentInspector';
 import { AgentTaskBoard } from '../src/office/ui/AgentTaskBoard';
 import { RealIdeaCenter } from '../src/persistence/RealIdeaCenter';
+import { CampusOverview } from '../src/campus/CampusOverview';
+import { OperationsInbox } from '../src/operations/OperationsInbox';
 import { mockAgents } from '../src/adapters/mock/mockScenario';
 import type { HQState } from '../src/domain/hq';
 import { settings, Container } from 'pixi.js';
@@ -316,6 +318,10 @@ test('mounted StrictMode App shares sprite/dock selection intent, preserves oper
     assert.equal(view.root.findByProps({'aria-label':'Bandeja de propuestas recibidas'}).props.hidden,false,'DEMO inbox accessible within campaigns');
     await act(async()=>{railButtons[0].props.onClick();});
     assert.equal(view.root.findByProps({'aria-label':'Bandeja de propuestas recibidas'}).props.hidden,false,'opened inbox remains visible in Ideas');
+    const inbox=view.root.findByType(OperationsInbox);
+    await act(async()=>{inbox.props.onOpenCampaign('CAMPAIGN-DEMO-NAVIGATION-TEST');});
+    assert.equal(view.root.findByType(CampusOverview).props.view,'campaigns','opening a campaign from Ideas must navigate to Campaigns');
+    await act(async()=>{railButtons[0].props.onClick();});
     assert.ok(view.root.findByProps({'aria-label':'Volver a Campus REAL'}),'user can return without scrolling to the campus header');
     let clearedSynchronously=false;
     await act(async()=>{
