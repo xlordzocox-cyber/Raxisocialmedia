@@ -42,7 +42,7 @@ export function IdeasBuilding() {
   </svg>;
 }
 
-export function CampusOverview({ ideas, clock = runtimeClock, view = 'all' }: { ideas: readonly IdeaRecord[]; clock?: Clock; view?: 'all'|'ideas'|'campaigns'|'runtime' }) {
+export function CampusOverview({ ideas, clock = runtimeClock, view = 'all', onNavigateToCampaigns }: { ideas: readonly IdeaRecord[]; clock?: Clock; view?: 'all'|'ideas'|'campaigns'|'runtime'; onNavigateToCampaigns?: () => void }) {
   const [open, setOpen] = useState(false);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
@@ -105,7 +105,7 @@ export function CampusOverview({ ideas, clock = runtimeClock, view = 'all' }: { 
     <div hidden={view==='ideas'||view==='runtime'} className="campaign-workspace-link"><button type="button" aria-expanded={workspaceOpen} aria-controls={CAMPAIGN_WORKSPACE_ID} onClick={() => setWorkspaceOpen(value => !value)}>{workspaceOpen ? 'Cerrar Campaign Workspace' : 'Abrir Campaign Workspace'} · {campaigns.campaigns.length}</button><button type="button" aria-label="Abrir bandeja de propuestas en Campañas" aria-expanded={inboxOpen} aria-controls={OPERATIONS_INBOX_ID} onClick={()=>setInboxOpen(value=>!value)}>{inboxOpen ? 'Cerrar bandeja de propuestas' : 'Abrir bandeja de propuestas'}</button></div>
     {actionError && <p className="idea-form-error" role="alert">{actionError}</p>}
     <div hidden={view==='runtime'||(view==='ideas'&&!inboxOpen)}>
-    <OperationsInbox id={OPERATIONS_INBOX_ID} handoffs={session.handoffs} open={inboxOpen} campaigns={campaigns} onAction={applyCampaign} onOpenCampaign={id => { selectCampaign(id); setWorkspaceOpen(true); }} />
+    <OperationsInbox id={OPERATIONS_INBOX_ID} handoffs={session.handoffs} open={inboxOpen} campaigns={campaigns} onAction={applyCampaign} onOpenCampaign={id => { selectCampaign(id); setWorkspaceOpen(true); onNavigateToCampaigns?.(); }} />
     </div>
     <div hidden={view==='ideas'||view==='runtime'}>
     <CampaignWorkspace id={CAMPAIGN_WORKSPACE_ID} session={campaigns} getSession={() => campaignsRef.current!}
