@@ -1,0 +1,27 @@
+name: Raxi HQ Issue60 native PG17 (no deploy)
+on:
+  pull_request:
+    branches:
+      - feat/issue60-runtime-verified-motion
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: raxi-hq-pg17-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native-pg17:
+    name: Ephemeral no-network PG17 SQL acceptance
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Checkout PR merge ref with credentials not persisted
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Run offline native PostgreSQL 17 checks
+        shell: bash
+        run: bash apps/raxi-hq/scripts/issue60-pg17-ci.sh
