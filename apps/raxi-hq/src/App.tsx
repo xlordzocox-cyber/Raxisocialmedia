@@ -37,8 +37,9 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
   const realIdeas = getRealIdeaStore(ownerId => new RealIdeaStore(ideaRepository(ownerId), ownerId));
   // The active scope comes from the authenticated, validated persistence store.
   const realIdeaSnapshot = useSyncExternalStore(realIdeas.subscribe,realIdeas.getSnapshot,realIdeas.getSnapshot);
-  const activeWorkspaceId = (realIdeaSnapshot.phase === 'ready' || realIdeaSnapshot.phase === 'saving') && realIdeaSnapshot.workspace?.ownerId === user?.id
-    ? realIdeaSnapshot.workspace.id : undefined;
+  const activeWorkspaceId = (realIdeaSnapshot.phase === 'ready' || realIdeaSnapshot.phase === 'saving') &&
+    user?.id && realIdeaSnapshot.workspace?.ownerId === user.id
+    ? realIdeaSnapshot.workspace?.id : undefined;
   const host = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<OfficeScene | undefined>(undefined);
   const [hoveredId,setHoveredId] = useState<string>();
