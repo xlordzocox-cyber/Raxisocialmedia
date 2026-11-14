@@ -91,6 +91,19 @@ BEGIN
  IF EXISTS(SELECT 1 FROM public.raxi_agent_events WHERE task_id=v_task AND event_type='RUNTIME_DISPATCH_AUTHORIZED') THEN
   RAISE EXCEPTION 'Dispatch event appeared before authorized step';
  END IF;
+ -- Combined RUNNING+dispatch mutation must not bypass receipt validation.
+ BEGIN
+  UPDATE public.raxi_agent_runs
+   SET status='RUNNING',dispatch_authorized_at=clock_timestamp() WHERE id=v_run;
+  RAISE EXCEPTION 'Combined status and dispatch unexpectedly accepted';
+ EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+ END;
+ IF (SELECT status FROM public.raxi_agent_runs WHERE id=v_run)<>'CLAIMED' OR
+    EXISTS(SELECT 1 FROM public.raxi_agent_events
+           WHERE task_id=v_task AND event_type='RUNTIME_DISPATCH_AUTHORIZED') THEN
+  RAISE EXCEPTION 'Denied combined mutation persisted state or event';
+ END IF;
+ RAISE NOTICE 'PASS: combined status and dispatch bypass denied';
  -- A privileged direct UPDATE is not proof of an authorized dispatch when policy is revoked.
  BEGIN
   UPDATE public.raxi_runtime_policies SET enabled=false
@@ -158,6 +171,26 @@ BEGIN
  WHERE action='RUNTIME_DISPATCH_AUTHORIZED' AND resource_id=v_run::text;
  IF v_count<>1 THEN RAISE EXCEPTION 'Dispatch audit row absent/duplicate'; END IF;
  RAISE NOTICE 'PASS: native dispatch has exactly one event and audit, no provider ACK';
+ -- Once audited, the dispatch timestamp is immutable; no new receipt can be minted.
+ BEGIN
+  UPDATE public.raxi_agent_runs SET dispatch_authorized_at=NULL WHERE id=v_run;
+  RAISE EXCEPTION 'Dispatch timestamp reset unexpectedly accepted';
+ EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+ END;
+ BEGIN
+  UPDATE public.raxi_agent_runs
+   SET dispatch_authorized_at=clock_timestamp()+interval '1 second' WHERE id=v_run;
+  RAISE EXCEPTION 'Dispatch timestamp replacement unexpectedly accepted';
+ EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+ END;
+ IF (SELECT count(*) FROM public.raxi_agent_events
+     WHERE task_id=v_task AND event_type='RUNTIME_DISPATCH_AUTHORIZED')<>1 OR
+    (SELECT count(*) FROM public.raxi_audit_events
+     WHERE action='RUNTIME_DISPATCH_AUTHORIZED' AND resource_id=v_run::text)<>1 THEN
+  RAISE EXCEPTION 'Forged duplicate receipt or audit';
+ END IF;
+ RAISE NOTICE 'PASS: audited timestamp is immutable and receipts stay unique';
+
 
  BEGIN
   PERFORM public.raxi_runtime_step(v_run,v_token,'dispatch');
