@@ -102,10 +102,12 @@ export function CampusOverview({ ideas, clock = runtimeClock, view = 'all' }: { 
         <span className="campus-building-copy"><span className="campus-building-kicker"><i aria-hidden="true" /> CENTRO DE IDEAS · MOCK + SESIÓN LOCAL</span><strong>Centro de<br />Ideas</strong><span className="campus-building-description">Radar y captura local de propuestas</span><span className="campus-telemetry"><span><b>{summary.totalIdeas}</b> {summary.totalIdeas === 1 ? 'idea' : 'ideas'}</span><span><b>{session.manualDrafts.length}</b> borradores locales</span><span><b>{summary.underReviewCount}</b> en análisis</span><span><b>{summary.approvedForHqCount}</b> {summary.approvedForHqCount === 1 ? 'lista' : 'listas'} para HQ</span></span><span className="campus-building-footer">{open ? 'Cerrar panel' : 'Explorar ideas'} <span aria-hidden="true">{open ? '↑' : '↗'}</span></span></span>
       </button>
     </div>
-    <div hidden={view==='ideas'||view==='runtime'} className="campaign-workspace-link"><button type="button" aria-expanded={workspaceOpen} aria-controls={CAMPAIGN_WORKSPACE_ID} onClick={() => setWorkspaceOpen(value => !value)}>{workspaceOpen ? 'Cerrar Campaign Workspace' : 'Abrir Campaign Workspace'} · {campaigns.campaigns.length}</button></div>
+    <div hidden={view==='ideas'||view==='runtime'} className="campaign-workspace-link"><button type="button" aria-expanded={workspaceOpen} aria-controls={CAMPAIGN_WORKSPACE_ID} onClick={() => setWorkspaceOpen(value => !value)}>{workspaceOpen ? 'Cerrar Campaign Workspace' : 'Abrir Campaign Workspace'} · {campaigns.campaigns.length}</button><button type="button" aria-label="Abrir bandeja de propuestas en Campañas" aria-expanded={inboxOpen} aria-controls={OPERATIONS_INBOX_ID} onClick={()=>setInboxOpen(value=>!value)}>{inboxOpen ? 'Cerrar bandeja de propuestas' : 'Abrir bandeja de propuestas'}</button></div>
     {actionError && <p className="idea-form-error" role="alert">{actionError}</p>}
-    <div hidden={view==='ideas'||view==='runtime'}>
+    <div hidden={view==='runtime'||(view==='ideas'&&!inboxOpen)}>
     <OperationsInbox id={OPERATIONS_INBOX_ID} handoffs={session.handoffs} open={inboxOpen} campaigns={campaigns} onAction={applyCampaign} onOpenCampaign={id => { selectCampaign(id); setWorkspaceOpen(true); }} />
+    </div>
+    <div hidden={view==='ideas'||view==='runtime'}>
     <CampaignWorkspace id={CAMPAIGN_WORKSPACE_ID} session={campaigns} getSession={() => campaignsRef.current!}
       open={workspaceOpen} selectedId={selectedCampaignId} getSelectedId={() => selectedCampaignIdRef.current}
       onSelect={selectCampaign} onAction={applyCampaign} />
