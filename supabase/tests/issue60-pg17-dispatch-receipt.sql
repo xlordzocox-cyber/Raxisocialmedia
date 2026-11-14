@@ -63,6 +63,28 @@ BEGIN
  IF EXISTS(SELECT 1 FROM public.raxi_agent_events WHERE task_id=v_task AND event_type='RUNTIME_DISPATCH_AUTHORIZED') THEN
   RAISE EXCEPTION 'Dispatch event appeared before authorized step';
  END IF;
+ -- A privileged direct UPDATE is not proof of an authorized dispatch when policy is revoked.
+ BEGIN
+  UPDATE public.raxi_runtime_policies SET enabled=false
+   WHERE workspace_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  UPDATE public.raxi_agent_runs SET dispatch_authorized_at=clock_timestamp() WHERE id=v_run;
+  RAISE EXCEPTION 'Revoked direct dispatch unexpectedly admitted';
+ EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM NOT LIKE '%authorization expired or revoked%' THEN RAISE; END IF;
+ END;
+ -- A stale lease must also be denied even if table UPDATE is attempted directly.
+ BEGIN
+  UPDATE public.raxi_agent_runs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=v_run;
+  UPDATE public.raxi_agent_runs SET dispatch_authorized_at=clock_timestamp() WHERE id=v_run;
+  RAISE EXCEPTION 'Expired direct dispatch unexpectedly admitted';
+ EXCEPTION WHEN OTHERS THEN
+  IF SQLERRM NOT LIKE '%invalid dispatch authority or lease%' THEN RAISE; END IF;
+ END;
+ IF EXISTS (SELECT 1 FROM public.raxi_agent_events WHERE task_id=v_task
+  AND event_type='RUNTIME_DISPATCH_AUTHORIZED') THEN
+  RAISE EXCEPTION 'Denied direct updates created events';
+ END IF;
+ RAISE NOTICE 'PASS: revoked/expired direct SQL writes fail closed';
  PERFORM public.raxi_runtime_step(v_run,v_token,'dispatch');
 
  SELECT count(*) INTO v_count FROM public.raxi_agent_events
