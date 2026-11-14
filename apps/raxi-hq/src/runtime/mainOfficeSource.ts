@@ -12,7 +12,7 @@ export function mainOfficeSource(
  campus:'REAL'|'DEMO',
  selectedRuntimeAgentId?:string,
 ):HQState {
- if(campus!=='REAL'||!viewerId||!record||record.owner!==viewerId||!record.workspace||
+ if(campus!=='REAL'||fallback.mode!=='LIVE_READ_ONLY'||!viewerId||!record||record.owner!==viewerId||!record.workspace||
     record.hq.mode!=='LIVE_READ_ONLY'||record.hq.mockMode!==false||
     record.hq.sourceHealth.source!=='runtime'||record.hq.sourceHealth.connection!=='CONNECTED')return fallback;
  const selectedAgentId=getOwnAgent(record.hq.agents,selectedRuntimeAgentId)?.id ??
