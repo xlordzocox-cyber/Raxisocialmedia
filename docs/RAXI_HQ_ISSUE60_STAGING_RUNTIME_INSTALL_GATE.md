@@ -28,6 +28,13 @@
 
 Resultados confirmados en GitHub Actions: rollback atómico de datos de QA, acceso owner/anon/foreign, único recibo de despacho real y su auditoría, rechazo de cambios directos a lease/proveedor y tres rechazos de reemplazos débiles de la identidad. El ensayo **no crea ni valida sesiones reales Supabase Auth alojadas**.
 
+## 2B. Pruebas negativas y hosted command en laboratorio (verificadas)
+- [GitHub Actions #43626867185](https://github.com/xlordzocox-cyber/Raxisocialmedia/actions/runs/43626867185) **SUCCESS** sobre el mismo SQL apto para el gestor de migraciones, blob `27c3527342b312bf21b7a35b27d5f0f9aa14cfda`.
+- Se ejecuta el **paquete SQL completo** bajo transacción externa con tres condiciones adversas: identidad PR59 debilitada (rechazo preflight), tabla runtime parcialmente existente (rechazo preflight), y fallo inyectado **después** de completar las cuatro secciones DDL (rollback total). Se verifica que no queden tablas/RPC, drift de identidad, permisos inesperados ni constraint de aprobaciones modificado.
+- Segundo intento del **paquete completo** tras un COMMIT exitoso rechazado sin duplicar objetos.
+- `raxi_supervised_host_command` ejercitado realmente en laboratorio con dos usuarios, dos workspaces y sesiones sintéticas. Una sesión legítima propia puede leer su tarea; las identidades de otro actor/workspace/sesión/proyecto, sesión inexistente/vencida, rol `anon` o `authenticated` se rechazan. Las filas del fixture se revierten.
+- Continúa faltando **Auth/JWT de sesión alojada real**. Simular `SET LOCAL ROLE` no valida la comprobación de un JWT firmado o una revocación real del servicio.
+
 ## 3. Preflight hospedado: SOLO LECTURA
 
 Volver a ejecutar inmediatamente antes de aprobar cualquier instalación:
