@@ -36,6 +36,9 @@ test('mobile zone hit testing only accepts drawn room silhouettes',()=>{
   for(const point of [{x:-100,y:-100},{x:520,y:-300},{x:1040,y:400},{x:NaN,y:10},{x:Infinity,y:500}]) {
     assert.equal(officeZoneAtPoint(point),undefined,'non-room tap');
   }
+  // The back room is visually underneath War Room's upper wall.
+  assert.equal(officeZoneAtPoint({x:520,y:136}),'WAR_ROOM','painted-on-top room wins');
+  assert.equal(officeZoneAtPoint({x:520,y:122}),'SUPERMEMORY_CORE','visible memory floor remains selectable');
   assert.equal(officeZoneZoomFactor(360),2.4);
   assert.equal(officeZoneZoomFactor(600),2.4);
   assert.equal(officeZoneZoomFactor(800),1.85);
