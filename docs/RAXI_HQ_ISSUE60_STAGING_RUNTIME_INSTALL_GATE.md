@@ -6,7 +6,7 @@
 
 - Destino permitido: proyecto Supabase `raxi-hq-staging`, ref `zvhxjindgyvtasstfjut`, PostgreSQL 17.
 - Prohibido: producción, un proyecto alterno, habilitar proveedores, host, Edge pública, flags, publicar contenido.
-- Archivo transaccional para revisión: `supabase/proposals/issue60_staging_runtime_atomic_review_only.sql`, blob Git `c61fd383e1b779ba74da012a9193aa73c349268f`.
+- Archivo transaccional para revisión: `supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql`, blob Git `27c3527342b312bf21b7a35b27d5f0f9aa14cfda`.
 - Fuente exacta y orden dentro del archivo:
   1. `agent_runtime.sql` blob `6893f5c9eda6ff61b024173605a1da9a880e0b3e`.
   2. `supervised_host_stage_a.sql` blob `f6c0372d1cfc94ca45c267c641f835971d442b7c`.
@@ -24,7 +24,7 @@
 
 ## 2. Prueba nativa YA ejecutada
 
-[GitHub Actions #43624838323](https://github.com/xlordzocox-cyber/Raxisocialmedia/actions/runs/43624838323) PASS: en contenedor PostgreSQL17 aislado, se instalaron los 5 esquemas históricos del repositorio y los 2 SQL PR59 en el orden del staging. Luego se instaló el **archivo completo** de 61 KB en una sola transacción con preflight/postflight y se ejecutaron las pruebas negativas de Issue60.
+[GitHub Actions #43624838323](https://github.com/xlordzocox-cyber/Raxisocialmedia/actions/runs/43624838323) PASS: en contenedor PostgreSQL17 aislado, se instalaron los 5 esquemas históricos del repositorio y los 2 SQL PR59 en el orden del staging. Luego se instaló la **versión apta para el gestor de migraciones** de 61 KB, con transacción EXTERNA del ensayo y comprobaciones preflight/postflight y se ejecutaron las pruebas negativas de Issue60.
 
 Resultados confirmados en GitHub Actions: rollback atómico de datos de QA, acceso owner/anon/foreign, único recibo de despacho real y su auditoría, rechazo de cambios directos a lease/proveedor y tres rechazos de reemplazos débiles de la identidad. El ensayo **no crea ni valida sesiones reales Supabase Auth alojadas**.
 
@@ -50,8 +50,8 @@ Confirmar manualmente que el proyecto y el SHA aprobados son los mismos, la capa
 
 ## 4. Ejecución futura (requiere autorización expresa sobre este archivo exacto)
 
-1. Confirmar el destino STAGING exacto y el archivo `c61fd383e1b779ba74da012a9193aa73c349268f` sin cambios ni sustituciones.
-2. Instalar el único SQL `issue60_staging_runtime_atomic_review_only.sql` como **una única migración**. Contiene `BEGIN`, `SET LOCAL`, preflight, los cuatro SQL, postflight y `COMMIT`. Debe revisarse su compatibilidad con el mecanismo de migraciones alojado; no ejecutar por fragmentos ni confirmar si algún paso falla.
+1. Confirmar el destino STAGING exacto y el archivo `27c3527342b312bf21b7a35b27d5f0f9aa14cfda` sin cambios ni sustituciones.
+2. Instalar el único SQL `issue60_staging_runtime_atomic_review_only.sql` como **una única migración**. Contiene `SET LOCAL`, preflight, los cuatro SQL y postflight, **sin `BEGIN` ni `COMMIT` embebidos**. El gestor de migraciones Supabase maneja el límite transaccional y registra la versión. **No enviar el archivo antiguo `issue60_staging_runtime_atomic_review_only.sql` al gestor de migraciones:** es exclusivamente un artefacto de laboratorio y podría causar commits parciales. No ejecutar por fragmentos.
 3. El preflight rechaza: versión PG distinta, identidad PR59 distinta, privilegios incorrectos, tablas RPC runtime ya existentes o constraint de aprobaciones inesperada.
 4. El postflight rechaza: cambio de identidad PR59, RLS ausente, permisos indebidos, RPC de lectura/host con ACL no permitida o trigger de recibos ausente.
 5. **No habilitar host ni proveedores en esta etapa.** Los registros continuarán en 0. No generar perfiles ficticios para renderizar personajes.
@@ -64,9 +64,13 @@ Después, para afirmar seguridad operativa se necesita **un JWT real de Supabase
 
 ## 6. Reversión y control del riesgo
 
-- **Antes de COMMIT:** error SQL = rollback de la transacción; verificar ausencia de tablas, RPC y trigger en el mismo laboratorio y en la herramienta de migración.
+- **Antes de la confirmación de la migración por Supabase:** un error SQL debe revertir la transacción externa del gestor. El laboratorio inyecta un fallo deliberado después de crear objetos parciales y verifica que desaparecen. No incluir `BEGIN`/`COMMIT` en el cuerpo de la migración.
 - **Después de COMMIT:** NO borrar o truncar automáticamente tablas, auditoría ni recibos. Deshabilitar ejecución/ingress (que permanecen deshabilitados desde el principio); inspeccionar estado y planear migración correctiva que preserve evidencias. Una reversión destructiva exige revisión y autorización específica.
 - No cambiar `VITE_RAXI_SUPERVISED_REQUESTS_ENABLED=false` de Preview ni flags privados. `service_role` NUNCA en frontend.
 - Siguiente gate tras SQL y JWT: host supervisado **desactivado**, luego consentimiento separado sobre tarea real, modelo/proveedor, presupuesto, horario y apagado. Un evento de despacho NO es confirmación de ejecución de proveedor.
 
 **Regla de cierre:** hasta que todas estas puertas pasen, la oficina REAL debe seguir presentando 0 agentes verificados. DEMO permanece aparte.
+
+## 7. Compatibilidad con el migrador — bloqueo resuelto en código, no validado hospedado
+
+La [guía oficial de Supabase](https://supabase.com/kb/troubleshooting/partial-migrations-and-schema-inconsistencies-from-embedded-transactions) advierte que los archivos con `BEGIN`/`COMMIT` pueden interrumpir la atomicidad del gestor y dejar objetos parciales sin registrar versión. Por ello, la propuesta **para `apply_migration`** elimina dichos límites; se conserva el ensayo SQL original separado y marcado como solo laboratorio. `SET LOCAL` se ejecuta dentro de la transacción que abre el gestor. **Nunca usar `execute_sql` para instalar DDL**; cuando esté expresamente aprobado utilizar `apply_migration` y verificar el historial después.
