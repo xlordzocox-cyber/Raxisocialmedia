@@ -2,6 +2,7 @@ name: Raxi HQ Issue60 native PG17 (no deploy)
 on:
   pull_request:
     branches:
+      - main
       - feat/issue60-runtime-verified-motion
   workflow_dispatch:
 
