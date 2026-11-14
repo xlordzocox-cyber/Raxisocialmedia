@@ -1,0 +1,23 @@
+name: Raxi HQ Stage B PR59 identity compatibility (no deploy)
+on:
+  pull_request:
+    branches:
+      - feat/issue60-runtime-verified-motion
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: raxi-pr59-identity-compat-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  pg17-compat:
+    name: Native PG17 preserve PR59 identity and runtime safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify offline staging identity candidate
+        shell: bash
+        run: bash apps/raxi-hq/scripts/issue60-pr59-identity-compat-ci.sh
