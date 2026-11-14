@@ -280,6 +280,36 @@ test('issue #60 SQL dispatch receipt is atomic and does not claim provider ackno
  }finally{await f.db.close();}
 });
 
+
+test('issue #60 store polling triggers one visible route only after new durable receipt',async()=>{
+ const serverTime='2026-11-04T12:00:00Z';
+ const base={workspaceId:workspace,ownerId:owner,serverTime,
+  tasks:[{id:'task-poll',status:'QUEUED',title:'Dispatch fixture',simulated:false,result:null}],
+  events:[] as unknown[]};
+ const receipt={id:23,workspace_id:workspace,task_id:'task-poll',agent_id:'agent-poll',
+  event_type:'RUNTIME_DISPATCH_AUTHORIZED',source_kind:'AGENT_EXECUTOR',evidence_status:'VERIFIED',
+  occurred_at:serverTime,payload:{simulated:false,stage:'RESEARCHER',leaseUntil:'2026-11-04T12:01:00Z',
+   operationalReceiptOnly:true,providerAcknowledged:false,phase:'DISPATCH_AUTHORIZED'}};
+ let raw=structuredClone(base);
+ const clock=()=>Date.parse(serverTime);
+ const store=new RuntimeOfficeStore(async()=>structuredClone(raw),owner,workspace,clock);
+ try {
+  await store.load();
+  assert.deepEqual(store.getSnapshot().hq.agents,{});
+  raw={...base,events:[receipt]};
+  await store.load();
+  assert.equal(store.getSnapshot().hq.agents['agent-poll'].zone,'WAR_ROOM');
+  assert.equal(store.getSnapshot().hq.agents['agent-poll'].destinationZone,'RESEARCH_LAB');
+  await store.load();
+  assert.equal(store.getSnapshot().hq.agents['agent-poll'].destinationZone,undefined);
+  const replacement=new RuntimeOfficeStore(async()=>structuredClone(raw),owner,workspace,clock);
+  try {
+   await replacement.load();
+   assert.equal(replacement.getSnapshot().hq.agents['agent-poll'].destinationZone,undefined,'reconnecting does not replay receipt');
+  }finally{replacement.dispose();}
+ }finally{store.dispose();}
+});
+
 test('mounted runtime panel in StrictMode stays disabled without service and cleans up reads on account change',async()=>{
  Object.defineProperty(globalThis,'IS_REACT_ACT_ENVIRONMENT',{value:true,configurable:true});
  let view!:ReactTestRenderer;const client={rpc:async()=>({data:null,error:{code:'PGRST202'}})} as unknown as SupabaseClient;
