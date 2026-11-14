@@ -30,8 +30,9 @@ begin
  if not has_function_privilege('service_role',f_oid,'EXECUTE')
   or has_function_privilege('anon',f_oid,'EXECUTE')
   or has_function_privilege('authenticated',f_oid,'EXECUTE')
-  or position('zvhxjindgyvtasstfjut' in pg_get_functiondef(f_oid))=0 then
-  raise exception 'staging identity ACL or projectRef inconsistent'
+  or encode(sha256(convert_to(pg_get_functiondef(f_oid),'UTF8')),'hex')
+     is distinct from 'a99f644a5b4506d9db3fe426435bf4fefba30839592eea6ebdad4fee059a0fbf' then
+  raise exception 'staging PR59 identity sha256 or ACL mismatch (fail closed)'
    using errcode='42501';
  end if;
 end;
