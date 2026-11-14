@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { hqStore, useHQState } from './store/hqStore';
 import { OfficeScene } from './office/OfficeScene';
 import { AgentDock } from './office/ui/AgentDock';
@@ -19,7 +19,7 @@ import { RealCampaignStore, createCampaignRepository, type CampaignRepository } 
 import { ExecutionObserverPanel } from './observation/ExecutionObserverPanel';
 import { OBSERVED_PROJECT } from './observation/executionObservation';
 import type { RuntimeOfficeSink } from './runtime/runtimeOfficeStore';
-import { mainOfficeSource, type ScopedRuntimeSnapshot } from './runtime/mainOfficeSource';
+import { mainOfficeSource, matchesActiveRuntimeScope, type ScopedRuntimeSnapshot } from './runtime/mainOfficeSource';
 
 const defaultIdeaRepository = (ownerId: string) => createSupabaseIdeaRepository(supabase!, ownerId);
 const defaultCampaignRepository = supabase ? () => createCampaignRepository(supabase!) : undefined;
@@ -35,6 +35,10 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
   const ideaCenter = useMemo(() => campusMode === 'DEMO' ? loadMockIdeaCenter() : null, [campusMode]);
   // AuthStore owns this resource until verified session loss/account change.
   const realIdeas = getRealIdeaStore(ownerId => new RealIdeaStore(ideaRepository(ownerId), ownerId));
+  // The active scope comes from the authenticated, validated persistence store.
+  const realIdeaSnapshot = useSyncExternalStore(realIdeas.subscribe,realIdeas.getSnapshot,realIdeas.getSnapshot);
+  const activeWorkspaceId = realIdeaSnapshot.phase === 'ready' && realIdeaSnapshot.workspace?.ownerId === user?.id
+    ? realIdeaSnapshot.workspace.id : undefined;
   const host = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<OfficeScene | undefined>(undefined);
   const [hoveredId,setHoveredId] = useState<string>();
@@ -45,23 +49,29 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
   const [selectedRuntimeAgent,setSelectedRuntimeAgent] = useState<string>();
   const [selectedRuntimeEvent,setSelectedRuntimeEvent] = useState<string>();
   const onRuntimeSnapshot = useCallback<RuntimeOfficeSink>((scope,hq)=>{
-    if(scope.owner!==user?.id)return;
+    // Read current store state at delivery time; stale child callbacks cannot impersonate the new workspace.
+    const current=realIdeas.getSnapshot();
+    if(scope.owner!==user?.id||current.phase!=='ready'||current.workspace?.ownerId!==user?.id||
+       !matchesActiveRuntimeScope(scope,user?.id,current.workspace?.id))return;
     setRuntimeOffice(previous=>{
       if(!hq)return previous?.owner===scope.owner && previous.workspace===scope.workspace?null:previous;
       return {owner:scope.owner,workspace:scope.workspace,hq};
     });
-  },[user?.id]);
+  },[realIdeas,user?.id]);
   useEffect(()=>{
-    if(campusMode!=='REAL'||!user?.id){
-      setRuntimeOffice(null);setSelectedRuntimeAgent(undefined);setSelectedRuntimeEvent(undefined);
+    // Keep runtime snapshots only for the current confirmed REAL workspace.
+    setRuntimeOffice(previous=>campusMode==='REAL'&&previous&&
+      matchesActiveRuntimeScope(previous,user?.id,activeWorkspaceId)?previous:null);
+    if(campusMode!=='REAL'||!user?.id||!activeWorkspaceId){
+      setSelectedRuntimeAgent(undefined);setSelectedRuntimeEvent(undefined);
     }
-  },[campusMode,user?.id]);
+  },[campusMode,user?.id,activeWorkspaceId]);
   // A different workspace must not inherit a selected agent/event from an older session.
   useEffect(()=>{
     setSelectedRuntimeAgent(undefined);
     setSelectedRuntimeEvent(undefined);
   },[runtimeOffice?.owner,runtimeOffice?.workspace]);
-  const officeState=mainOfficeSource(state,runtimeOffice,user?.id,campusMode,selectedRuntimeAgent);
+  const officeState=mainOfficeSource(state,runtimeOffice,user?.id,campusMode,activeWorkspaceId,selectedRuntimeAgent);
   const officeStateRef=useRef(officeState);
   officeStateRef.current=officeState;
   const selectAndFocus = (id: string) => {
