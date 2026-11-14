@@ -6,7 +6,7 @@ import { rpcRepository, requestHandler, runOne, taskSpec, runtimeResultBytes, RU
 import { simulatedProvider, openAIProvider } from '../../../server/agent-runtime/providers';
 import { PILOT_QUOTE, planPilotBudget } from '../../../server/agent-runtime/pilotBudget';
 import { RuntimeOfficeStore, projectRuntime, applyVerifiedRuntimeMotion } from '../src/runtime/runtimeOfficeStore';
-import { mainOfficeSource } from '../src/runtime/mainOfficeSource';
+import { mainOfficeSource, matchesActiveRuntimeScope } from '../src/runtime/mainOfficeSource';
 import { AgentMotion } from '../src/office/agents/agentMotion';
 import { RuntimeOfficePanel } from '../src/runtime/RuntimeOfficePanel';
 import { createElement, StrictMode } from 'react';
@@ -324,21 +324,28 @@ test('issue #60 main office bridge selects only same-owner connected runtime and
  const fallback={...projectRuntime({...source,events:[]},owner,workspace).hq,
   sourceHealth:{...live.sourceHealth,source:'munder' as const,connection:'DISCONNECTED' as const}};
  const record={owner,workspace,hq:live};
- const selected=mainOfficeSource(fallback,record,owner,'REAL');
+ const selected=mainOfficeSource(fallback,record,owner,'REAL',workspace);
  assert.equal(selected.sourceHealth.source,'runtime');
  assert.deepEqual(Object.keys(selected.agents),['director-a']);
  assert.equal(selected.selectedAgentId,'director-a');
  assert.deepEqual(Object.keys(selected.tasks),['owned-task']);
- assert.equal(mainOfficeSource(fallback,record,'other-user','REAL'),fallback);
- assert.equal(mainOfficeSource(fallback,record,owner,'DEMO'),fallback);
+ assert.equal(mainOfficeSource(fallback,record,'other-user','REAL',workspace),fallback);
+ assert.equal(mainOfficeSource(fallback,record,owner,'DEMO',workspace),fallback);
  const historical={...fallback,mode:'HISTORICAL_REPLAY' as const};
- assert.equal(mainOfficeSource(historical,record,owner,'REAL'),historical,'explicit historical view wins over runtime');
- assert.equal(mainOfficeSource(fallback,null,owner,'REAL'),fallback);
- assert.equal(mainOfficeSource(fallback,{...record,workspace:''},owner,'REAL'),fallback);
- assert.equal(mainOfficeSource(fallback,{...record,hq:{...live,sourceHealth:{...live.sourceHealth,connection:'DISCONNECTED'}}},owner,'REAL'),fallback);
- assert.equal(mainOfficeSource(fallback,{...record,hq:{...live,mockMode:true}},owner,'REAL'),fallback);
- assert.equal(mainOfficeSource(fallback,{...record,hq:{...live,mode:'HISTORICAL_REPLAY'}},owner,'REAL'),fallback);
- assert.equal(mainOfficeSource(fallback,record,owner,'REAL','not-in-roster').selectedAgentId,'director-a');
+ assert.equal(mainOfficeSource(historical,record,owner,'REAL',workspace),historical,'explicit historical view wins over runtime');
+ assert.equal(mainOfficeSource(fallback,null,owner,'REAL',workspace),fallback);
+ assert.equal(mainOfficeSource(fallback,{...record,workspace:''},owner,'REAL',workspace),fallback);
+ assert.equal(mainOfficeSource(fallback,{...record,hq:{...live,sourceHealth:{...live.sourceHealth,connection:'DISCONNECTED'}}},owner,'REAL',workspace),fallback);
+ assert.equal(mainOfficeSource(fallback,{...record,hq:{...live,mockMode:true}},owner,'REAL',workspace),fallback);
+ assert.equal(mainOfficeSource(fallback,{...record,hq:{...live,mode:'HISTORICAL_REPLAY'}},owner,'REAL',workspace),fallback);
+ assert.equal(matchesActiveRuntimeScope(record,owner,workspace),true);
+ assert.equal(matchesActiveRuntimeScope(record,owner,'old-workspace'),false);
+ assert.equal(matchesActiveRuntimeScope(record,owner,undefined),false);
+ assert.equal(matchesActiveRuntimeScope(record,'other-user',workspace),false);
+ assert.equal(mainOfficeSource(fallback,record,owner,'REAL','other-workspace'),fallback,'wrong current workspace fails closed');
+ assert.equal(mainOfficeSource(fallback,record,owner,'REAL',undefined),fallback,'loading or missing workspace fails closed');
+ assert.equal(mainOfficeSource(fallback,{...record,workspace:'former-workspace'},owner,'REAL',workspace),fallback,'late snapshot from former workspace is rejected');
+ assert.equal(mainOfficeSource(fallback,record,owner,'REAL',workspace,'not-in-roster').selectedAgentId,'director-a');
 });
 
 test('issue #60 runtime panel emits scoped snapshots without rendering a duplicate office canvas',async()=>{
