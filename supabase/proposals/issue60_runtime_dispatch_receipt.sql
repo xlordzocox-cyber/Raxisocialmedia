@@ -70,3 +70,16 @@ grant insert (workspace_id,task_id,agent_id,stage,status,simulated,
 grant update (status,finished_at,dispatch_authorized_at,
  provider_receipt,result,cost_micros)
  on public.raxi_agent_runs to service_role;
+-- Stage A augments raxi_agent_runs with an append-only journal counter.
+-- Grant that single column only when Stage A has been installed.
+do $issue60_acl$
+begin
+ if exists (select 1 from pg_attribute a
+            join pg_class c on c.oid=a.attrelid
+            join pg_namespace n on n.oid=c.relnamespace
+            where n.nspname='public' and c.relname='raxi_agent_runs'
+              and a.attname='journal_version' and a.attnum>0 and not a.attisdropped) then
+  execute 'grant update (journal_version) on public.raxi_agent_runs to service_role';
+ end if;
+end;
+$issue60_acl$;
