@@ -105,3 +105,132 @@ dl { font-size: 12px; } dt { color: var(--muted); margin-top: 10px; } dd { margi
 .agent-signals h4{margin:0 0 10px;color:#e3d8ff}.agent-signals dl{display:flex;flex-wrap:wrap;gap:12px 24px}.agent-signals dt{color:#aebfd1}.agent-signals dd{margin:4px 0;overflow-wrap:anywhere}
 .agent-signals code,.agent-signals li{overflow-wrap:anywhere}.agent-signals button{min-height:44px}.agent-signals button:focus-visible{outline:3px solid #83e4f6;outline-offset:3px}
 @media(max-width:600px){.agent-signals{padding:12px}.agent-signals dl{display:block}.agent-signals dd{margin-bottom:12px}.agent-signals button{width:100%;overflow-wrap:anywhere}}
+
+
+/* Issue #66 · command-center shell — the office is never scrolled away. */
+.hq-command-shell {
+  width:100%; max-width:none; height:100dvh; padding:10px;
+  display:flex; flex-direction:column; gap:8px; overflow:hidden;
+}
+.hq-command-shell [hidden] { display:none !important; }
+.hq-command-header {
+  flex:0 0 auto; display:flex; align-items:center; justify-content:space-between;
+  gap:12px; min-height:54px; background:#111b2c; border:1px solid #29364d;
+  border-radius:12px; padding:8px 14px;
+}
+.hq-command-header .hq-brand { min-width:0; }
+.hq-command-header h1 {font-size:22px;line-height:1.2;}
+.hq-command-header h1 span {font-size:12px;display:inline-block;}
+.hq-command-header p {margin:3px 0 0;font-size:11px;}
+.hq-session-controls {display:flex;gap:6px;flex:0 0 auto;}
+.hq-session-controls button {text-align:center;min-height:40px;padding:7px 10px;font-size:12px;white-space:nowrap;}
+.hq-fixed-office {
+  flex:0 0 clamp(280px,49dvh,580px); min-height:0; display:flex; flex-direction:column;
+  overflow:hidden; border:1px solid #38506c; border-radius:14px; background:#0b1120;
+}
+.hq-office-caption {display:flex;gap:10px;justify-content:space-between;align-items:center;flex-wrap:wrap;padding:7px 12px;background:#121d30;color:#eef3ff;font-size:12px;}
+.hq-office-caption > span {font-size:11px;color:#a5bed4;}
+.hq-fixed-office .office {min-height:0;flex:1 1 auto;display:flex;flex-direction:column;border:0;border-radius:0;}
+.hq-fixed-office .office-toolbar {flex:0 0 auto;padding:5px 10px;gap:5px;}
+.hq-fixed-office .office-zone-nav {flex:0 0 auto;padding:6px 9px;}
+.hq-fixed-office .office-zone-nav button {min-height:38px;}
+.hq-fixed-office .office-zone-status {flex:0 0 29px;height:29px;min-height:29px;max-height:29px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;padding:6px 10px;font-size:11px;}
+.hq-fixed-office .office-roster-bridge {flex:0 0 auto;padding:5px 10px;gap:7px;font-size:11px;}
+.hq-fixed-office .office-roster-bridge button {min-height:35px;padding:5px 9px;}
+.hq-fixed-office .canvas-host,
+.hq-command-shell .hq-fixed-office .office .canvas-host {
+  height:auto; flex:1 1 0; min-height:0; width:100%;
+}
+.hq-lower-workspace {display:grid;grid-template-columns:minmax(0,1fr) 108px;gap:8px;flex:1 1 auto;min-height:0;}
+.hq-work-panel {display:flex;flex-direction:column;min-width:0;min-height:0;border:1px solid #38506c;border-radius:14px;background:#111b2d;overflow:hidden;}
+.hq-work-heading {display:flex;justify-content:space-between;gap:8px;align-items:center;padding:10px 14px;border-bottom:1px solid #33455e;flex:0 0 auto;}
+.hq-work-heading h2 {margin:0;font-size:16px;color:#d9f7ff;}
+.hq-work-heading span {font-size:10px;color:#aac5dd;white-space:normal;text-align:right;}
+.hq-work-scroll {flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior-y:contain;scrollbar-width:thin;padding:10px;}
+.hq-module-content {min-width:0;}
+.hq-module-content .campus, .hq-module-content .source-health, .hq-module-content .events,
+.hq-module-content .task-board, .hq-module-content .handoff-timeline, .hq-module-content .agent-signals {margin:0 0 12px;}
+.hq-module-content .campus {min-width:0;}
+.hq-module-content .agent-dock {margin-bottom:10px;border:1px solid #334a63;border-radius:12px;}
+.hq-module-content .agent-inspector {max-height:none;}
+.hq-module-content .source-health dl {grid-template-columns:repeat(2,minmax(0,1fr));}
+.hq-module-note {padding:12px;border:1px solid #4b5e7d;border-radius:10px;}
+.hq-module-rail {display:flex;flex-direction:column;gap:6px;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:6px;background:#111b2c;border:1px solid #38506c;border-radius:14px;}
+.hq-module-rail button {flex:0 0 auto;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:3px;min-height:58px;text-align:center;padding:7px 3px;background:#172339;border:1px solid #3c4f70;border-radius:9px;color:#bfd4e8;}
+.hq-module-rail button[aria-pressed="true"] {background:#1b374e;border-color:#6adfec;color:#e9faff;box-shadow:inset 3px 0 #83e4f6;}
+.hq-module-rail button:focus-visible {outline:3px solid #83e4f6;outline-offset:1px;}
+.hq-module-symbol {font-size:21px;line-height:1.1;color:#b7a5f3;}
+.hq-module-name {font-size:11px;font-weight:600;overflow-wrap:anywhere;}
+@media(max-width:850px) {
+  .hq-command-shell {padding:5px;gap:5px;}
+  .hq-command-header {padding:6px 9px;min-height:46px;flex-direction:row;align-items:center;}
+  .hq-command-header h1 {font-size:19px;}
+  .hq-command-header h1 span {display:none;}
+  .hq-command-header p {font-size:10px;}
+  .hq-session-controls button {padding:6px;min-height:38px;}
+  .hq-fixed-office {flex-basis:clamp(245px,47dvh,475px);}
+  .hq-office-caption {padding:5px 8px;}
+  .hq-fixed-office .office-toolbar {gap:4px;flex-wrap:nowrap;overflow-x:auto;}
+  .hq-fixed-office .office-toolbar > div {flex-wrap:nowrap;}
+  .hq-fixed-office .office-zone-nav button {min-height:36px;}
+  .hq-lower-workspace {grid-template-columns:minmax(0,1fr) 76px;gap:5px;}
+  .hq-work-heading {padding:8px;}
+  .hq-work-scroll {padding:6px;}
+  .hq-module-rail {gap:5px;padding:4px;}
+  .hq-module-rail button {min-height:56px;}
+  .hq-module-name {font-size:10px;}
+  .hq-module-content .campus-heading h2 {font-size:16px;}
+  .hq-module-content .campus-building {min-width:0;}
+}
+@media(max-width:380px) {
+  .hq-command-header h1 {font-size:17px;}
+  .hq-session-controls {gap:3px;}
+  .hq-session-controls button {font-size:11px;padding:5px;}
+  .hq-lower-workspace {grid-template-columns:minmax(0,1fr) 66px;}
+  .hq-module-name {font-size:9px;}
+  .hq-module-rail button {min-height:52px;}
+}
+
+/* Android portrait screenshot QA PR66: allocate vertical space to Pixi,
+   not to duplicate guidance and a multiline status banner. */
+@media (max-width:850px) and (min-height:521px) {
+  .hq-fixed-office .office-toolbar {display:flex;align-items:center;min-height:49px;max-height:49px;padding:3px 8px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;}
+  .hq-fixed-office .office-help-desktop,.hq-fixed-office .office-help-mobile {display:none;}
+  .hq-fixed-office .office-toolbar > div {width:100%;min-width:0;flex:1 1 auto;display:flex;align-items:center;justify-content:space-between;gap:4px;flex-wrap:nowrap;}
+  .hq-fixed-office .office-toolbar button {min-height:42px;padding:4px 8px;font-size:12px;}
+  .hq-fixed-office .office-zone-nav {min-height:51px;max-height:51px;flex:0 0 51px;align-items:center;padding:3px 7px;}
+  .hq-fixed-office .office-zone-nav button {height:44px;min-height:44px;max-height:44px;padding:5px 10px;font-size:12px;}
+  .hq-fixed-office .office-zone-scroll {min-height:44px;}
+  .hq-fixed-office .office-roster-bridge {min-height:47px;max-height:47px;flex:0 0 47px;flex-wrap:nowrap;align-items:center;gap:7px;padding:3px 8px;overflow:hidden;}
+  .hq-fixed-office .office-roster-bridge span {flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;}
+  .hq-fixed-office .office-roster-bridge button {flex:0 0 auto;min-height:41px;padding:5px 9px;font-size:12px;white-space:nowrap;}
+}
+
+/* Small landscape/mobile screens must retain a usable independent work panel. */
+@media(max-height:520px) {
+  .hq-command-shell {padding:3px;gap:3px;}
+  .hq-command-header {min-height:34px;padding:3px 8px;}
+  .hq-command-header h1 {font-size:16px;}
+  .hq-command-header p {display:none;}
+  .hq-session-controls button {min-height:30px;padding:3px 7px;}
+  .hq-fixed-office {flex:0 0 clamp(104px,34dvh,170px);}
+  .hq-office-caption {padding:2px 8px;font-size:11px;}
+  .hq-fixed-office .office-toolbar {padding:2px 7px;}
+  .hq-fixed-office .office-toolbar button {padding:2px 7px;min-height:24px;}
+  .hq-fixed-office .office-zone-nav,.hq-fixed-office .office-roster-bridge {display:none;}
+  .hq-fixed-office .office-zone-status {height:19px;min-height:19px;max-height:19px;flex-basis:19px;padding:2px 8px;}
+  .hq-command-shell .hq-fixed-office .office .canvas-host {min-height:35px;}
+  .hq-work-heading {padding:4px 7px;}
+  .hq-work-heading h2 {font-size:13px;}
+  .hq-lower-workspace {min-height:108px;}
+  .hq-module-rail button {min-height:46px;}
+}
+
+/* The Pixi host may shrink beneath 130px when controls need the room.
+   The renderer fits to its *visible* host instead of clipping a larger surface. */
+@media (min-height:521px) and (max-height:700px) {
+  .hq-fixed-office .office-toolbar {padding:3px 8px;}
+  .hq-fixed-office .office-zone-nav {padding:3px 8px;}
+  .hq-fixed-office .office-roster-bridge {padding:3px 8px;}
+  .hq-command-shell .hq-fixed-office .office .canvas-host {min-height:0;}
+}

@@ -135,7 +135,7 @@ test('mounted App keeps historical evidence explicit through REAL/DEMO, remounts
   const tree=(revision=0)=><StrictMode><AuthProvider store={auth}><MemoryRouter><Routes><Route element={<ProtectedRoute/>}><Route path="/" element={<App key={revision} ideaRepository={repository} campaignRepository={undefined}/>}/></Route><Route path="/login" element={<p>Sesión cerrada</p>}/></Routes></MemoryRouter></AuthProvider></StrictMode>;
   let view!:ReactTestRenderer;
   await act(async()=>{view=create(tree());});
-  const click=async(label:string)=>{await act(async()=>{const b=view.root.findAllByType('button').find(b=>b.children.join('')===label)!; assert.ok(b); assert.notEqual(b.props.disabled,true); b.props.onClick(); await new Promise(resolve=>setTimeout(resolve,20));});};
+  const click=async(label:string)=>{await act(async()=>{const aliases:Record<string,string>={'Campus REAL':'REAL','Campus DEMO · datos ficticios':'DEMO','Cerrar sesión':'Salir'};const expected=aliases[label]??label;const b=view.root.findAllByType('button').find(b=>b.children.join('')===expected);assert.ok(b,`Action not found: ${label}`);assert.notEqual(b.props.disabled,true);b.props.onClick();await new Promise(resolve=>setTimeout(resolve,20));});};
   await click('Reproducir captura histórica verificada');
   assert.equal(hqStore.getSnapshot().mode,'HISTORICAL_REPLAY');
   assert.match(JSON.stringify(view.toJSON()),/estado actual desconocido/);

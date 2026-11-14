@@ -1,0 +1,44 @@
+name: Raxi HQ command-center shell QA (no deploy)
+on:
+  pull_request:
+    branches:
+      - feat/issue64-mobile-office-zone-focus
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: raxi-hq-command-center-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  frontend:
+    name: Typecheck, full tests, build, dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/raxi-hq
+    env:
+      CI: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/raxi-hq/package-lock.json
+      - run: npm ci --ignore-scripts
+      - run: npm run typecheck
+      - run: npm test -- --serial
+      - run: npm run build
+      - run: npm audit --audit-level=moderate
+  postgres17:
+    name: Native PG17 runtime regression (offline)
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - run: bash apps/raxi-hq/scripts/issue60-pg17-ci.sh
