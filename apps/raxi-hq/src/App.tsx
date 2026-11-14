@@ -56,6 +56,11 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
       setRuntimeOffice(null);setSelectedRuntimeAgent(undefined);setSelectedRuntimeEvent(undefined);
     }
   },[campusMode,user?.id]);
+  // A different workspace must not inherit a selected agent/event from an older session.
+  useEffect(()=>{
+    setSelectedRuntimeAgent(undefined);
+    setSelectedRuntimeEvent(undefined);
+  },[runtimeOffice?.owner,runtimeOffice?.workspace]);
   const officeState=mainOfficeSource(state,runtimeOffice,user?.id,campusMode,selectedRuntimeAgent);
   const officeStateRef=useRef(officeState);
   officeStateRef.current=officeState;
