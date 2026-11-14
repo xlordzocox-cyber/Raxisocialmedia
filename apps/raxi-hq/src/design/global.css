@@ -194,8 +194,8 @@ dl { font-size: 12px; } dt { color: var(--muted); margin-top: 10px; } dd { margi
 /* Android portrait screenshot QA PR66: allocate vertical space to Pixi,
    not to duplicate guidance and a multiline status banner. */
 @media (max-width:850px) and (min-height:521px) {
-  .hq-fixed-office .office-toolbar {display:flex;align-items:center;min-height:49px;max-height:49px;padding:3px 8px;overflow:hidden;}
-  .hq-fixed-office .office-help-mobile {display:none;}
+  .hq-fixed-office .office-toolbar {display:flex;align-items:center;min-height:49px;max-height:49px;padding:3px 8px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;}
+  .hq-fixed-office .office-help-desktop,.hq-fixed-office .office-help-mobile {display:none;}
   .hq-fixed-office .office-toolbar > div {width:100%;min-width:0;flex:1 1 auto;display:flex;align-items:center;justify-content:space-between;gap:4px;flex-wrap:nowrap;}
   .hq-fixed-office .office-toolbar button {min-height:42px;padding:4px 8px;font-size:12px;}
   .hq-fixed-office .office-zone-nav {min-height:51px;max-height:51px;flex:0 0 51px;align-items:center;padding:3px 7px;}
