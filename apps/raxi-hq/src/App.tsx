@@ -26,6 +26,18 @@ import { mainOfficeSource, matchesActiveRuntimeScope, type ScopedRuntimeSnapshot
 const defaultIdeaRepository = (ownerId: string) => createSupabaseIdeaRepository(supabase!, ownerId);
 const defaultCampaignRepository = supabase ? () => createCampaignRepository(supabase!) : undefined;
 
+// Stable controls on the right; the office scene stays mounted above every panel.
+const hqModules = [
+  {id:'ideas',label:'Ideas',mark:'✦'},
+  {id:'campaigns',label:'Campañas',mark:'▤'},
+  {id:'agents',label:'Agentes',mark:'◎'},
+  {id:'tasks',label:'Tareas',mark:'☷'},
+  {id:'activity',label:'Actividad',mark:'◷'},
+  {id:'runtime',label:'Runtime',mark:'⌘'},
+  {id:'sources',label:'Fuentes',mark:'◈'},
+] as const;
+type HQModule = (typeof hqModules)[number]['id'];
+
 export default function App({ ideaRepository = defaultIdeaRepository, campaignRepository = defaultCampaignRepository }: { ideaRepository?: (ownerId: string) => RealIdeaRepository; campaignRepository?: (ownerId: string) => CampaignRepository } = {}) {
   const state = useHQState();
   const { user, signOut, getRealIdeaStore, getRealCampaignStore } = useAuth();
@@ -34,6 +46,7 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
     return () => hqStore.setObservationScope(undefined);
   }, [user?.id]);
   const [campusMode, setCampusMode] = useState<'REAL' | 'DEMO'>('REAL');
+  const [activeModule,setActiveModule] = useState<HQModule>('ideas');
   const ideaCenter = useMemo(() => campusMode === 'DEMO' ? loadMockIdeaCenter() : null, [campusMode]);
   // AuthStore owns this resource until verified session loss/account change.
   const realIdeas = getRealIdeaStore(ownerId => new RealIdeaStore(ideaRepository(ownerId), ownerId));
@@ -83,6 +96,7 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
     if (officeStateRef.current.sourceHealth.source==='runtime') setSelectedRuntimeAgent(id);
     else hqStore.selectAgent(id);
     sceneRef.current?.focusAgent(id);
+    setActiveModule('agents');
   };
   useEffect(() => {
     let scene: OfficeScene;
@@ -106,24 +120,61 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
     if(usingRuntime){setSelectedRuntimeEvent(id);if(actorId)selectAndFocus(actorId);}
     else hqStore.selectEvent(id);
   };
-  return <main>
-    <header><div><h1>Raxi HQ <span>v1.0 · Campus {campusMode}</span></h1><p>Campus de operaciones e ideas · fuentes independientes</p></div><button onClick={() => { void signOut(); }}>Cerrar sesión</button>
-      <div className="controls"><button disabled={campusMode === 'REAL'} aria-pressed={state.mode === 'MOCK'} onClick={() => void hqStore.switchMode('MOCK')}>FUENTE: MOCK</button><button aria-pressed={state.mode === 'LIVE_READ_ONLY'&&!usingRuntime} onClick={() => void hqStore.switchMode('LIVE_READ_ONLY')}>FUENTE: MUNDER · SOLO LECTURA</button>{usingRuntime&&<span role="status">FUENTE ACTIVA: RUNTIME REAL · SOLO LECTURA</span>}{state.mode === 'MOCK' ? <button onClick={() => hqStore.restartDemo()}>Reiniciar demo</button> : <button onClick={() => void hqStore.refreshLive()}>Reintentar lectura</button>}</div></header>
-    <div className="controls" role="group" aria-label="Datos del Campus">
-      <button type="button" aria-pressed={campusMode === 'REAL'} onClick={() => { void hqStore.switchMode('LIVE_READ_ONLY'); setCampusMode('REAL'); }}>Campus REAL</button>
-      <button type="button" aria-pressed={campusMode === 'DEMO'} onClick={() => setCampusMode('DEMO')}>Campus DEMO · datos ficticios</button>
-    </div>
-    {campusMode === 'DEMO'
+  return <main className="hq-command-shell">
+    <header className="hq-command-header">
+      <div className="hq-brand"><h1>Raxi HQ <span>Centro de mando</span></h1><p>{campusMode === 'DEMO' ? 'DEMO · personajes y estados ficticios' : 'REAL · datos autenticados y ejecución verificada'}</p></div>
+      <div className="hq-session-controls" role="group" aria-label="Seleccionar Campus">
+        <button type="button" aria-pressed={campusMode === 'REAL'} onClick={() => { void hqStore.switchMode('LIVE_READ_ONLY'); setCampusMode('REAL'); }}>REAL</button>
+        <button type="button" aria-pressed={campusMode === 'DEMO'} onClick={() => setCampusMode('DEMO')}>DEMO</button>
+        <button type="button" onClick={() => { void signOut(); }}>Salir</button>
+      </div>
+    </header>
+    <section className="hq-fixed-office" aria-label="Oficina fija de Raxi HQ">
+      <div className="hq-office-caption">
+        <strong>{officeState.mode === 'MOCK' ? 'Oficina · DEMO' : usingRuntime ? 'Oficina · Runtime verificado' : officeState.mode === 'HISTORICAL_REPLAY' ? 'Reproducción histórica' : 'Oficina · REAL'}</strong>
+        <span>{officeState.sourceHealth.source === 'runtime' ? 'Runtime IA' : officeState.sourceHealth.source === 'mock' ? 'MOCK · ficción' : 'Munder · solo lectura'} · {officeState.sourceHealth.connection}</span>
+      </div>
+      <section className="office"><div className="office-toolbar"><span className="office-help-desktop">Arrastra el suelo · rueda para zoom · click para inspeccionar</span><span className="office-help-mobile">Toca una sala para acercarte · arrastra para mover · usa +/− para zoom</span><div><button aria-label="Alejar cámara" onClick={()=>sceneRef.current?.zoom(0.85)}>−</button><output aria-label="Zoom de cámara">{zoomPercent}%</output><button aria-label="Acercar cámara" onClick={()=>sceneRef.current?.zoom(1.18)}>+</button><button aria-pressed={focusCritical} onClick={()=>sceneRef.current?.setCriticalEventFocus(!focusCritical)}>Seguir críticos</button><button onClick={()=>sceneRef.current?.resetCamera()}>Centrar</button></div></div><nav className="office-zone-nav" aria-label="Acercar cámara a departamentos"><button type="button" className="office-zone-home" onClick={()=>sceneRef.current?.resetCamera()} aria-pressed={!focusedZone}>Vista completa</button><div className="office-zone-scroll" role="group" aria-label="Elegir departamento">{zoneOrder.map(id=><button key={id} type="button" aria-pressed={focusedZone===id} onClick={()=>sceneRef.current?.focusZone(id)}>{zones[id].label}</button>)}</div></nav>{focusedZone&&<p className="office-zone-status" role="status">Vista cercana: {zones[focusedZone].label} · navegación visual, sin activar agentes.</p>}{(campusMode==='DEMO'||agentView.agents.length===0)&&<div className="office-roster-bridge" role="group" aria-label="Explorar agentes sin ejecución real">{campusMode==='DEMO'?<><span>DEMO · personajes y tareas ficticias, sin ejecutar proveedores ni consultar agentes reales.</span><button type="button" aria-label="Volver a Campus REAL" onClick={()=>{void hqStore.switchMode('LIVE_READ_ONLY');setCampusMode('REAL');}}>Volver a REAL</button></>:<><span>REAL · no hay agentes confirmados. Puedes explorar los personajes en una demostración separada.</span><button type="button" aria-label="Ver agentes de demostración" onClick={()=>setCampusMode('DEMO')}>Ver agentes · DEMO</button></>}</div>}<div ref={host} className="canvas-host" />{hovered && <div className="hover-card"><b>{hovered.displayName}</b><span>{hovered.role}</span><span>{hovered.status} · {hovered.zone}</span><span>{hovered.securityState}</span></div>}{error && <p role="alert">{error}</p>}</section>
+    </section>
+    <div className="hq-lower-workspace">
+      <section className="hq-work-panel" aria-label="Área de trabajo">
+        <div className="hq-work-heading"><h2>{hqModules.find(item=>item.id===activeModule)?.label}</h2><span>{campusMode === 'DEMO' ? 'DEMO · sin datos reales' : 'REAL · workspace autenticado'}</span></div>
+        <div className="hq-work-scroll">
+          <div className="hq-module-content" hidden={activeModule !== 'ideas' && activeModule !== 'campaigns' && activeModule !== 'runtime'}>
+            {campusMode === 'DEMO'
       ? <CampusOverview ideas={ideaCenter!.ideas} />
-      : <RealIdeaCenter store={realIdeas} campaigns={campaignRepository ? workspace => getRealCampaignStore(workspace, owner => new RealCampaignStore(campaignRepository(owner), owner, workspace)) : undefined} onRuntimeSnapshot={onRuntimeSnapshot} />}
-    {campusMode === 'REAL' && <ExecutionObserverPanel state={state} />}
-    <section className="campaign"><b>{officeState.mode === 'MOCK' ? campaign ? 'Centro de Operaciones · Office v0.5 · Demo MOCK' : 'Cargando…' : officeState.mode === 'HISTORICAL_REPLAY' ? 'REPRODUCCIÓN HISTÓRICA · no es actividad en vivo' : usingRuntime ? 'Centro de Operaciones · Runtime IA real · solo lectura' : 'Centro de Operaciones · Office v0.5 · Munder · solo lectura'}</b><span>{officeState.mode === 'MOCK' ? `${campaign?.progress ?? 0}% · ${campaign?.status}` : `${officeState.sourceHealth.connection} · ${connectionLabel}`}</span></section>
-    <div className="workspace"><section className="office"><div className="office-toolbar"><span className="office-help-desktop">Arrastra el suelo · rueda para zoom · click para inspeccionar</span><span className="office-help-mobile">Toca una sala para acercarte · arrastra para mover · usa +/− para zoom</span><div><button aria-label="Alejar cámara" onClick={()=>sceneRef.current?.zoom(0.85)}>−</button><output aria-label="Zoom de cámara">{zoomPercent}%</output><button aria-label="Acercar cámara" onClick={()=>sceneRef.current?.zoom(1.18)}>+</button><button aria-pressed={focusCritical} onClick={()=>sceneRef.current?.setCriticalEventFocus(!focusCritical)}>Seguir críticos</button><button onClick={()=>sceneRef.current?.resetCamera()}>Centrar</button></div></div><nav className="office-zone-nav" aria-label="Acercar cámara a departamentos"><button type="button" className="office-zone-home" onClick={()=>sceneRef.current?.resetCamera()} aria-pressed={!focusedZone}>Vista completa</button><div className="office-zone-scroll" role="group" aria-label="Elegir departamento">{zoneOrder.map(id=><button key={id} type="button" aria-pressed={focusedZone===id} onClick={()=>sceneRef.current?.focusZone(id)}>{zones[id].label}</button>)}</div></nav>{focusedZone&&<p className="office-zone-status" role="status">Vista cercana: {zones[focusedZone].label} · navegación visual, sin activar agentes.</p>}{(campusMode==='DEMO'||agentView.agents.length===0)&&<div className="office-roster-bridge" role="group" aria-label="Explorar agentes sin ejecución real">{campusMode==='DEMO'?<><span>DEMO · personajes y tareas ficticias, sin ejecutar proveedores ni consultar agentes reales.</span><button type="button" aria-label="Volver a Campus REAL" onClick={()=>{void hqStore.switchMode('LIVE_READ_ONLY');setCampusMode('REAL');}}>Volver a REAL</button></>:<><span>REAL · no hay agentes confirmados. Puedes explorar los personajes en una demostración separada.</span><button type="button" aria-label="Ver agentes de demostración" onClick={()=>setCampusMode('DEMO')}>Ver agentes · DEMO</button></>}</div>}<div ref={host} className="canvas-host" />{hovered && <div className="hover-card"><b>{hovered.displayName}</b><span>{hovered.role}</span><span>{hovered.status} · {hovered.zone}</span><span>{hovered.securityState}</span></div>}{error && <p role="alert">{error}</p>}<AgentDock view={agentView} onSelect={selectAndFocus} /></section>
-      <AgentInspector view={agentView} /></div>
-    <AgentTaskBoard state={officeState} view={agentView} scope={user?.id ?? ''}/>
-    <HandoffTimeline state={officeState} view={agentView}/>
-    <AgentSignalsPanel state={officeState} scope={user?.id ?? ''} getState={()=>officeStateRef.current} onInspect={selectAndFocus}/>
-    <section className="source-health" aria-label="Estado de la fuente"><h2>Estado de la fuente</h2><dl><dt>Fuente</dt><dd>{officeState.sourceHealth.source === 'mock' ? 'DEMO · MOCK' : officeState.sourceHealth.source === 'codex' ? 'Codex · archivo histórico' : usingRuntime ? 'Runtime IA · recibos verificados' : 'Munder Difflin'}</dd><dt>Modo</dt><dd>{officeState.mode}</dd><dt>Conexión</dt><dd>{officeState.sourceHealth.connection} · {connectionLabel}</dd><dt>Última lectura correcta</dt><dd>{officeState.mode === 'MOCK' ? 'No aplica · MOCK' : officeState.sourceHealth.lastSuccessfulRead ?? 'Sin lectura correcta'}</dd><dt>Último evento de fuente</dt><dd>{officeState.sourceHealth.lastSourceEvent ?? '—'}</dd><dt>Eventos cargados</dt><dd>{officeState.sourceHealth.eventsLoaded}</dd><dt>Agentes cargados</dt><dd>{officeState.sourceHealth.agentsLoaded}</dd><dt>Tareas cargadas</dt><dd>{officeState.sourceHealth.tasksLoaded}</dd></dl>{officeState.sourceHealth.message && <p role="status">{officeState.sourceHealth.message} {campusMode === 'DEMO' ? 'Puedes cambiar manualmente a MOCK.' : 'La demostración está separada en Campus DEMO.'}</p>}</section>
-    <section className="events"><h2>{officeState.mode === 'MOCK' ? 'DEMO · simulación' : officeState.mode === 'HISTORICAL_REPLAY' ? 'HISTORICAL_REPLAY · eventos pasados' : 'Actividad LIVE'} · {officeState.events.length} eventos</h2>{officeState.mode === 'MOCK' ? <p>Aria, GitHub, Munder Difflin y Supermemory: stubs sin conexión ni escrituras.</p> : <p>Solo eventos recibidos de una fuente verificada. Sin conexión no se muestra actividad inventada.</p>}<div>{officeState.events.map((event) => <button key={event.id} aria-pressed={event.id === (usingRuntime?selectedRuntimeEvent:officeState.selectedEventId)} onClick={() => selectOfficeEvent(event.id,event.actorId)}>{officeState.mode === 'MOCK' ? <><b>{event.type}</b> {event.label.replaceAll('read-only','solo lectura')}</> : <><time dateTime={event.timestamp}>{event.timestamp}</time> · {getOwnAgent(officeState.agents,event.actorId)?.displayName ?? event.actorId ?? '—'} · <b>{event.type}</b> · {event.label} · {event.taskId ?? 'Tarea no observada'} · {event.source}</>}</button>)}</div></section>
+      : <RealIdeaCenter store={realIdeas} campaigns={campaignRepository ? workspace => getRealCampaignStore(workspace, owner => new RealCampaignStore(campaignRepository(owner), owner, workspace)) : undefined} onRuntimeSnapshot={onRuntimeSnapshot} view={activeModule === 'campaigns' ? 'campaigns' : activeModule === 'runtime' ? 'runtime' : 'ideas'} />}
+          </div>
+          <div className="hq-module-content" hidden={activeModule !== 'agents'}>
+            <AgentDock view={agentView} onSelect={selectAndFocus}/>
+            <AgentInspector view={agentView}/>
+            {campusMode==='REAL'&&agentView.agents.length===0&&<p className="hq-module-note">Director IA e Investigador: sin ejecución verificada. Para explorar los personajes, cambia explícitamente a DEMO.</p>}
+          </div>
+          <div className="hq-module-content" hidden={activeModule !== 'tasks'}>
+            <AgentTaskBoard state={officeState} view={agentView} scope={user?.id ?? ''}/>
+            <HandoffTimeline state={officeState} view={agentView}/>
+          </div>
+          <div className="hq-module-content" hidden={activeModule !== 'activity'}>
+            <section className="events"><h2>{officeState.mode === 'MOCK' ? 'DEMO · simulación' : officeState.mode === 'HISTORICAL_REPLAY' ? 'HISTORICAL_REPLAY · eventos pasados' : 'Actividad LIVE'} · {officeState.events.length} eventos</h2>{officeState.mode === 'MOCK' ? <p>Aria, GitHub, Munder Difflin y Supermemory: stubs sin conexión ni escrituras.</p> : <p>Solo eventos recibidos de una fuente verificada. Sin conexión no se muestra actividad inventada.</p>}<div>{officeState.events.map((event) => <button key={event.id} aria-pressed={event.id === (usingRuntime?selectedRuntimeEvent:officeState.selectedEventId)} onClick={() => selectOfficeEvent(event.id,event.actorId)}>{officeState.mode === 'MOCK' ? <><b>{event.type}</b> {event.label.replaceAll('read-only','solo lectura')}</> : <><time dateTime={event.timestamp}>{event.timestamp}</time> · {getOwnAgent(officeState.agents,event.actorId)?.displayName ?? event.actorId ?? '—'} · <b>{event.type}</b> · {event.label} · {event.taskId ?? 'Tarea no observada'} · {event.source}</>}</button>)}</div></section>
+            <AgentSignalsPanel state={officeState} scope={user?.id ?? ''} getState={()=>officeStateRef.current} onInspect={selectAndFocus}/>
+          </div>
+          <div className="hq-module-content" hidden={activeModule !== 'sources'}>
+            <div className="controls" role="group" aria-label="Fuentes de datos">
+              <button type="button" disabled={campusMode === 'REAL'} aria-pressed={state.mode === 'MOCK'} onClick={() => void hqStore.switchMode('MOCK')}>FUENTE: MOCK</button>
+              <button type="button" aria-pressed={state.mode === 'LIVE_READ_ONLY'&&!usingRuntime} onClick={() => void hqStore.switchMode('LIVE_READ_ONLY')}>FUENTE: MUNDER · SOLO LECTURA</button>
+              {usingRuntime&&<span role="status">FUENTE: RUNTIME REAL · SOLO LECTURA</span>}
+              {state.mode === 'MOCK'?<button onClick={()=>hqStore.restartDemo()}>Reiniciar demo</button>:<button onClick={()=>void hqStore.refreshLive()}>Reintentar lectura</button>}
+            </div>
+            <section className="source-health" aria-label="Estado de la fuente"><h2>Estado de la fuente</h2><dl><dt>Fuente</dt><dd>{officeState.sourceHealth.source === 'mock' ? 'DEMO · MOCK' : officeState.sourceHealth.source === 'codex' ? 'Codex · archivo histórico' : usingRuntime ? 'Runtime IA · recibos verificados' : 'Munder Difflin'}</dd><dt>Modo</dt><dd>{officeState.mode}</dd><dt>Conexión</dt><dd>{officeState.sourceHealth.connection} · {connectionLabel}</dd><dt>Última lectura correcta</dt><dd>{officeState.mode === 'MOCK' ? 'No aplica · MOCK' : officeState.sourceHealth.lastSuccessfulRead ?? 'Sin lectura correcta'}</dd><dt>Último evento de fuente</dt><dd>{officeState.sourceHealth.lastSourceEvent ?? '—'}</dd><dt>Eventos cargados</dt><dd>{officeState.sourceHealth.eventsLoaded}</dd><dt>Agentes cargados</dt><dd>{officeState.sourceHealth.agentsLoaded}</dd><dt>Tareas cargadas</dt><dd>{officeState.sourceHealth.tasksLoaded}</dd></dl>{officeState.sourceHealth.message && <p role="status">{officeState.sourceHealth.message} {campusMode === 'DEMO' ? 'Puedes cambiar manualmente a MOCK.' : 'La demostración está separada en Campus DEMO.'}</p>}</section>
+            {campusMode === 'REAL' && <ExecutionObserverPanel state={state} />}
+          </div>
+        </div>
+      </section>
+      <nav className="hq-module-rail" aria-label="Secciones de Raxi HQ">
+        {hqModules.map(item=><button key={item.id} type="button" aria-pressed={activeModule===item.id} aria-label={`Abrir ${item.label}`} onClick={()=>setActiveModule(item.id)}>
+          <span aria-hidden="true" className="hq-module-symbol">{item.mark}</span><span className="hq-module-name">{item.label}</span>
+        </button>)}
+      </nav>
+    </div>
   </main>;
 }
