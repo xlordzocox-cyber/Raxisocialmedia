@@ -78,7 +78,7 @@ test('Only one actual owner is needed; revoked session and synthetic foreign use
  const foreignHarness=harness();
  foreignHarness.changeUser();
  assert.equal((await foreignHarness.request({workspaceId:workspace})).status,403);
- assert.equal(foreignHarness.callCount,0,'Foreign claims cannot reach privileged RPC');
+ assert.equal(foreignHarness.callCount,1,'Valid foreign claims must be rejected by the current server-side ownership RPC');
 });
 
 test('No hidden action or foreign workspace can enter the inert host',async()=>{
