@@ -18,6 +18,8 @@ export function RuntimeOfficePanel({client,owner,workspace}:{client:SupabaseClie
  return <section className="source-health" aria-label="Runtime IA propio">
   <h2>Director IA e Investigador</h2><p>Conexión propia · independiente de Munder · solo eventos confirmados</p>
   <p role="status">{state.phase==='unavailable'?'Runtime pendiente de despliegue autorizado. No hay agentes ejecutándose.':state.phase==='error'?'No se pudo confirmar el runtime. No se muestra actividad activa.':state.phase==='loading'?'Consultando estado confirmado…':`${Object.keys(state.hq.agents).length} agentes con eventos reales confirmados`}</p>
+  {state.phase==='ready'&&Object.values(state.hq.agents).some(agent=>agent.status==='WAITING')&&
+   <p>Despacho autorizado y registrado; la caminata es una representación visual. El proveedor todavía no está confirmado.</p>}
   <button disabled>Solicitar investigación · pendiente de habilitación y autorización de coste</button>
   {state.tasks.map(t=><article key={t.id}><p>{t.simulated?'SIMULACIÓN · no acredita IA real':'Tarea autorizada'} · {t.title} · {t.simulated?'fixture':t.status}</p>{t.result&&typeof t.result==='object'&&'summary' in t.result&&typeof t.result.summary==='string'?<p>{t.result.summary}</p>:null}</article>)}
   {hasAgents&&<div className="canvas-host" ref={host}/>}
