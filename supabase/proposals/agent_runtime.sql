@@ -45,15 +45,7 @@ alter table public.raxi_runtime_policies enable row level security;
 alter table public.raxi_agent_runs enable row level security;
 revoke all on public.raxi_runtime_policies,public.raxi_agent_runs from public,anon,authenticated;
 -- Lease tokens/worker credentials are deliberately not exposed to authenticated clients.
--- Runtime service executes RPCs through explicit, minimal table and column grants.
--- No DELETE/TRUNCATE/REFERENCES/TRIGGER or unrestricted UPDATE for service_role.
-revoke all on public.raxi_runtime_policies,public.raxi_agent_runs from service_role;
-grant select on public.raxi_runtime_policies,public.raxi_agent_runs to service_role;
-grant update (enabled,reserved_micros,task_count) on public.raxi_runtime_policies to service_role;
-grant insert (workspace_id,task_id,agent_id,stage,status,simulated,provider,model,lease_until,worker_id,reserved_micros)
- on public.raxi_agent_runs to service_role;
-grant update (status,finished_at,dispatch_authorized_at,provider_receipt,result,cost_micros)
- on public.raxi_agent_runs to service_role;
+grant all on public.raxi_runtime_policies,public.raxi_agent_runs to service_role;
 alter table public.raxi_approvals drop constraint raxi_approvals_subject_kind_check;
 alter table public.raxi_approvals add constraint raxi_approvals_subject_kind_check check(subject_kind in ('IDEA','CAMPAIGN','STRATEGY','JOB','ASSET','PUBLICATION','TASK'));
 create function public.raxi_runtime_protect_approval() returns trigger language plpgsql security invoker set search_path='' as $$
