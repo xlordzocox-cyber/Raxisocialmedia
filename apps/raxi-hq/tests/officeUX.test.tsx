@@ -279,7 +279,7 @@ test('mounted StrictMode App shares sprite/dock selection intent, preserves oper
     assert.equal(zoneScroller.findAllByType('button').length,7,'only the departments scroll; Vista completa stays separate');
     assert.equal(zoneNav.findAllByProps({className:'office-zone-home'}).length,1,'full-view action remains permanently available');
     const realDemoGroup=view.root.findByProps({'aria-label':'Explorar agentes sin ejecución real'});
-    assert.match(JSON.stringify(realDemoGroup.props.children),/REAL/);
+    assert.match(realDemoGroup.findAllByType('span')[0].props.children,/REAL/);
     await act(async()=>{
       view.root.findByProps({'aria-label':'Ver agentes de demostración'}).props.onClick();
       await Promise.resolve();await Promise.resolve();
