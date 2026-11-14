@@ -15,6 +15,23 @@ BEGIN
     OR has_table_privilege('authenticated','public.raxi_agent_runs','UPDATE') THEN
   RAISE EXCEPTION 'Unsafe native runtime grants';
  END IF;
+ IF has_table_privilege('service_role','public.raxi_agent_runs','DELETE')
+    OR has_table_privilege('service_role','public.raxi_agent_runs','TRUNCATE')
+    OR has_table_privilege('service_role','public.raxi_agent_runs','REFERENCES')
+    OR has_table_privilege('service_role','public.raxi_agent_runs','TRIGGER')
+    OR has_table_privilege('service_role','public.raxi_runtime_policies','DELETE')
+    OR has_table_privilege('service_role','public.raxi_runtime_policies','TRUNCATE')
+    OR has_table_privilege('service_role','public.raxi_runtime_policies','INSERT')
+    OR has_column_privilege('service_role','public.raxi_runtime_policies','provider','UPDATE')
+    OR has_column_privilege('service_role','public.raxi_agent_runs','lease_until','UPDATE')
+    OR has_column_privilege('service_role','public.raxi_agent_runs','lease_token','UPDATE')
+    OR has_column_privilege('service_role','public.raxi_agent_runs','lease_token','INSERT')
+    OR NOT has_column_privilege('service_role','public.raxi_agent_runs','status','UPDATE')
+    OR NOT has_column_privilege('service_role','public.raxi_agent_runs','workspace_id','INSERT')
+    OR NOT has_column_privilege('service_role','public.raxi_runtime_policies','reserved_micros','UPDATE')
+    OR NOT has_column_privilege('service_role','public.raxi_runtime_policies','task_count','UPDATE') THEN
+  RAISE EXCEPTION 'Runtime service_role exceeds required column privileges';
+ END IF;
  IF (SELECT count(*) FROM pg_trigger WHERE tgname='raxi_runtime_dispatch_receipt' AND NOT tgisinternal) <> 1 THEN
   RAISE EXCEPTION 'Expected exactly one installed dispatch trigger';
  END IF;
@@ -72,6 +89,24 @@ BEGIN
  EXCEPTION WHEN OTHERS THEN
   IF SQLERRM NOT LIKE '%authorization expired or revoked%' THEN RAISE; END IF;
  END;
+ -- Direct privileged edits to protected columns must fail (including forged scope or lease).
+ BEGIN
+  UPDATE public.raxi_agent_runs SET lease_until=clock_timestamp()+interval '30 minutes' WHERE id=v_run;
+  RAISE EXCEPTION 'Direct lease extension unexpectedly accepted';
+ EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+ END;
+ BEGIN
+  UPDATE public.raxi_runtime_policies SET provider='forged-model'
+   WHERE workspace_id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  RAISE EXCEPTION 'Direct provider policy mutation unexpectedly accepted';
+ EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+ END;
+ BEGIN
+  DELETE FROM public.raxi_agent_runs WHERE id=v_run;
+  RAISE EXCEPTION 'Direct runtime ledger deletion unexpectedly accepted';
+ EXCEPTION WHEN SQLSTATE '42501' THEN NULL;
+ END;
+ RAISE NOTICE 'PASS: prohibited direct lease, provider and delete privileges denied';
  -- A stale lease must also be denied even if table UPDATE is attempted directly.
  BEGIN
   UPDATE public.raxi_agent_runs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=v_run;
