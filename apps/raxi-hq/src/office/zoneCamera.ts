@@ -29,15 +29,13 @@ function inPolygon(point: Point, polygon: readonly Point[]): boolean {
 /** A user-selected zone is a visual camera target, never an execution source. */
 export function officeZoneAtPoint(point: Point): ZoneId | undefined {
   if(!Number.isFinite(point.x)||!Number.isFinite(point.y))return undefined;
-  let best:ZoneId|undefined;
-  let distance=Infinity;
-  for(const id of zoneOrder){
-    const anchor=zones[id].anchor;
-    if(!inPolygon(point,roomPolygon(anchor)))continue;
-    const score=((point.x-anchor.x)/122)**2+((point.y-anchor.y)/105)**2;
-    if(score<distance){best=id;distance=score;}
+  // map.ts paints in zoneOrder: the last matching room is visually on top.
+  // In particular War Room's wall overlaps Supermemory's front floor.
+  for(let i=zoneOrder.length-1;i>=0;i--){
+    const id=zoneOrder[i];
+    if(inPolygon(point,roomPolygon(zones[id].anchor)))return id;
   }
-  return best;
+  return undefined;
 }
 
 /** Relative zoom is deliberately capped by the same camera limits as manual zoom. */
