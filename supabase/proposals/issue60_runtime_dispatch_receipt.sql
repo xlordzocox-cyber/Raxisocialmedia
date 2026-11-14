@@ -6,7 +6,7 @@
 -- validation, not that the remote model accepted a request or completed work.
 -- A transaction rollback removes both these event/audit rows.
 create function public.raxi_runtime_dispatch_receipt() returns trigger
-language plpgsql security invoker set search_path='' as $
+language plpgsql security invoker set search_path='' as $raxi_dispatch$
 declare v_task public.raxi_agent_tasks;
 begin
   if old.dispatch_authorized_at is null
@@ -48,7 +48,7 @@ begin
   end if;
   return new;
 end;
-$$;
+$raxi_dispatch$;
 revoke all on function public.raxi_runtime_dispatch_receipt() from public,anon,authenticated;
 create trigger raxi_runtime_dispatch_receipt
 after update of dispatch_authorized_at on public.raxi_agent_runs
