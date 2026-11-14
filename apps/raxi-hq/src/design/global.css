@@ -139,7 +139,7 @@ dl { font-size: 12px; } dt { color: var(--muted); margin-top: 10px; } dd { margi
 .hq-fixed-office .office-roster-bridge button {min-height:35px;padding:5px 9px;}
 .hq-fixed-office .canvas-host,
 .hq-command-shell .hq-fixed-office .office .canvas-host {
-  height:auto; flex:1 1 auto; min-height:130px; width:100%;
+  height:auto; flex:1 1 0; min-height:0; width:100%;
 }
 .hq-lower-workspace {display:grid;grid-template-columns:minmax(0,1fr) 108px;gap:8px;flex:1 1 auto;min-height:0;}
 .hq-work-panel {display:flex;flex-direction:column;min-width:0;min-height:0;border:1px solid #38506c;border-radius:14px;background:#111b2d;overflow:hidden;}
@@ -209,4 +209,13 @@ dl { font-size: 12px; } dt { color: var(--muted); margin-top: 10px; } dd { margi
   .hq-work-heading h2 {font-size:13px;}
   .hq-lower-workspace {min-height:108px;}
   .hq-module-rail button {min-height:46px;}
+}
+
+/* The Pixi host may shrink beneath 130px when controls need the room.
+   The renderer fits to its *visible* host instead of clipping a larger surface. */
+@media (min-height:521px) and (max-height:700px) {
+  .hq-fixed-office .office-toolbar {padding:3px 8px;}
+  .hq-fixed-office .office-zone-nav {padding:3px 8px;}
+  .hq-fixed-office .office-roster-bridge {padding:3px 8px;}
+  .hq-command-shell .hq-fixed-office .office .canvas-host {min-height:0;}
 }
