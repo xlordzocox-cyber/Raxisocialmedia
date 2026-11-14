@@ -75,74 +75,7 @@ docker exec -i -u postgres "$container" psql -h /var/run/postgresql -U postgres 
 # Rehearse the migration runner's own wrapping transaction; the body itself
 # must never contain BEGIN/COMMIT or it can commit before metadata is recorded.
 check_blob "supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql" "27c3527342b312bf21b7a35b27d5f0f9aa14cfda"
-if grep -Eq '^(BEGIN|COMMIT|ROLLBACK);[[:space:]]*run_sql supabase/tests/issue60_pr59_identity_compatibility_checks.sql
-run_sql supabase/tests/issue60-pg17-dispatch-receipt.sql
-# Negative SQL tests execute *the candidate itself* against malicious replacements.
-# Each run uses BEGIN and an isolated psql connection: an expected error causes
-# the function mutation to roll back automatically on connection close.
-for variant in comment_only inverted_project_no_session no_session; do
-  echo "Testing rejected PR59 identity drift: $variant"
-  script="$(
-    case "$variant" in
-      comment_only)
-        cat <<'SQL'
-CREATE OR REPLACE FUNCTION public.raxi_supervised_host_identity(p_identity jsonb) returns boolean
-language plpgsql security invoker set search_path='' as $weak$
-BEGIN
- -- Project comment zvhxjindgyvtasstfjut is NOT evidence of validation.
- RETURN true;
-END;
-$weak$;
-SQL
-        ;;
-      inverted_project_no_session)
-        cat <<'SQL'
-CREATE OR REPLACE FUNCTION public.raxi_supervised_host_identity(p_identity jsonb) returns boolean
-language plpgsql security invoker set search_path='' as $weak$
-BEGIN
- IF p_identity->>'projectRef'='zvhxjindgyvtasstfjut' THEN
-  RAISE EXCEPTION 'inverted project validation';
- END IF;
- RETURN true;
-END;
-$weak$;
-SQL
-        ;;
-      no_session)
-        cat <<'SQL'
-CREATE OR REPLACE FUNCTION public.raxi_supervised_host_identity(p_identity jsonb) returns boolean
-language plpgsql security invoker set search_path='' as $weak$
-BEGIN
- IF p_identity->>'projectRef' is distinct from 'zvhxjindgyvtasstfjut' THEN
-  RAISE EXCEPTION 'project denied';
- END IF;
- -- Missing session, owner and expiry checks: unacceptable.
- RETURN true;
-END;
-$weak$;
-SQL
-        ;;
-    esac
-  )"
-  result="$(
-    {
-      printf 'BEGIN;\n'
-      printf '%s\n' "$script"
-      cat supabase/proposals/issue60_stage_b_staging_identity_compatible.candidate.sql
-    } | docker exec -i -u postgres "$container" psql -h /var/run/postgresql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f - 2>&1
-  )" && { echo "FAIL: weakened identity was admitted: $variant"; exit 1; }
-  if ! grep -q 'staging PR59 identity sha256 or ACL mismatch' <<< "$result"; then
-    echo "FAIL: expected SHA256 preflight rejection, got unexpected failure in $variant"
-    echo "$result" | tail -n 10
-    exit 1
-  fi
-  echo "PASS: $variant denied by approved-identity SHA256 guard"
-done
-# Confirm negative transactions did not leave behind weakened functions.
-run_sql supabase/tests/issue60_pr59_identity_compatibility_checks.sql
-
-echo "PASS: seven-staged-source PR59+runtime atomic PG17 parity; no hosted changes"
- supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql; then
+if grep -Eq '^(BEGIN|COMMIT|ROLLBACK);[[:space:]]*$' supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql; then
   echo "FAIL: embedded migration transaction control"; exit 1
 fi
 # Deliberately abort midway through source 1 and verify no partial objects
