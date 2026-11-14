@@ -5,11 +5,12 @@ import type { RealIdeaStore } from './realIdeaStore';
 import type { RealCampaignStore } from './realCampaignStore';
 import { RealCampaignCenter } from './RealCampaignCenter';
 import { RuntimeOfficePanel } from '../runtime/RuntimeOfficePanel';
+import type { RuntimeOfficeSink } from '../runtime/runtimeOfficeStore';
 import { supabase } from '../auth/client';
 const noSubscription = () => () => {};
 const noCampaign = () => null;
 
-export function RealIdeaCenter({ store, campaigns }: { store: RealIdeaStore; campaigns?: (workspace: string) => RealCampaignStore }) {
+export function RealIdeaCenter({ store, campaigns, onRuntimeSnapshot }: { store: RealIdeaStore; campaigns?: (workspace: string) => RealCampaignStore; onRuntimeSnapshot?: RuntimeOfficeSink }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const [open, setOpen] = useState(true);
   const [selectedId, setSelectedId] = useState<string>();
@@ -62,7 +63,7 @@ export function RealIdeaCenter({ store, campaigns }: { store: RealIdeaStore; cam
       }} />
       {state.phase !== 'saving' && <button type="button" onClick={() => { void store.load(); }}>Recargar desde Supabase</button>}
       {campaignStore && <RealCampaignCenter key={`${state.workspace.ownerId}:${state.workspace.id}`} store={campaignStore} ideas={store} ideaState={state} />}
-      {supabase && <RuntimeOfficePanel key={`${state.workspace.ownerId}:${state.workspace.id}`} client={supabase} owner={state.workspace.ownerId} workspace={state.workspace.id} />}
+      {supabase && <RuntimeOfficePanel key={`${state.workspace.ownerId}:${state.workspace.id}`} client={supabase} owner={state.workspace.ownerId} workspace={state.workspace.id} onRuntimeSnapshot={onRuntimeSnapshot} renderCanvas={!onRuntimeSnapshot} />}
     </>}
   </section>;
 }
