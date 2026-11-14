@@ -274,6 +274,8 @@ test('mounted StrictMode App shares sprite/dock selection intent, preserves oper
     assert.ok(command,'single viewport-height command center exists');
     assert.equal(view.root.findAllByProps({'aria-label':'Oficina fija de Raxi HQ'}).length,1,'one fixed office, no parallel canvas');
     assert.ok(view.root.findByProps({'aria-label':'Área de trabajo'}),'independently scrollable lower panel');
+    const cameraStatus=view.root.findByProps({className:'office-zone-status'});
+    assert.match(cameraStatus.props.children,/Vista completa/,'camera status reserves the same slot before room selection');
     const rail=view.root.findByProps({'aria-label':'Secciones de Raxi HQ'});
     const railButtons=rail.findAllByType('button');
     assert.equal(railButtons.length,7,'right navigation has seven functional modules');
