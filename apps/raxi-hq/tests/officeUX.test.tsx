@@ -287,10 +287,16 @@ test('mounted StrictMode App shares sprite/dock selection intent, preserves oper
     assert.equal(hqStore.getSnapshot().mode,'MOCK','explicit shortcut selects the isolated demo source');
     assert.equal(Object.keys(hqStore.getSnapshot().agents).length,mockAgents.length);
     assert.ok(view.root.findByProps({'aria-label':'Volver a Campus REAL'}),'user can return without scrolling to the campus header');
+    let clearedSynchronously=false;
     await act(async()=>{
       view.root.findByProps({'aria-label':'Volver a Campus REAL'}).props.onClick();
+      const instant=hqStore.getSnapshot();
+      clearedSynchronously=instant.mode==='LIVE_READ_ONLY' && instant.mockMode===false &&
+        instant.sourceHealth.source==='munder' &&
+        Object.keys(instant.agents).length===0 && instant.events.length===0;
       await Promise.resolve();await Promise.resolve();
     });
+    assert.equal(clearedSynchronously,true,'MOCK source cleared before REAL React update, not merely after its effect');
     assert.equal(hqStore.getSnapshot().mode,'LIVE_READ_ONLY');
     assert.equal(Object.keys(hqStore.getSnapshot().agents).length,0,'DEMO agents never remain in REAL');
     await act(async()=>{await hqStore.switchMode('MOCK');});
