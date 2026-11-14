@@ -55,3 +55,18 @@ after update of dispatch_authorized_at on public.raxi_agent_runs
 for each row
 when (old.dispatch_authorized_at is null and new.dispatch_authorized_at is not null)
 execute function public.raxi_runtime_dispatch_receipt();
+
+-- Add-on security delta ONLY. Do not alter the 7-source pinned staging
+-- manifest or the legacy agent_runtime.sql SHA. Apply transactionally after
+-- agent_runtime.sql; never activate runtime from the baseline grants alone.
+-- service_role remains a privileged server-only trust boundary, not a browser role.
+revoke all on public.raxi_runtime_policies,public.raxi_agent_runs from service_role;
+grant select on public.raxi_runtime_policies,public.raxi_agent_runs to service_role;
+grant update (enabled,reserved_micros,task_count)
+ on public.raxi_runtime_policies to service_role;
+grant insert (workspace_id,task_id,agent_id,stage,status,simulated,
+ provider,model,lease_until,worker_id,reserved_micros)
+ on public.raxi_agent_runs to service_role;
+grant update (status,finished_at,dispatch_authorized_at,
+ provider_receipt,result,cost_micros)
+ on public.raxi_agent_runs to service_role;
