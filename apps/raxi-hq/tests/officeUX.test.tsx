@@ -310,6 +310,12 @@ test('mounted StrictMode App shares sprite/dock selection intent, preserves oper
     });
     assert.equal(hqStore.getSnapshot().mode,'MOCK','explicit shortcut selects the isolated demo source');
     assert.equal(Object.keys(hqStore.getSnapshot().agents).length,mockAgents.length);
+    await act(async()=>{railButtons[1].props.onClick();});
+    const demoInboxToggle=view.root.findByProps({'aria-label':'Abrir bandeja de propuestas en Campañas'});
+    await act(async()=>{demoInboxToggle.props.onClick();});
+    assert.equal(view.root.findByProps({'aria-label':'Bandeja de propuestas recibidas'}).props.hidden,false,'DEMO inbox accessible within campaigns');
+    await act(async()=>{railButtons[0].props.onClick();});
+    assert.equal(view.root.findByProps({'aria-label':'Bandeja de propuestas recibidas'}).props.hidden,false,'opened inbox remains visible in Ideas');
     assert.ok(view.root.findByProps({'aria-label':'Volver a Campus REAL'}),'user can return without scrolling to the campus header');
     let clearedSynchronously=false;
     await act(async()=>{
