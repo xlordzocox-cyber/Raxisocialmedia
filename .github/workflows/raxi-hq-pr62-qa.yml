@@ -1,8 +1,8 @@
 name: Raxi HQ PR62 QA (no deploy)
 on:
-  push:
+  pull_request:
     branches:
-      - feat/issue60-main-office-runtime-bridge
+      - feat/issue60-runtime-verified-motion
   workflow_dispatch:
 
 permissions:
