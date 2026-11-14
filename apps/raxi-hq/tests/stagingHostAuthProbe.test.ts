@@ -134,3 +134,18 @@ test('Cannot construct a probe with enabled host actions, providers or execution
   assert.throws(()=>createStagingAuthReadinessProbe({...deps,[field]:true} as never));
  }
 });
+
+
+test('Readiness is pinned to the approved staging project, even if a dependency claims another',async()=>{
+ const otherProject=async()=>({provenance:'SUPABASE_AUTH_STAGING' as const,actorId:owner,
+  sessionId:session,workspaceId:workspace,projectRef:'jrkefsylpfriiqefcmzq',
+  expiresAt:new Date(Date.now()+60000).toISOString()});
+ const probe=createStagingAuthReadinessProbe({
+  identify:otherProject,liveEnabled:false,providersEnabled:false,actionsEnabled:false,
+ });
+ const r=await probe(new Request('https://unpublished.invalid/auth',{method:'POST',
+  headers:{Authorization:'Bearer local-test-token', 'Content-Type':'application/json'},
+  body:JSON.stringify({workspaceId:workspace})}));
+ assert.equal(r.status,403);
+ assert.deepEqual(await r.json(),{error:'Session or workspace not authorized'});
+});
