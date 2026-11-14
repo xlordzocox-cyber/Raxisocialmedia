@@ -2,7 +2,7 @@
 # Ephemeral native PostgreSQL 17 lab. No network, port, secret or hosted provider.
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
-container="raxi-issue60-pr59-identity-${GITHUB_RUN_ID:-local}-$"
+container="raxi-issue60-pr59-identity-${GITHUB_RUN_ID:-local}-$$"
 cleanup() { docker rm -f "$container" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 docker pull postgres:17 >/dev/null
