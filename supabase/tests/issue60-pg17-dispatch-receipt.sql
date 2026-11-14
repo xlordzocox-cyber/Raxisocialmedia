@@ -39,6 +39,17 @@ BEGIN
 END
 $qa$;
 
+-- Fixture-only admin helper. Never install this helper on hosted databases.
+-- Service role cannot UPDATE lease_until directly, while the lab must still
+-- simulate a stale lease to verify the trigger's fail-closed behavior.
+create function pg_temp.raxi_qa_expire_lease(p_run uuid) returns void
+language sql security definer set search_path='' as $fixture$
+ update public.raxi_agent_runs
+ set lease_until=clock_timestamp()-interval '1 second' where id=p_run;
+$fixture$;
+revoke all on function pg_temp.raxi_qa_expire_lease(uuid) from public,anon,authenticated;
+grant execute on function pg_temp.raxi_qa_expire_lease(uuid) to service_role;
+
 -- Fixture identities deliberately non-sensitive and never real credentials.
 INSERT INTO auth.users(id) VALUES
  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
@@ -109,7 +120,7 @@ BEGIN
  RAISE NOTICE 'PASS: prohibited direct lease, provider and delete privileges denied';
  -- A stale lease must also be denied even if table UPDATE is attempted directly.
  BEGIN
-  UPDATE public.raxi_agent_runs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=v_run;
+  PERFORM pg_temp.raxi_qa_expire_lease(v_run);
   UPDATE public.raxi_agent_runs SET dispatch_authorized_at=clock_timestamp() WHERE id=v_run;
   RAISE EXCEPTION 'Expired direct dispatch unexpectedly admitted';
  EXCEPTION WHEN OTHERS THEN
