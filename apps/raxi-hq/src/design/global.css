@@ -191,6 +191,21 @@ dl { font-size: 12px; } dt { color: var(--muted); margin-top: 10px; } dd { margi
   .hq-module-rail button {min-height:52px;}
 }
 
+/* Android portrait screenshot QA PR66: allocate vertical space to Pixi,
+   not to duplicate guidance and a multiline status banner. */
+@media (max-width:850px) and (min-height:521px) {
+  .hq-fixed-office .office-toolbar {display:flex;align-items:center;min-height:49px;max-height:49px;padding:3px 8px;overflow:hidden;}
+  .hq-fixed-office .office-help-mobile {display:none;}
+  .hq-fixed-office .office-toolbar > div {width:100%;min-width:0;flex:1 1 auto;display:flex;align-items:center;justify-content:space-between;gap:4px;flex-wrap:nowrap;}
+  .hq-fixed-office .office-toolbar button {min-height:42px;padding:4px 8px;font-size:12px;}
+  .hq-fixed-office .office-zone-nav {min-height:51px;max-height:51px;flex:0 0 51px;align-items:center;padding:3px 7px;}
+  .hq-fixed-office .office-zone-nav button {height:44px;min-height:44px;max-height:44px;padding:5px 10px;font-size:12px;}
+  .hq-fixed-office .office-zone-scroll {min-height:44px;}
+  .hq-fixed-office .office-roster-bridge {min-height:47px;max-height:47px;flex:0 0 47px;flex-wrap:nowrap;align-items:center;gap:7px;padding:3px 8px;overflow:hidden;}
+  .hq-fixed-office .office-roster-bridge span {flex:1 1 0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:11px;}
+  .hq-fixed-office .office-roster-bridge button {flex:0 0 auto;min-height:41px;padding:5px 9px;font-size:12px;white-space:nowrap;}
+}
+
 /* Small landscape/mobile screens must retain a usable independent work panel. */
 @media(max-height:520px) {
   .hq-command-shell {padding:3px;gap:3px;}
