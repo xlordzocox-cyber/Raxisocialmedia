@@ -3,6 +3,7 @@
  * A failure of network/availability is NOT proof that authorization works.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+import {projectRuntime} from './runtimeOfficeStore';
 
 export type AccessResult = 'PASS' | 'FAIL' | 'NOT_TESTED';
 export interface RuntimeAuthChecks {
@@ -22,9 +23,13 @@ function denied(result:{data:unknown;error:{code?:string}|null}):boolean {
 }
 function validSnapshot(value:unknown,owner:string,workspace:string):boolean {
  const data=value as {ownerId?:unknown;workspaceId?:unknown;serverTime?:unknown;tasks?:unknown;events?:unknown}|null;
- return !!data&&data.ownerId===owner&&data.workspaceId===workspace&&
-  typeof data.serverTime==='string'&&Number.isFinite(Date.parse(data.serverTime))&&
-  Array.isArray(data.tasks)&&Array.isArray(data.events);
+ if(!data||data.ownerId!==owner||data.workspaceId!==workspace||
+  typeof data.serverTime!=='string'||!Number.isFinite(Date.parse(data.serverTime))||
+  !Array.isArray(data.tasks)||!Array.isArray(data.events))return false;
+ // Reuse the production office projection: it rejects foreign workspace events,
+ // orphan receipts, invalid task/event shapes and replayed or malformed data.
+ try { projectRuntime(value,owner,workspace);return true; }
+ catch { return false; }
 }
 export async function checkHostedRuntimeAuth(
  ownerClient:SupabaseClient,anonymousClient:SupabaseClient,owner:string,workspace:string,unknownWorkspace:string,
