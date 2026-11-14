@@ -108,6 +108,20 @@ echo "PASS: forced migration failure rolled back all partial SQL"
 run_sql supabase/tests/issue60_pr59_identity_compatibility_checks.sql
 run_sql supabase/tests/issue60-pg17-dispatch-receipt.sql
 run_sql supabase/tests/issue60_host_identity_boundary_pg17.sql
+# A fully-installed package MUST reject a second full installation, not just
+# repeat a helper operation. A failed repeat must not write a new receipt.
+repeat_result="$(
+ {
+   printf 'BEGIN;\n'
+   cat supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql
+   printf '\nCOMMIT;\n'
+ } | docker exec -i -u postgres "$container" psql -h /var/run/postgresql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f - 2>&1
+)" && { echo "FAIL: repeating full runtime package succeeded"; exit 1; }
+grep -Fq 'Issue60 runtime exists or partially installed' <<< "$repeat_result" ||
+ { echo "FAIL: repeated package error did not match expected preflight"; exit 1; }
+run_sql supabase/tests/issue60_pr59_identity_compatibility_checks.sql
+echo "PASS: repeating full runtime package is denied without identity drift"
+
 # Negative SQL tests execute *the candidate itself* against malicious replacements.
 # Each run uses BEGIN and an isolated psql connection: an expected error causes
 # the function mutation to roll back automatically on connection close.
