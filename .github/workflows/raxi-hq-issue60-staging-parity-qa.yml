@@ -1,0 +1,31 @@
+name: Raxi HQ Issue60 staging 7-source parity (no hosted changes)
+on:
+  pull_request:
+    branches:
+      - feat/issue60-runtime-verified-motion
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: raxi-hq-issue60-seven-source-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  native-pg17-staging-parity:
+    name: Atomic 7-source staging schema replay and runtime safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - name: Checkout proposed runtime candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Checkout exact PR59 commit (fixture sources only)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: xlordzocox-cyber/Raxisocialmedia
+          ref: e4d617e85875d99d5c06908dad2ef1a46b02cd5d
+          path: .pr59-replay
+          persist-credentials: false
+      - name: Verify atomic runtime SQL on the seven staged baseline sources
+        shell: bash
+        run: bash apps/raxi-hq/scripts/issue60-staging-seven-source-parity-ci.sh
