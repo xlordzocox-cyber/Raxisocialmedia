@@ -247,6 +247,39 @@ test('issue #60 dispatch is WAITING, verified and never a claim that the provide
  assert.deepEqual(projectRuntime({...base,tasks:[{...base.tasks[0],status:'COMPLETED'}],events:[admitted]},owner,workspace).hq.agents,{});
 });
 
+
+test('issue #60 SQL dispatch receipt is atomic and does not claim provider acknowledgment',async()=>{
+ const f=await fixture(true);
+ try {
+  await f.db.exec(readFileSync('../../supabase/proposals/issue60_runtime_dispatch_receipt.sql','utf8'));
+  const taskId=await f.create();
+  const run=(await f.repository.claim(taskId,'dispatch-receipt-test'))!.run;
+  await f.repository.step(run.id,run.lease_token,'dispatch');
+  const rows=(await f.db.query<{source_kind:string;evidence_status:string;payload:{phase:string;providerAcknowledged:boolean;operationalReceiptOnly:boolean}}>(
+   "select source_kind,evidence_status,payload from public.raxi_agent_events where event_type='RUNTIME_DISPATCH_AUTHORIZED' and task_id=$1",[taskId])).rows;
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].source_kind,'AGENT_EXECUTOR');
+  assert.equal(rows[0].evidence_status,'VERIFIED');
+  assert.equal(rows[0].payload.phase,'DISPATCH_AUTHORIZED');
+  assert.equal(rows[0].payload.providerAcknowledged,false);
+  assert.equal(rows[0].payload.operationalReceiptOnly,true);
+  const audit=(await f.db.query("select id from public.raxi_audit_events where action='RUNTIME_DISPATCH_AUTHORIZED' and resource_id=$1",[run.id])).rows;
+  assert.equal(audit.length,1);
+  await assert.rejects(f.repository.step(run.id,run.lease_token,'dispatch'));
+  assert.equal((await f.db.query("select id from public.raxi_agent_events where event_type='RUNTIME_DISPATCH_AUTHORIZED' and task_id=$1",[taskId])).rows.length,1);
+  const persisted=(await f.db.query<{status:string;provider_receipt:string|null}>('select status,provider_receipt from public.raxi_agent_runs where id=$1',[run.id])).rows[0];
+  assert.equal(persisted.status,'CLAIMED');
+  assert.equal(persisted.provider_receipt,null);
+  await f.db.exec('reset role');
+  await f.db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:owner})]);
+  await f.db.exec('set role authenticated');
+  const raw=(await f.db.query<{v:unknown}>('select public.raxi_runtime_office($1) v',[workspace])).rows[0].v;
+  const projected=projectRuntime(raw,owner,workspace);
+  assert.equal(Object.values(projected.hq.agents)[0].status,'WAITING');
+  assert.equal(projected.hq.events[0].type,'TASK_ASSIGNED');
+ }finally{await f.db.close();}
+});
+
 test('mounted runtime panel in StrictMode stays disabled without service and cleans up reads on account change',async()=>{
  Object.defineProperty(globalThis,'IS_REACT_ACT_ENVIRONMENT',{value:true,configurable:true});
  let view!:ReactTestRenderer;const client={rpc:async()=>({data:null,error:{code:'PGRST202'}})} as unknown as SupabaseClient;
