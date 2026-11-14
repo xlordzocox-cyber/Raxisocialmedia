@@ -1,0 +1,45 @@
+name: Raxi HQ PR62 QA (no deploy)
+on:
+  pull_request:
+    branches:
+      - feat/issue60-runtime-verified-motion
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: raxi-hq-pr62-qa-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: TypeScript, tests, and Vite build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/raxi-hq
+    env:
+      CI: "true"
+    steps:
+      - name: Checkout exact branch commit without stored credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Setup Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/raxi-hq/package-lock.json
+      - name: Install locked packages (no lifecycle scripts)
+        run: npm ci --ignore-scripts
+      - name: Typecheck client and runtime
+        run: npm run typecheck
+      - name: Run full project suite serially
+        run: npm test -- --serial
+      - name: Verify reproducible bundles and build
+        run: npm run build
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate

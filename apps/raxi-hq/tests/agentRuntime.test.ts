@@ -6,6 +6,7 @@ import { rpcRepository, requestHandler, runOne, taskSpec, runtimeResultBytes, RU
 import { simulatedProvider, openAIProvider } from '../../../server/agent-runtime/providers';
 import { PILOT_QUOTE, planPilotBudget } from '../../../server/agent-runtime/pilotBudget';
 import { RuntimeOfficeStore, projectRuntime, applyVerifiedRuntimeMotion } from '../src/runtime/runtimeOfficeStore';
+import { mainOfficeSource, matchesActiveRuntimeScope } from '../src/runtime/mainOfficeSource';
 import { AgentMotion } from '../src/office/agents/agentMotion';
 import { RuntimeOfficePanel } from '../src/runtime/RuntimeOfficePanel';
 import { createElement, StrictMode } from 'react';
@@ -251,7 +252,10 @@ test('issue #60 dispatch is WAITING, verified and never a claim that the provide
 test('issue #60 SQL dispatch receipt is atomic and does not claim provider acknowledgment',async()=>{
  const f=await fixture(true);
  try {
+  // DDL belongs to the database owner / migration role, never the runtime service_role.
+  await f.db.exec('reset role');
   await f.db.exec(readFileSync('../../supabase/proposals/issue60_runtime_dispatch_receipt.sql','utf8'));
+  await f.db.exec('set role service_role');
   const taskId=await f.create();
   const run=(await f.repository.claim(taskId,'dispatch-receipt-test'))!.run;
   await f.repository.step(run.id,run.lease_token,'dispatch');
@@ -308,6 +312,60 @@ test('issue #60 store polling triggers one visible route only after new durable 
    assert.equal(replacement.getSnapshot().hq.agents['agent-poll'].destinationZone,undefined,'reconnecting does not replay receipt');
   }finally{replacement.dispose();}
  }finally{store.dispose();}
+});
+
+
+test('issue #60 main office bridge selects only same-owner connected runtime and never mixes sources',()=>{
+ const serverTime='2026-11-04T12:00:00Z';
+ const source={workspaceId:workspace,ownerId:owner,serverTime,
+  tasks:[{id:'owned-task',status:'RUNNING',title:'Real stage',simulated:false,result:null}],
+  events:[{id:1,workspace_id:workspace,agent_id:'director-a',task_id:'owned-task',
+   event_type:'RUNTIME_ACKNOWLEDGED',source_kind:'AGENT_EXECUTOR',
+   evidence_status:'VERIFIED',occurred_at:serverTime,payload:{
+     simulated:false,stage:'DIRECTOR',leaseUntil:'2026-11-04T12:02:00Z'}}]};
+ const live=projectRuntime(source,owner,workspace).hq;
+ const fallback={...projectRuntime({...source,events:[]},owner,workspace).hq,
+  sourceHealth:{...live.sourceHealth,source:'munder' as const,connection:'DISCONNECTED' as const}};
+ const record={owner,workspace,hq:live};
+ const selected=mainOfficeSource(fallback,record,owner,'REAL',workspace);
+ assert.equal(selected.sourceHealth.source,'runtime');
+ assert.deepEqual(Object.keys(selected.agents),['director-a']);
+ assert.equal(selected.selectedAgentId,'director-a');
+ assert.deepEqual(Object.keys(selected.tasks),['owned-task']);
+ assert.equal(mainOfficeSource(fallback,record,'other-user','REAL',workspace),fallback);
+ assert.equal(mainOfficeSource(fallback,record,owner,'DEMO',workspace),fallback);
+ const historical={...fallback,mode:'HISTORICAL_REPLAY' as const};
+ assert.equal(mainOfficeSource(historical,record,owner,'REAL',workspace),historical,'explicit historical view wins over runtime');
+ assert.equal(mainOfficeSource(fallback,null,owner,'REAL',workspace),fallback);
+ assert.equal(mainOfficeSource(fallback,{...record,workspace:''},owner,'REAL',workspace),fallback);
+ assert.equal(mainOfficeSource(fallback,{...record,hq:{...live,sourceHealth:{...live.sourceHealth,connection:'DISCONNECTED'}}},owner,'REAL',workspace),fallback);
+ assert.equal(mainOfficeSource(fallback,{...record,hq:{...live,mockMode:true}},owner,'REAL',workspace),fallback);
+ assert.equal(mainOfficeSource(fallback,{...record,hq:{...live,mode:'HISTORICAL_REPLAY'}},owner,'REAL',workspace),fallback);
+ assert.equal(matchesActiveRuntimeScope(record,owner,workspace),true);
+ assert.equal(matchesActiveRuntimeScope(record,owner,'old-workspace'),false);
+ assert.equal(matchesActiveRuntimeScope(record,owner,undefined),false);
+ assert.equal(matchesActiveRuntimeScope(record,'other-user',workspace),false);
+ assert.equal(mainOfficeSource(fallback,record,owner,'REAL','other-workspace'),fallback,'wrong current workspace fails closed');
+ assert.equal(mainOfficeSource(fallback,record,owner,'REAL',undefined),fallback,'loading or missing workspace fails closed');
+ assert.equal(mainOfficeSource(fallback,{...record,workspace:'former-workspace'},owner,'REAL',workspace),fallback,'late snapshot from former workspace is rejected');
+ assert.equal(mainOfficeSource(fallback,record,owner,'REAL',workspace,'not-in-roster').selectedAgentId,'director-a');
+});
+
+test('issue #60 runtime panel emits scoped snapshots without rendering a duplicate office canvas',async()=>{
+ Object.defineProperty(globalThis,'IS_REACT_ACT_ENVIRONMENT',{value:true,configurable:true});
+ const serverTime='2026-11-04T12:00:00Z';
+ const source={workspaceId:workspace,ownerId:owner,serverTime,tasks:[],events:[]};
+ const calls:{scope:{owner:string;workspace:string};connected:boolean}[]=[];
+ const client={rpc:async()=>({data:source,error:null})} as unknown as SupabaseClient;
+ let view!:ReactTestRenderer;
+ await act(async()=>{
+  view=create(createElement(RuntimeOfficePanel,{client,owner,workspace,renderCanvas:false,
+   onRuntimeSnapshot:(scope,hq)=>calls.push({scope,connected:hq?.sourceHealth.connection==='CONNECTED'})}));
+ });
+ assert.ok(calls.some(call=>call.connected && call.scope.owner===owner && call.scope.workspace===workspace));
+ assert.equal(view.root.findAll(n=>n.props.className==='canvas-host').length,0);
+ await act(async()=>view.unmount());
+ assert.equal(calls.at(-1)?.connected,false,'source is cleared after component unmount');
 });
 
 test('mounted runtime panel in StrictMode stays disabled without service and cleans up reads on account change',async()=>{
