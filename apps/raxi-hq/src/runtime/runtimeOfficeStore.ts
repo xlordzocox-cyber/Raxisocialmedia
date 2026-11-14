@@ -28,6 +28,37 @@ export function projectRuntime(raw:unknown,owner:string,workspace:string,elapsed
  hq.sourceHealth={...hq.sourceHealth,connection:'CONNECTED',lastSuccessfulRead:s.serverTime,agentsLoaded:Object.keys(hq.agents).length,eventsLoaded:hq.events.length,tasksLoaded:s.tasks.filter(t=>!t.simulated).length};
  return {hq,tasks:structuredClone(s.tasks)};
 }
+/**
+ * A newly observed, durable runtime acknowledgement may trigger one visual route.
+ * This is a UI metaphor for a verified state transition, not a claim about the
+ * agent's physical location. Never replay history from cold start/reconnection.
+ *
+ * Crucially, this does not create an event, task, permission or execution: all
+ * evidence and RUNNING/lease checks come from the canonical server projection.
+ */
+export function applyVerifiedRuntimeMotion(previous: HQState | null, next: HQState): HQState {
+ if(!previous || previous.mode!=='LIVE_READ_ONLY' || next.mode!=='LIVE_READ_ONLY' ||
+    previous.sourceHealth.source!=='runtime' || next.sourceHealth.source!=='runtime' ||
+    previous.sourceHealth.connection!=='CONNECTED' || next.sourceHealth.connection!=='CONNECTED')return next;
+ const seen=new Set(previous.events.map(event=>event.id));
+ let updated:HQState['agents']|undefined;
+ for(const event of next.events) {
+  if(event.type!=='TASK_STARTED' || !event.verified || event.source!=='runtime' ||
+     seen.has(event.id) || !event.actorId || !event.taskId)continue;
+  const agent=Object.hasOwn(next.agents,event.actorId)?next.agents[event.actorId]:undefined;
+  const task=Object.hasOwn(next.tasks,event.taskId)?next.tasks[event.taskId]:undefined;
+  if(!agent || !task || agent.currentTaskId!==event.taskId || task.ownerAgentId!==agent.id ||
+     agent.status!=='RUNNING' || task.status!=='RUNNING' || Object.hasOwn(previous.agents,agent.id))continue;
+  // Intake zones are a visual convention; the only claim of real work is the
+  // authenticated, verified runtime event/active lease. Existing sprites do not teleport.
+  const from=agent.role==='DIRECTOR'?'GITHUB_HUB':agent.role==='RESEARCHER'?'WAR_ROOM':undefined;
+  if(!from || from===agent.zone)continue;
+  updated??={...next.agents};
+  updated[agent.id]={...agent,zone:from,destinationZone:agent.zone};
+ }
+ return updated?{...next,agents:updated}:next;
+}
+
 export class RuntimeOfficeStore {
  private state:{phase:'loading'|'ready'|'unavailable'|'error';hq:HQState;tasks:RuntimeTask[]}={phase:'loading',hq:empty(),tasks:[]};
  private generation=0;private retired=false;private reading:Promise<void>|null=null;private listeners=new Set<()=>void>();
@@ -39,7 +70,9 @@ export class RuntimeOfficeStore {
  load(){if(this.retired)return Promise.resolve();if(this.reading)return this.reading;
   const generation=this.generation;const began=this.clock();
   this.reading=(async()=>{try{const raw=await this.read();if(this.retired||generation!==this.generation)return;
-   this.received=this.clock();this.latency=Math.max(0,this.received-began);const projected=projectRuntime(raw,this.owner,this.workspace,this.latency);this.raw=raw;this.publish({phase:'ready',...projected});
+   this.received=this.clock();this.latency=Math.max(0,this.received-began);const projected=projectRuntime(raw,this.owner,this.workspace,this.latency);
+   const previous=this.state.phase==='ready'?this.state.hq:null;
+   this.raw=raw;this.publish({phase:'ready',hq:applyVerifiedRuntimeMotion(previous,projected.hq),tasks:projected.tasks});
   }catch(error){if(generation===this.generation&&!this.retired){this.raw=undefined;this.publish({phase:error instanceof Error&&error.message==='SERVICE_NOT_DEPLOYED'?'unavailable':'error',hq:empty(),tasks:[]});}}
   })().finally(()=>{this.reading=null;});return this.reading;
  }
