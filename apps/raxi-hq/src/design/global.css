@@ -26,6 +26,25 @@ button:focus-visible { outline: 2px solid var(--accent); }
 .office-toolbar > div { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }.office-toolbar button { padding:4px 9px; white-space:nowrap; }.office-toolbar output { min-width:38px; text-align:center; }
 .hover-card { position:absolute; left:18px; bottom:18px; display:grid; gap:4px; padding:12px 16px; border:1px solid #496180; background:#101a2aed; border-radius:10px; pointer-events:none; font-size:11px; }.hover-card b { color:var(--accent); }.hover-card span { color:#c4d0e0; }
 .canvas-host { height: 630px; width: 100%; } canvas { display: block; }
+.office-help-mobile { display: none; }
+.office-zone-nav { display:flex; align-items:stretch; gap:8px; padding:10px 12px; background:#0d1626; border-top:1px solid #29364d; min-width:0; }
+.office-zone-scroll { display:flex; flex:1 1 0; min-width:0; align-items:center; gap:8px; overflow-x:auto; scrollbar-width:thin; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; }
+.office-zone-nav button { flex:0 0 auto; min-height:44px; white-space:nowrap; font-size:12px; border-color:#425674; }
+.office-zone-nav button[aria-pressed="true"] { border-color:#6adfec; background:#183449; color:#d9faff; }
+.office-zone-nav button:focus-visible { outline:3px solid #83e4f6; outline-offset:2px; }
+.office-zone-home { font-weight:700; background:#192a41; min-width:132px; }
+.office-zone-status { margin:0; padding:8px 12px; color:#95dce7; background:#112333; font-size:12px; }
+.office-roster-bridge { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; padding:12px; background:#121c2d; border-top:1px solid #2e4361; color:#c2d4e8; font-size:13px; }
+.office-roster-bridge span { flex:1 1 220px; }
+.office-roster-bridge button { flex:0 0 auto; min-height:44px; border-color:#6adfec; background:#173549; color:#e8ffff; }
+.office-roster-bridge button:focus-visible { outline:3px solid #83e4f6; outline-offset:2px; }
+@media (max-width:600px) {
+  .office-help-desktop { display:none; }
+  .office-help-mobile { display:inline; }
+  .office-zone-nav button { min-height:44px; }
+  .office .canvas-host { height:clamp(300px,80vw,440px); }
+}
+
 aside { background: var(--panel); padding: 16px; border-radius: 12px; }
 .agent-list { display: grid; gap: 6px; }.agent-list button { display: flex; justify-content: space-between; gap: 8px; }.agent-list span { color: var(--muted); }
 .agent-dock { padding: 16px; min-width: 0; border-top: 1px solid #29364d; background: var(--panel); }

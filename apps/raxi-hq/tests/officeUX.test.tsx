@@ -124,6 +124,64 @@ test('inspector withdraws a task on inconsistent or incomplete refresh and recov
   await act(async()=>view.unmount());
 });
 
+test('gesture that begins on an agent never becomes a department tap',()=>{
+  const {scene}=sceneFixture();
+  const handlers=new Map<string,(event?:{stopPropagation?:()=>void})=>void>();
+  const sprite={on(name:string,handler:(event?:{stopPropagation?:()=>void})=>void){handlers.set(name,handler);}};
+  const selections:string[]=[];
+  scene.onSelect=(id:string)=>selections.push(id);
+  scene.bindAgentEvents(sprite as never,'a');
+  assert.equal(scene.dragMoved,undefined);
+  handlers.get('pointerdown')?.();
+  assert.equal(scene.dragMoved,true,'agent-originated gesture suppresses stage room tap');
+  let stopped=false;
+  handlers.get('pointertap')?.({stopPropagation(){stopped=true;}});
+  assert.equal(stopped,true,'agent selection does not bubble to room handler');
+  assert.deepEqual(selections,['a']);
+});
+
+test('room focus smoothly magnifies the selected department without inventing agents',()=>{
+  const {scene,world}=sceneFixture();
+  const before=structuredClone(scene.state);
+  const selected:(string|undefined)[]=[];
+  scene.onZoneFocusChange=(id?:string)=>selected.push(id);
+  assert.equal(scene.focusZone('ARIA_LINK'),true);
+  assert.equal(scene.activeZoneId,'ARIA_LINK');
+  assert.equal(scene.zoneFocusTarget,'ARIA_LINK');
+  for(let i=0;i<250&&scene.zoneFocusTarget;i++)scene.tick(16);
+  assert.equal(scene.zoneFocusTarget,undefined,'focus animation settles');
+  assert.equal(world.scale.x,1.85);
+  assert.equal(scene.focusCriticalEvents,false);
+  assert.deepEqual(scene.state,before,'camera-only interaction leaves domain state intact');
+  assert.equal(scene.focusZone('__proto__'),false,'untrusted invalid room rejected');
+  assert.deepEqual(selected,['ARIA_LINK']);
+  scene.zoom(1.1);
+  assert.equal(scene.activeZoneId,undefined,'manual camera takes control');
+  assert.equal(scene.zoneFocusTarget,undefined);
+  assert.equal(selected.at(-1),undefined);
+  assert.equal(scene.focusZone('QA_LAB'),true);
+  scene.resetCamera();
+  assert.equal(scene.activeZoneId,undefined);
+  assert.equal(scene.zoneFocusTarget,undefined);
+  assert.equal(world.scale.x,1.05);
+  assert.deepEqual(scene.state,before);
+});
+
+test('reduced-motion room focus finishes in one tick and keeps REAL source disconnected',()=>{
+  const {scene,world}=sceneFixture();
+  scene.state={...snapshot(),mode:'LIVE_READ_ONLY',mockMode:false,
+    agents:{},events:[],sourceHealth:{source:'munder',mode:'LIVE_READ_ONLY',connection:'DISCONNECTED',eventsLoaded:0,agentsLoaded:0,tasksLoaded:0}};
+  scene.reducedMotion={matches:true};
+  const original=structuredClone(scene.state);
+  assert.equal(scene.focusZone('GITHUB_HUB'),true);
+  scene.tick(16);
+  assert.equal(scene.zoneFocusTarget,undefined);
+  assert.equal(world.scale.x,1.85);
+  assert.deepEqual(scene.state,original);
+  assert.equal(scene.state.sourceHealth.connection,'DISCONNECTED');
+  assert.equal(Object.keys(scene.state.agents).length,0);
+});
+
 test('manual focus snapshots rendered position and refocuses the same selected agent',()=>{
   const {scene}=sceneFixture();const before=structuredClone(scene.state);
   assert.equal(scene.focusAgent('a'),true);assert.deepEqual(scene.focusTarget,{x:-20,y:10});
@@ -211,6 +269,36 @@ test('mounted StrictMode App shares sprite/dock selection intent, preserves oper
   let view!:ReactTestRenderer;
   try {
     await act(async()=>{view=create(tree());});
+    const zoneNav=view.root.findByProps({'aria-label':'Acercar cámara a departamentos'});
+    const zoneButtons=zoneNav.findAllByType('button');
+    assert.equal(zoneButtons.length,8,'global view and seven camera-only rooms');
+    assert.equal(zoneButtons[0].props['aria-pressed'],true);
+    assert.equal(zoneButtons.every(button=>button.props.type==='button'&&typeof button.props.onClick==='function'),true);
+    assert.match(JSON.stringify(zoneButtons.map(button=>button.props.children)),/Supermemory Core/);
+    const zoneScroller=zoneNav.findByProps({'aria-label':'Elegir departamento'});
+    assert.equal(zoneScroller.findAllByType('button').length,7,'only the departments scroll; Vista completa stays separate');
+    assert.equal(zoneNav.findAllByProps({className:'office-zone-home'}).length,1,'full-view action remains permanently available');
+    const realDemoGroup=view.root.findByProps({'aria-label':'Explorar agentes sin ejecución real'});
+    assert.match(realDemoGroup.findAllByType('span')[0].props.children,/REAL/);
+    await act(async()=>{
+      view.root.findByProps({'aria-label':'Ver agentes de demostración'}).props.onClick();
+      await Promise.resolve();await Promise.resolve();
+    });
+    assert.equal(hqStore.getSnapshot().mode,'MOCK','explicit shortcut selects the isolated demo source');
+    assert.equal(Object.keys(hqStore.getSnapshot().agents).length,mockAgents.length);
+    assert.ok(view.root.findByProps({'aria-label':'Volver a Campus REAL'}),'user can return without scrolling to the campus header');
+    let clearedSynchronously=false;
+    await act(async()=>{
+      view.root.findByProps({'aria-label':'Volver a Campus REAL'}).props.onClick();
+      const instant=hqStore.getSnapshot();
+      clearedSynchronously=instant.mode==='LIVE_READ_ONLY' && instant.mockMode===false &&
+        instant.sourceHealth.source==='munder' &&
+        Object.keys(instant.agents).length===0 && instant.events.length===0;
+      await Promise.resolve();await Promise.resolve();
+    });
+    assert.equal(clearedSynchronously,true,'MOCK source cleared before REAL React update, not merely after its effect');
+    assert.equal(hqStore.getSnapshot().mode,'LIVE_READ_ONLY');
+    assert.equal(Object.keys(hqStore.getSnapshot().agents).length,0,'DEMO agents never remain in REAL');
     await act(async()=>{await hqStore.switchMode('MOCK');});
     const before=structuredClone(hqStore.getSnapshot());const baseline=reads;
     const dock=view.root.findByType(AgentDock);const id=Object.keys(before.agents)[1];
