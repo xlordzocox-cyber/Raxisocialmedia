@@ -91,6 +91,9 @@ export class OfficeScene {
   private onSelect: (id: string) => void;
 
   private bindAgentEvents(sprite: AgentSprite, id: string): void {
+    // AgentSprite stops pointerdown propagation. Remember that gesture here so
+    // a drag ending on the room floor cannot be misread as a department tap.
+    sprite.on('pointerdown',()=>{this.dragMoved=true;});
     sprite.on('pointertap', (event?:FederatedPointerEvent) => {event?.stopPropagation?.();this.onSelect(id);});
     sprite.on('pointerover',()=>{ sprite.setHovered(true); this.hoveredAgentId=id; this.onHover(id); });
     sprite.on('pointerout',()=>{ sprite.setHovered(false); if (this.hoveredAgentId === id) { this.hoveredAgentId=undefined; this.onHover(); } });
