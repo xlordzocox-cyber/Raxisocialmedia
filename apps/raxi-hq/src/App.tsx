@@ -142,7 +142,7 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
         <div className="hq-work-scroll">
           <div className="hq-module-content" hidden={activeModule !== 'ideas' && activeModule !== 'campaigns' && activeModule !== 'runtime'}>
             {campusMode === 'DEMO'
-      ? <CampusOverview ideas={ideaCenter!.ideas} view={activeModule === 'campaigns' ? 'campaigns' : activeModule === 'runtime' ? 'runtime' : 'ideas'} />
+      ? <CampusOverview ideas={ideaCenter!.ideas} view={activeModule === 'campaigns' ? 'campaigns' : activeModule === 'runtime' ? 'runtime' : 'ideas'} onNavigateToCampaigns={()=>setActiveModule('campaigns')} />
       : <RealIdeaCenter store={realIdeas} campaigns={campaignRepository ? workspace => getRealCampaignStore(workspace, owner => new RealCampaignStore(campaignRepository(owner), owner, workspace)) : undefined} onRuntimeSnapshot={onRuntimeSnapshot} view={activeModule === 'campaigns' ? 'campaigns' : activeModule === 'runtime' ? 'runtime' : 'ideas'} />}
           </div>
           <div className="hq-module-content" hidden={activeModule !== 'agents'}>
