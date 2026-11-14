@@ -98,6 +98,60 @@ grep -q 'EXPECTED_NATIVE_RUNNER_ABORT' <<< "$output" ||
 no_partial="$(docker exec -i -u postgres "$container" psql -h /var/run/postgresql -U postgres -d postgres -X -v ON_ERROR_STOP=1 -Atc "SELECT to_regclass('public.raxi_agent_runs') IS NULL AND to_regclass('public.raxi_runtime_policies') IS NULL AND to_regprocedure('public.raxi_runtime_office(uuid)') IS NULL;")"
 [[ "$no_partial" == "t" ]] || { echo "FAIL: runner abort left partial SQL"; exit 1; }
 echo "PASS: forced migration failure rolled back all partial SQL"
+# Negative full-package scenarios: each attempt opens an independent PG17
+# connection with an OUTER transaction, matching the intended migration runner.
+# A failed transaction must roll back ALL DDL, ACL, identity changes and metadata.
+for scenario in weak_identity partial_install after_full_ddl; do
+  pre=""
+  post=""
+  expected=""
+  case "$scenario" in
+    weak_identity)
+      pre="supabase/tests/issue60_reject_weak_identity_before_bundle.sql"
+      expected="PR59 identity not the approved staging function"
+      ;;
+    partial_install)
+      pre="supabase/tests/issue60_reject_partial_install_before_bundle.sql"
+      expected="Issue60 runtime exists or partially installed"
+      ;;
+    after_full_ddl)
+      post="supabase/tests/issue60_abort_after_full_bundle.sql"
+      expected="EXPECTED_AFTER_FULL_DDL_ABORT"
+      ;;
+  esac
+  result="$(
+    {
+      printf 'BEGIN;\n'
+      if [[ -n "$pre" ]]; then cat "$pre"; printf '\n'; fi
+      cat supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql
+      if [[ -n "$post" ]]; then cat "$post"; printf '\n'; fi
+      printf '\nCOMMIT;\n'
+    } | docker exec -i -u postgres "$container" psql -h /var/run/postgresql \
+        -U postgres -d postgres -X -v ON_ERROR_STOP=1 -f - 2>&1
+  )" && { echo "FAIL: full migration accepted negative scenario $scenario"; exit 1; }
+  if ! grep -Fq "$expected" <<< "$result"; then
+    echo "FAIL: full migration rejected for unexpected reason ($scenario)"
+    echo "$result" | tail -n 14
+    exit 1
+  fi
+  clean="$(docker exec -i -u postgres "$container" psql -h /var/run/postgresql \
+       -U postgres -d postgres -X -v ON_ERROR_STOP=1 -Atc \
+       "SELECT current_user='postgres'
+         AND to_regclass('public.raxi_agent_runs') IS NULL
+         AND to_regclass('public.raxi_runtime_policies') IS NULL
+         AND to_regprocedure('public.raxi_runtime_office(uuid)') IS NULL
+         AND to_regprocedure('public.raxi_supervised_host_command(jsonb,text,jsonb)') IS NULL
+         AND encode(sha256(convert_to(pg_get_functiondef('public.raxi_supervised_host_identity(jsonb)'::regprocedure),'UTF8')),'hex')='$fingerprint'
+         AND NOT has_function_privilege('anon','public.raxi_supervised_host_identity(jsonb)','EXECUTE')
+         AND NOT has_function_privilege('authenticated','public.raxi_supervised_host_identity(jsonb)','EXECUTE')
+         AND pg_get_constraintdef((SELECT oid FROM pg_constraint WHERE conrelid='public.raxi_approvals'::regclass AND conname='raxi_approvals_subject_kind_check')) NOT LIKE '%TASK%';")"
+  [[ "$clean" == "t" ]] || {
+    echo "FAIL: negative scenario $scenario left partial objects, ACL or identity drift"
+    exit 1
+  }
+  echo "PASS: full migration scenario $scenario rejected and rolled back cleanly"
+done
+
 # Execute the runner-safe package as the runner does: outer BEGIN/COMMIT.
 {
  printf 'BEGIN;\n'
