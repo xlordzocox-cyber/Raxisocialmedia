@@ -107,6 +107,7 @@ echo "PASS: forced migration failure rolled back all partial SQL"
  -d postgres -X -v ON_ERROR_STOP=1 -f -
 run_sql supabase/tests/issue60_pr59_identity_compatibility_checks.sql
 run_sql supabase/tests/issue60-pg17-dispatch-receipt.sql
+run_sql supabase/tests/issue60_host_identity_boundary_pg17.sql
 # Negative SQL tests execute *the candidate itself* against malicious replacements.
 # Each run uses BEGIN and an isolated psql connection: an expected error causes
 # the function mutation to roll back automatically on connection close.
