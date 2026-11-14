@@ -27,7 +27,7 @@
 ## Evidencia de QA focalizada ejecutada
 
 - En el archivo exacto de PR #61 `runtimeOfficeStore.ts` (Git blob `4d7e5bf25dbc0f120c745f5a2afc6a1e4acb1e28`) se ejecutaron **9/9 pruebas locales focalizadas PASS** y compilación TypeScript aislada PASS.
-- En `mainOfficeSource.ts` (Git blob `a218aafcd09265187e9e06289e72bcda77bf06ac`) se ejecutaron **8/8 pruebas locales focalizadas PASS** y TypeScript aislado PASS, incluyendo usuario ajeno, entorno DEMO, desconexión, `mockMode`, workspace vacío y selección antigua.
+- En `mainOfficeSource.ts` (Git blob `7492cacd9cf3cfa000e6c82742e558a31baf0ba2`) se ejecutaron **9/9 pruebas locales focalizadas PASS** y TypeScript aislado PASS, incluyendo usuario ajeno, entorno DEMO, desconexión, `mockMode`, workspace vacío, selección antigua y respeto de reproducción histórica.
 - **NO son** la suite oficial `npm test`, ni `tsc -b` completo, ni `vite build` del proyecto. No se dispone de un checkout completo con dependencias en el entorno de QA. Esos gates permanecen pendientes.
 - Pruebas adicionales añadidas a `agentRuntime.test.ts` para escenario React y el encaminamiento de `RuntimeOfficePanel` sin segundo canvas; **pendientes de ejecución de la suite oficial**.
 
