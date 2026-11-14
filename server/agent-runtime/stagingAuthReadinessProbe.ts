@@ -5,6 +5,8 @@
 import { localId } from './localSupervisedRepository';
 import type { supabaseSupervisedAuth } from './supabaseSupervisedAuth';
 
+const STAGING_PROJECT_REF='zvhxjindgyvtasstfjut' as const;
+
 const HEADERS = {
  'Cache-Control': 'no-store, private',
  'Content-Type': 'application/json; charset=utf-8',
@@ -64,7 +66,7 @@ export function createStagingAuthReadinessProbe(deps:{
    // The existing trusted verifier checks Supabase getClaims/getUser and
    // raxi_supervised_host_identity via service_role with live session+owner.
    const proof=await deps.identify(token,workspaceId);
-   if(proof.provenance!=='SUPABASE_AUTH_STAGING'||proof.workspaceId!==workspaceId||
+   if(proof.provenance!=='SUPABASE_AUTH_STAGING'||proof.projectRef!==STAGING_PROJECT_REF||proof.workspaceId!==workspaceId||
     !Number.isFinite(Date.parse(proof.expiresAt))||Date.parse(proof.expiresAt)<=Date.now())
     throw Error('Auth proof invalid');
    return reply(200,{
