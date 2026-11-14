@@ -10,9 +10,9 @@
 
 1. `RuntimeOfficePanel` conserva validación del snapshot mediante `projectRuntime(raw, owner, workspace)` y obtiene el resultado **solo leyendo** `raxi_runtime_office`. Su nuevo callback opcional `onRuntimeSnapshot` envía `{owner,workspace}` y la `HQState` ya validada. Cuando hay error, desconexión, desmontaje o cambio de sesión, emite `null`.
 2. Cuando hay un receptor principal, `RealIdeaCenter` establece `renderCanvas=false` para **no renderizar otro OfficeScene**. El panel de estado permanece.
-3. `mainOfficeSource` selecciona la proyección runtime únicamente si: Campus REAL, identidad del usuario/propietario coincidente, workspace no vacío, modo `LIVE_READ_ONLY`, fuente `runtime`, `connection=CONNECTED`, `mockMode=false`. En cualquier otro caso retorna *sin mutar* la proyección original de `hqStore`, que permanece desconectada si Munder no tiene proveedor.
+3. `mainOfficeSource` selecciona la proyección runtime únicamente si: Campus REAL, identidad del usuario/propietario coincidente, workspace idéntico al confirmado en `RealIdeaStore` para el usuario autenticado, modo `LIVE_READ_ONLY`, fuente `runtime`, `connection=CONNECTED`, `mockMode=false`. En cualquier otro caso retorna *sin mutar* la proyección original de `hqStore`, que permanece desconectada si Munder no tiene proveedor.
 4. `App` usa el estado seleccionado **en el único OfficeScene principal** y en `AgentDock`, `AgentInspector`, `AgentTaskBoard`, `HandoffTimeline`, `AgentSignalsPanel`, eventos y diagnósticos. Los controles de ejecución continúan deshabilitados; sin writes.
-5. La selección por usuario y workspace se mantiene local en App. Cambios de workspace, salida o vuelta a Campus DEMO descartan selección/snapshot de runtime. Click en agente/evento durante runtime nunca invoca `hqStore.selectAgent/selectEvent` de Munder, evitando contaminación cruzada.
+5. `App` se suscribe al snapshot canónico de `RealIdeaStore` y permite runtime únicamente durante `ready`/`saving` con workspace ya validado y propietario autenticado. El callback vuelve a leer ese store al recibir eventos; ignora envíos atrasados de un workspace distinto o en Campus DEMO. Cambios de workspace, salida o vuelta a Campus DEMO descartan selección/snapshot de runtime. Click en agente/evento durante runtime nunca invoca `hqStore.selectAgent/selectEvent` de Munder, evitando contaminación cruzada.
 6. `ExecutionObserverPanel` conserva su fuente histórica/observadora original, **no se falsea** como ejecución activa.
 
 ## Reglas de veracidad
@@ -30,6 +30,15 @@
 - En `mainOfficeSource.ts` (Git blob `7492cacd9cf3cfa000e6c82742e558a31baf0ba2`) se ejecutaron **9/9 pruebas locales focalizadas PASS** y TypeScript aislado PASS, incluyendo usuario ajeno, entorno DEMO, desconexión, `mockMode`, workspace vacío, selección antigua y respeto de reproducción histórica.
 - **NO son** la suite oficial `npm test`, ni `tsc -b` completo, ni `vite build` del proyecto. No se dispone de un checkout completo con dependencias en el entorno de QA. Esos gates permanecen pendientes.
 - Pruebas adicionales añadidas a `agentRuntime.test.ts` para escenario React y el encaminamiento de `RuntimeOfficePanel` sin segundo canvas; **pendientes de ejecución de la suite oficial**.
+
+## Correctivo posterior · alcance y validación pendiente (14-nov-2026)
+
+- `mainOfficeSource` ahora **exige** `activeWorkspaceId` verificado y compara exactamente `owner` y `workspace`, además de los filtros originales de fuente, conexión, MOCK e histórico. Un callback con scope de otro workspace no puede reemplazar la oficina principal.
+- `App` usa `useSyncExternalStore` para observar el workspace REAL autenticado. Se preserva la visualización mientras una idea se guarda en el mismo workspace previamente validado, pero no mientras la identidad o el workspace sean desconocidos o estén recargándose.
+- `onRuntimeSnapshot` consulta el estado vigente de `RealIdeaStore` al entregar cada snapshot y rechaza scopes anteriores, sesiones ajenas y Campus DEMO. Un efecto limpia snapshots retenidos al cambiar el contexto.
+- Se ampliaron los casos de `agentRuntime.test.ts`: workspace distinto, workspace aún no confirmado, antiguo workspace, propietario distinto y helper de scope. **Las pruebas añadidas no se declaran PASS hasta su ejecución.**
+- Los **9/9 PASS anteriores** de `mainOfficeSource.ts` corresponden al blob **anterior** `7492cacd9cf3cfa000e6c82742e558a31baf0ba2`, no a este correctivo. Typecheck del proyecto, suite completa, build, QA de navegador y revisión independiente siguen pendientes.
+- No se cambian contratos SQL, Supabase, Vercel, migraciones, permisos de proveedores ni ejecución real.
 
 ## Prerrequisitos para activar
 
