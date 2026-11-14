@@ -508,7 +508,12 @@ for(const live of [false,true])for(const acknowledged of [false,true])test(`expi
   assert.match(JSON.stringify(view!.toJSON()),hasAcknowledgedLiveEvent?/1 agentes con eventos reales confirmados/:/0 agentes con eventos reales confirmados/);
   assert.equal(view!.root.findAll(n=>n.props.className==='canvas-host').length,hasAcknowledgedLiveEvent?1:0);
   if(!live)assert.match(JSON.stringify(view!.toJSON()),/SIMULACIÓN · no acredita IA real/);
-  assert.ok(view!.root.findAllByType('button').every(b=>b.props.disabled));
+  // The manual Auth diagnostic is READ-ONLY and may be enabled when the
+   // runtime can be queried. All agent execution controls remain OFF.
+   const buttons=view!.root.findAllByType('button');
+   assert.equal(buttons.filter(b=>b.children.join('')==='Solicitar investigación · pendiente de habilitación y autorización de coste').length,1);
+   assert.ok(buttons.every(b=>b.props.disabled||b.children.join('')==='Verificar permisos de staging'));
+   assert.ok(buttons.find(b=>b.children.join('')==='Solicitar investigación · pendiente de habilitación y autorización de coste')!.props.disabled);
  }finally{if(view)await act(async()=>view!.unmount());await f.db.close();}
 });
 
