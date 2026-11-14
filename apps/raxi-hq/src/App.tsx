@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { hqStore, useHQState } from './store/hqStore';
 import { OfficeScene } from './office/OfficeScene';
 import { AgentDock } from './office/ui/AgentDock';
@@ -18,6 +18,8 @@ import { RealIdeaCenter } from './persistence/RealIdeaCenter';
 import { RealCampaignStore, createCampaignRepository, type CampaignRepository } from './persistence/realCampaignStore';
 import { ExecutionObserverPanel } from './observation/ExecutionObserverPanel';
 import { OBSERVED_PROJECT } from './observation/executionObservation';
+import type { RuntimeOfficeSink } from './runtime/runtimeOfficeStore';
+import { mainOfficeSource, type ScopedRuntimeSnapshot } from './runtime/mainOfficeSource';
 
 const defaultIdeaRepository = (ownerId: string) => createSupabaseIdeaRepository(supabase!, ownerId);
 const defaultCampaignRepository = supabase ? () => createCampaignRepository(supabase!) : undefined;
@@ -39,16 +41,35 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
   const [zoomPercent,setZoomPercent] = useState(100);
   const [focusCritical,setFocusCritical] = useState(false);
   const [error, setError] = useState<string>();
+  const [runtimeOffice,setRuntimeOffice] = useState<ScopedRuntimeSnapshot|null>(null);
+  const [selectedRuntimeAgent,setSelectedRuntimeAgent] = useState<string>();
+  const [selectedRuntimeEvent,setSelectedRuntimeEvent] = useState<string>();
+  const onRuntimeSnapshot = useCallback<RuntimeOfficeSink>((scope,hq)=>{
+    if(scope.owner!==user?.id)return;
+    setRuntimeOffice(previous=>{
+      if(!hq)return previous?.owner===scope.owner && previous.workspace===scope.workspace?null:previous;
+      return {owner:scope.owner,workspace:scope.workspace,hq};
+    });
+  },[user?.id]);
+  useEffect(()=>{
+    if(campusMode!=='REAL'||!user?.id){
+      setRuntimeOffice(null);setSelectedRuntimeAgent(undefined);setSelectedRuntimeEvent(undefined);
+    }
+  },[campusMode,user?.id]);
+  const officeState=mainOfficeSource(state,runtimeOffice,user?.id,campusMode,selectedRuntimeAgent);
+  const officeStateRef=useRef(officeState);
+  officeStateRef.current=officeState;
   const selectAndFocus = (id: string) => {
-    if (!getOwnAgent(hqStore.getSnapshot().agents, id)) return;
-    hqStore.selectAgent(id);
+    if (!getOwnAgent(officeStateRef.current.agents,id)) return;
+    if (officeStateRef.current.sourceHealth.source==='runtime') setSelectedRuntimeAgent(id);
+    else hqStore.selectAgent(id);
     sceneRef.current?.focusAgent(id);
   };
   useEffect(() => {
     let scene: OfficeScene;
     try { scene = new OfficeScene(host.current!, selectAndFocus,setHoveredId,setZoomPercent,setFocusCritical); sceneRef.current=scene; }
     catch (cause) { setError(String(cause)); return; }
-    const update = () => scene.update(hqStore.getSnapshot());
+    const update = () => scene.update(officeStateRef.current);
     const unsubscribe = hqStore.subscribe(update);
     update();
     return () => { unsubscribe(); hqStore.stop(); sceneRef.current=undefined; scene.destroy(); };
@@ -56,10 +77,12 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
   useEffect(() => {
     void hqStore.switchMode(campusMode === 'DEMO' ? 'MOCK' : 'LIVE_READ_ONLY').catch((cause) => setError(String(cause)));
   }, [campusMode, user?.id]);
-  const agentView = officeAgentView(state);
-  const hovered = getOwnAgent(state.agents,hoveredId);
-  const campaign = Object.values(state.campaigns)[0];
-  const connectionLabel = { CONNECTED: 'Conectada', DISCONNECTED: 'Sin conexión', DEGRADED: 'Degradada' }[state.sourceHealth.connection];
+  useEffect(()=>{sceneRef.current?.update(officeState);},[officeState]);
+  const agentView = officeAgentView(officeState);
+  const hovered = getOwnAgent(officeState.agents,hoveredId);
+  const campaign = Object.values(officeState.campaigns)[0];
+  const connectionLabel = { CONNECTED: 'Conectada', DISCONNECTED: 'Sin conexión', DEGRADED: 'Degradada' }[officeState.sourceHealth.connection];
+  const usingRuntime=officeState.sourceHealth.source==='runtime';
   return <main>
     <header><div><h1>Raxi HQ <span>v1.0 · Campus {campusMode}</span></h1><p>Campus de operaciones e ideas · fuentes independientes</p></div><button onClick={() => { void signOut(); }}>Cerrar sesión</button>
       <div className="controls"><button disabled={campusMode === 'REAL'} aria-pressed={state.mode === 'MOCK'} onClick={() => void hqStore.switchMode('MOCK')}>FUENTE: MOCK</button><button aria-pressed={state.mode === 'LIVE_READ_ONLY'} onClick={() => void hqStore.switchMode('LIVE_READ_ONLY')}>FUENTE: MUNDER EN VIVO · SOLO LECTURA</button>{state.mode === 'MOCK' ? <button onClick={() => hqStore.restartDemo()}>Reiniciar demo</button> : <button onClick={() => void hqStore.refreshLive()}>Reintentar lectura</button>}</div></header>
