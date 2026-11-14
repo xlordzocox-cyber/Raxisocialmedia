@@ -3,7 +3,6 @@
  * No env reads, listener, scheduled work, runOne, task RPC or provider registration.
  * A future reviewed Node entrypoint must supply the staging credentials privately.
  */
-import process from 'node:process';
 import {createClient, type SupabaseClient} from '@supabase/supabase-js';
 import {createUnpublishedStagingAuthHost} from '../../../server/agent-runtime/stagingAuthHostComposition';
 
@@ -12,6 +11,9 @@ export interface StagingNodeAuthConfig {
  publishableKey:string;
  privilegedKey:string;
 }
+
+/** Node runtime marker is checked without requiring a new @types/node dependency. */
+declare const process: {versions?:{node?:string}};
 
 const IDENTITY_RPC='raxi_supervised_host_identity';
 
