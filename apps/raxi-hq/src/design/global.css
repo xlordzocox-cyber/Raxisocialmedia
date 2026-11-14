@@ -37,7 +37,7 @@ button:focus-visible { outline: 2px solid var(--accent); }
   .office-help-desktop { display:none; }
   .office-help-mobile { display:inline; }
   .office-zone-nav button { min-height:44px; }
-  .canvas-host { height:clamp(300px,80vw,440px); }
+  .office .canvas-host { height:clamp(300px,80vw,440px); }
 }
 
 aside { background: var(--panel); padding: 16px; border-radius: 12px; }
