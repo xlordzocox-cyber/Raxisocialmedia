@@ -34,7 +34,7 @@ test('agent jobs: the Director reviews only after a finished design; verdict and
   assert.equal(canRun(parseJobs([job('1', 'RESEARCH', 'SUCCEEDED')]), 'p1', 'REVIEW'), false);
   assert.equal(canRun(designed, 'p1', 'REVIEW'), true);
   const [review] = parseJobs([job('3', 'REVIEW', 'SUCCEEDED', { output: { markdown: 'ok', data: { veredicto: 'APROBADA' }, campaign: { externalId: 'CAMP-X', items: 9, kept: false } } })]);
-  assert.equal(review.verdict, 'APROBADA'); assert.deepEqual(review.campaign, { externalId: 'CAMP-X', items: 9, kept: false });
+  assert.equal(review.verdict, 'APROBADA'); assert.deepEqual(review.campaign, { externalId: 'CAMP-X', items: 9, kept: false, format: 'POSTS' });
   const [weird] = parseJobs([job('4', 'REVIEW', 'SUCCEEDED', { output: { data: { veredicto: 'TAL VEZ' }, campaign: { externalId: 5 } } })]);
   assert.equal(weird.verdict, null); assert.equal(weird.campaign, null);
 });
@@ -50,7 +50,14 @@ test('campaign pipeline: rows validated; route shows done/current/te toca/failed
   const failed = { ...running, status: 'FAILED' as const };
   assert.equal(stepState(failed, 'DESIGN'), 'failed'); assert.equal(needsOwner(failed), true);
   const ready = { ...running, status: 'READY_FOR_PRODUCTION' as const, stage: 'DONE' as const };
-  assert.equal(stepState(ready, 'DONE'), 'done');
+  assert.equal(stepState(ready, 'REVIEW'), 'done'); assert.equal(stepState(ready, 'PRODUCTION'), 'waiting'); assert.equal(needsOwner(ready), true);
+  const publish = { ...running, status: 'WAITING_APPROVAL' as const, stage: 'FINAL' as const, gate: 'PUBLISH_APPROVAL' as const };
+  assert.equal(stepState(publish, 'QA'), 'done'); assert.equal(stepState(publish, 'PUBLISH_GATE'), 'waiting'); assert.equal(stepState(publish, 'PUBLISH'), 'todo');
+  const toPublish = { ...running, status: 'APPROVED_TO_PUBLISH' as const, stage: 'DONE' as const };
+  assert.equal(stepState(toPublish, 'PUBLISH'), 'waiting'); assert.equal(needsOwner(toPublish), true);
+  const published = { ...running, status: 'PUBLISHED' as const, stage: 'DONE' as const };
+  assert.equal(stepState(published, 'DONE'), 'done'); assert.equal(needsOwner(published), false);
+  assert.equal(parsePipelines([{ proposal_id: 'p', status: 'WAITING_APPROVAL', stage: 'FINAL', gate: 'PUBLISH_APPROVAL' }])[0].gate, 'PUBLISH_APPROVAL');
 });
 
 test('agent jobs: failed steps do not count toward the campaign cap; reused and rescued results are flagged', () => {

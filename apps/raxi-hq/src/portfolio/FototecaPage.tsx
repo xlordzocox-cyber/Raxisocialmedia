@@ -3,9 +3,10 @@ import { Link } from 'react-router-dom';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseWorkspace } from '../persistence/supabaseIdeaRepository';
 import {
-  buildPortfolio, canApprove, cropRect, gridOrder, postText, progress, QA_LABEL, STATUS_LABEL,
+  buildPortfolio, canApprove, cropRect, gridOrder, packText, postText, progress, QA_LABEL, STATUS_LABEL,
   type PortfolioItem, type PortfolioView,
 } from './portfolioModel';
+import { buildReelVideo, reelDuration } from './reelVideo';
 import './fototeca.css';
 
 const BUCKET = 'raxi-hq-private';
@@ -62,6 +63,7 @@ export function FototecaPage({ client, ownerId }: { client: SupabaseClient; owne
   const [busy, setBusy] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [publishUrl, setPublishUrl] = useState('');
+  const [video, setVideo] = useState<{ phase: 'idle' } | { phase: 'building'; pct: number } | { phase: 'ready'; url: string; ext: string; mime: string }>({ phase: 'idle' });
 
   const reload = useCallback(async () => {
     try {
@@ -82,6 +84,21 @@ export function FototecaPage({ client, ownerId }: { client: SupabaseClient; owne
   }, [client, collection]);
   const item = useMemo(() => collection?.items.find((i) => i.id === focus), [collection, focus]);
   useEffect(() => { setPublishUrl(''); }, [focus]);
+  useEffect(() => { setVideo({ phase: 'idle' }); }, [selected]);
+
+  async function makeReel() {
+    if (!collection) return;
+    const frames = collection.items.filter((i) => i.decision !== 'REJECTED' && i.asset && urls[i.asset.objectPath])
+      .map((i) => ({ url: urls[i.asset!.objectPath], seconds: i.seconds ?? 1, text: i.caption }));
+    if (!frames.length) { setNotice('No hay fotos listas para el video.'); return; }
+    setVideo({ phase: 'building', pct: 0 });
+    try {
+      const { blob, mime } = await buildReelVideo(frames, (p) => setVideo({ phase: 'building', pct: Math.round(p * 100) }));
+      setVideo({ phase: 'ready', url: URL.createObjectURL(blob), ext: mime === 'video/mp4' ? 'mp4' : 'webm', mime });
+    } catch (e) {
+      setVideo({ phase: 'idle' }); setNotice(e instanceof Error ? e.message : 'No se pudo armar el video.');
+    }
+  }
 
   async function decide(target: PortfolioItem, decision: 'APPROVED' | 'REJECTED' | 'PENDING' | 'PUBLISHED') {
     setBusy(target.id); setNotice(undefined);
@@ -110,6 +127,35 @@ export function FototecaPage({ client, ownerId }: { client: SupabaseClient; owne
         {collection.concept && <p>{collection.concept}</p>}
         <p className="foto-progress">{`${p.approved}/${p.total} aprobadas · ${p.published} publicadas${p.blocked ? ` · ${p.blocked} necesitan corrección` : ''}`}</p>
       </header>
+      {(collection.pack.caption || collection.pack.format === 'REEL') && <section className="foto-pack" aria-label="Paquete de publicación">
+        <h3>{collection.pack.format === 'REEL' ? 'Reel listo para publicar' : 'Publicación lista'}</h3>
+        {collection.pack.format === 'REEL' && <>
+          <p className="foto-meta">{`${collection.items.filter((i) => i.decision !== 'REJECTED').length} fotos · ${reelDuration(collection.items.filter((i) => i.decision !== 'REJECTED').map((i) => i.seconds ?? 1)).toFixed(1)} s · 9:16 con textos en pantalla. Se arma aquí en tu teléfono; no se sube a ningún lado.`}</p>
+          {video.phase === 'idle' && <button type="button" onClick={() => void makeReel()}>🎬 Armar video del Reel</button>}
+          {video.phase === 'building' && <p role="status">Grabando el video… {video.pct}% (no cambies de pestaña)</p>}
+          {video.phase === 'ready' && <>
+            <video src={video.url} controls playsInline className="foto-reel-preview" />
+            <a className="foto-download" href={video.url} download={`${collection.externalId}.${video.ext}`}>Descargar video ({video.ext.toUpperCase()})</a>
+            {video.ext !== 'mp4' && <p className="foto-meta">Tu navegador solo pudo grabar WebM. Si Instagram no lo acepta, ábrelo en Chrome actualizado o conviértelo a MP4.</p>}
+            <button type="button" onClick={() => setVideo({ phase: 'idle' })}>Volver a armar</button>
+          </>}
+          {collection.pack.audio && <p className="foto-meta"><b>Audio sugerido:</b> {collection.pack.audio} (elígelo en Instagram al publicar).</p>}
+        </>}
+        {collection.pack.caption && <>
+          <label>Texto de la publicación</label>
+          <pre className="foto-caption">{packText(collection.pack)}</pre>
+          <button type="button" onClick={() => copy(packText(collection.pack), () => setNotice('Texto de la publicación copiado.'))}>Copiar texto</button>
+        </>}
+        {collection.pack.firstComment && <>
+          <label>Primer comentario</label>
+          <pre className="foto-caption">{collection.pack.firstComment}</pre>
+          <button type="button" onClick={() => copy(collection.pack.firstComment, () => setNotice('Primer comentario copiado.'))}>Copiar primer comentario</button>
+        </>}
+        {collection.pack.qa && <p className="foto-meta"><b>QA:</b> {collection.pack.qa}</p>}
+        {collection.pack.publishedUrl && <a href={collection.pack.publishedUrl} target="_blank" rel="noreferrer">Ver en Instagram</a>}
+        <p className="foto-meta">Activa la etiqueta «AI info» al publicar.</p>
+        {notice && <p role="status">{notice}</p>}
+      </section>}
       <p className="foto-hint">Vista de cuadrícula como en Instagram: la última publicación queda arriba a la izquierda.</p>
       <div className="foto-grid" role="list">
         {gridOrder(collection.items).map((it) => {

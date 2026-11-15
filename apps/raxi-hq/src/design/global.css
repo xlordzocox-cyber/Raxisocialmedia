@@ -275,3 +275,5 @@ dl { font-size: 12px; } dt { color: var(--muted); margin-top: 10px; } dd { margi
 .data-list { margin: 2px 0; padding-left: 18px; }
 .data-list > li { margin: 2px 0; }
 .data-list .data-view { padding: 6px 8px; border-left: 2px solid rgba(255,255,255,.12); }
+.publish-steps { margin: 6px 0; padding-left: 20px; display: grid; gap: 4px; }
+.campaign-gate input[type=url] { width: 100%; margin: 4px 0 8px; }

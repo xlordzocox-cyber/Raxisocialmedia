@@ -34,3 +34,6 @@
   .foto-detail { grid-template-columns: 1fr; }
   .foto-collections button { min-width: 180px; }
 }
+.foto-pack { margin: 12px 0; padding: 12px; border-radius: 12px; border: 1px solid rgba(127,227,255,.35); background: rgba(127,227,255,.06); display: grid; gap: 8px; }
+.foto-pack h3 { margin: 0; }
+.foto-reel-preview { width: 100%; max-width: 320px; aspect-ratio: 9 / 16; background: #000; border-radius: 10px; }

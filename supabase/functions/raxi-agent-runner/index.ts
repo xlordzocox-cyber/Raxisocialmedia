@@ -21,6 +21,9 @@ const STAGE: Record<string, { stage: string; agent: string }> = {
   RESEARCH: { stage: "RESEARCHER", agent: "researcher" },
   DESIGN: { stage: "CREATIVE", agent: "creative" },
   REVIEW: { stage: "DIRECTOR", agent: "director" },
+  COPY: { stage: "COPY", agent: "copy" },
+  QA: { stage: "QA", agent: "qa" },
+  FINAL: { stage: "DIRECTOR", agent: "director" },
 };
 // Who hands what to whom before a step starts (shown as a walk in the office).
 const HANDOFF: Record<string, { from: string; fromStage: string; artifact: string; after: string }> = {
@@ -28,6 +31,9 @@ const HANDOFF: Record<string, { from: string; fromStage: string; artifact: strin
   STRATEGY: { from: "researcher", fromStage: "RESEARCHER", artifact: "RESEARCH_REPORT", after: "RESEARCH" },
   DESIGN: { from: "director", fromStage: "DIRECTOR", artifact: "STRATEGY_BRIEF", after: "STRATEGY" },
   REVIEW: { from: "creative", fromStage: "CREATIVE", artifact: "DESIGN_PACKAGE", after: "DESIGN" },
+  COPY: { from: "director", fromStage: "DIRECTOR", artifact: "CAMPAIGN_PACKAGE", after: "REVIEW" },
+  QA: { from: "copy", fromStage: "COPY", artifact: "SOCIAL_COPY", after: "COPY" },
+  FINAL: { from: "qa", fromStage: "QA", artifact: "QA_REPORT", after: "QA" },
 };
 
 type Usage = { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number; server_tool_use?: { web_search_requests?: number } };
@@ -51,7 +57,7 @@ function addUsage(a: Usage, b: Usage): Usage {
 }
 
 // One Claude call, following pause_turn continuations for long server-tool loops.
-async function callClaude(opts: { model: keyof typeof MODELS; system: string; prompt: string; maxTokens: number; webSearch?: number; aria?: boolean }) {
+async function callClaude(opts: { model: keyof typeof MODELS; system: string; prompt: string; maxTokens: number; webSearch?: number; aria?: boolean; images?: { label: string; url: string }[] }) {
   const headers: Record<string, string> = {
     "content-type": "application/json",
     "x-api-key": Deno.env.get("ANTHROPIC_API_KEY")!,
@@ -69,7 +75,10 @@ async function callClaude(opts: { model: keyof typeof MODELS; system: string; pr
     });
   }
   if (tools.length) body.tools = tools;
-  const messages: { role: string; content: unknown }[] = [{ role: "user", content: opts.prompt }];
+  const userContent = opts.images?.length
+    ? [...opts.images.flatMap((im) => [{ type: "text", text: im.label }, { type: "image", source: { type: "url", url: im.url } }]), { type: "text", text: opts.prompt }]
+    : opts.prompt;
+  const messages: { role: string; content: unknown }[] = [{ role: "user", content: userContent }];
   let usage: Usage = {};
   let stopReason = "";
   const content: Record<string, unknown>[] = [];
@@ -114,7 +123,7 @@ Escribe en español de México. Nunca inventes datos, cifras, cuentas ni fuentes
 No generes imágenes ni gastes créditos de Aria Studio. Distingue hechos verificados, inferencias e hipótesis.`;
 
 const TITLES: Record<string, string> = { BRIEF: "Brief del Director", RESEARCH: "Investigar", STRATEGY: "Análisis y estrategia del Director",
-  DESIGN: "Diseñar", REVIEW: "Revisión del Director" };
+  DESIGN: "Diseñar", REVIEW: "Revisión del Director", COPY: "Copy de la publicación", QA: "Control de calidad", FINAL: "Paquete final del Director" };
 const CHANNELS = new Set(["INSTAGRAM", "INSTAGRAM_STORY", "TEASER", "FANVUE_FEED", "FANVUE_CHAT"]);
 const txt = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
@@ -205,6 +214,20 @@ function applyCorrections(design: Record<string, unknown>, corrections: unknown)
   return out;
 }
 
+/** The campaign's Fototeca collection with its items and archived photo paths (service role, server only). */
+async function loadCampaign(db: SupabaseClient, proposal: Record<string, unknown>) {
+  const externalId = `CAMP-${String(proposal.external_id).replace(/^PROP-/, "")}`;
+  const { data: col } = await db.from("raxi_portfolio_collections").select("id, title, channel, concept, payload")
+    .eq("workspace_id", proposal.workspace_id).eq("external_id", externalId).maybeSingle();
+  if (!col) throw new Error("La campaña no existe en la Fototeca.");
+  const { data: items } = await db.from("raxi_portfolio_items").select("id, position, caption, alt_text, payload, human_decision, asset_id")
+    .eq("collection_id", col.id).order("position");
+  const ids = (items ?? []).map((i) => i.asset_id).filter(Boolean);
+  const { data: assets } = ids.length ? await db.from("raxi_assets").select("id, object_path").in("id", ids) : { data: [] };
+  const paths = new Map((assets ?? []).map((a) => [a.id, a.object_path as string]));
+  return { col, items: (items ?? []).map((i) => ({ ...i, object_path: i.asset_id ? paths.get(i.asset_id) ?? null : null })) as Record<string, unknown>[] };
+}
+
 async function lastOutput(db: SupabaseClient, proposalId: unknown, kind: string): Promise<Record<string, unknown> | null> {
   const { data } = await db.from("raxi_agent_jobs").select("output").eq("proposal_id", proposalId).eq("kind", kind)
     .in("status", ["SUCCEEDED"]).order("finished_at", { ascending: false }).limit(1).maybeSingle();
@@ -263,6 +286,8 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       RESEARCH: `{"modelos":[{"nombre":"","plataforma":"","por_que":"","patrones":["máx. 3"],"fuentes":["URL, máx. 2"]}],"patrones_adaptables":["máx. 4"],"no_copiar":["máx. 3"],"hipotesis":["máx. 3"],"limitaciones":""}`,
       STRATEGY: `{"decision":"SUFICIENTE|MAS_INVESTIGACION","evaluacion_investigacion":"","preguntas_extra":[],"estrategia":{"objetivo":"","audiencia":"","plataformas":[{"plataforma":"","rol":""}],"funnel":"","mensajes_clave":["máx. 3"],"formatos":["máx. 4"],"duracion":"","metrica_principal":"","metricas_secundarias":["máx. 3"],"hipotesis":["máx. 3"],"riesgos":[{"riesgo":"","mitigacion":""}]}}`,
       DESIGN: `{"concepto":"","microhistoria":"","publicaciones":[{"posicion":1,"escena":"","plano":"","prompt":"","texto":"","alt":""}],"coleccion_existente":null,"montaje":[{"posicion":1,"segundos":1,"texto_pantalla":""}],"modelo_aria":"","costo_estimado_usd":0,"checklist_qa":["máx. 6"]}`,
+      COPY: `{"gancho":"","caption":"","hashtags":[],"primer_comentario":"","cta":"","alt_reel":"","audio_sugerido":""}`,
+      QA: `{"estado":"APPROVED|APPROVED_WITH_CAUTION|REWRITE|REJECT","resumen":"","items":[{"posicion":1,"estado":"PASS|CAUTION|FAIL","nota":""}],"copy":{"estado":"OK|REWRITE","nota":""},"defectos":[]}`,
       REVIEW: `{"veredicto":"APROBADA|CAMBIOS","revision":[{"punto":"","estado":"OK|FALLA","nota":""}],"cambios_requeridos":[],"correcciones":[{"tipo":"publicacion|montaje","posicion":1,"campo":"texto|alt|prompt|escena|plano|texto_pantalla|segundos","valor":""}],"campana":{"objetivo":"","audiencia":"","metrica_principal":"","cta":"","calendario":[{"dia":"","publicacion":""}],"hashtags":["máx. 8"]}}`,
     };
     if (kind === "SMOKE") {
@@ -299,6 +324,55 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
         if (!/web_search|not supported|unsupported/i.test(String(e))) throw e;
         model = "sonnet"; result = await call("sonnet");
       }
+    } else if (kind === "FINAL") {
+      // Deterministic integration by the Director: no model call, no cost.
+      model = "haiku";
+      const { col, items } = await loadCampaign(db, proposal!);
+      const copy = (await lastOutput(db, job.proposal_id, "COPY"))?.data as Record<string, unknown> | undefined;
+      const qa = (await lastOutput(db, job.proposal_id, "QA"))?.data as Record<string, unknown> | undefined;
+      const montage = items.map((i) => ({ posicion: i.position, segundos: (i.payload as Record<string, unknown>)?.seconds ?? null, texto_pantalla: i.caption ?? "" }));
+      const seconds = montage.reduce((t, m) => t + (Number(m.segundos) || 0), 0);
+      const final = { formato: (col.payload as Record<string, unknown>)?.format ?? "POSTS", fotos: items.length, duracion_segundos: Number(seconds.toFixed(1)),
+        texto_publicacion: copy?.caption ?? "", gancho: copy?.gancho ?? "", hashtags: copy?.hashtags ?? [], primer_comentario: copy?.primer_comentario ?? "",
+        audio_sugerido: copy?.audio_sugerido ?? "", qa_estado: qa?.estado ?? "", qa_resumen: qa?.resumen ?? "",
+        cta: (col.payload as Record<string, unknown>)?.cta ?? "", metrica_principal: (col.payload as Record<string, unknown>)?.primary_metric ?? "",
+        siguiente_paso: "Luis autoriza la publicación; luego publica en Instagram con un audio en tendencia y registra el enlace." };
+      await db.from("raxi_portfolio_collections").update({ status: "IN_REVIEW", payload: { ...(col.payload as Record<string, unknown>), final, copy }, updated_at: now() }).eq("id", col.id);
+      result = { text: JSON.stringify(final), usage: {}, stopReason: "end_turn", cost: 0, sources: [] };
+    } else if (kind === "COPY") {
+      model = "sonnet";
+      const { col, items } = await loadCampaign(db, proposal!);
+      const strategy = (await lastOutput(db, job.proposal_id, "STRATEGY"))?.data as Record<string, unknown> | undefined;
+      const prevQa = (await lastOutput(db, job.proposal_id, "QA"))?.data as Record<string, unknown> | undefined;
+      const montage = items.map((i) => `${i.position}. (${(i.payload as Record<string, unknown>)?.seconds ?? "?"} s) ${i.caption ?? ""} — ${String(i.alt_text ?? "").slice(0, 120)}`).join("\n");
+      result = await callClaude({ model, maxTokens: 6000, system: `${COMMON}\nEres Copy y Publicación de Raxi HQ: escribes textos de redes con la voz del personaje (natural, segura, actual, sin tono corporativo ni hashtags excesivos).\nReglas del dueño:\n${rulesOf(profile)}`,
+        prompt: `Campaña aprobada por el Director: ${col.title} (${(col.payload as Record<string, unknown>)?.format ?? "POSTS"} para Instagram, personaje ${proposal?.character_id}).\n` +
+          `Concepto y microhistoria: ${String(col.concept ?? "").slice(0, 1500)}\nCTA: ${(col.payload as Record<string, unknown>)?.cta ?? ""}\nMétrica principal: ${(col.payload as Record<string, unknown>)?.primary_metric ?? ""}\n` +
+          (strategy?.estrategia ? `Estrategia aprobada (JSON): ${JSON.stringify(strategy.estrategia).slice(0, 3000)}\n` : "") +
+          `Montaje (foto, segundos, texto en pantalla, descripción):\n${montage}\n\n` +
+          (input.owner_note ? `El dueño pidió estos cambios al texto (obligatorios): ${String(input.owner_note).slice(0, 1000)}\n` : "") +
+          (input.qa_notes ? `QA devolvió el texto con estos defectos (corrígelos todos): ${JSON.stringify(input.qa_notes).slice(0, 2000)}\nTexto anterior: ${JSON.stringify(prevQa ?? {}).slice(0, 1500)}\n` : "") +
+          `Escribe el texto de la publicación (${(col.payload as Record<string, unknown>)?.format === "REEL" ? "un Reel" : items.length > 1 ? "un carrusel de " + items.length + " fotos" : "una foto"}): primera línea con gancho fuerte (≤ 90 caracteres), cuerpo breve bilingüe ES/EN, CTA natural, 3 a 5 hashtags relevantes (no genéricos), primer comentario y texto alternativo. ` +
+          `Nada explícito ni promesas engañosas; no finjas ser una persona real. Si es Reel o carrusel, sugiere el tipo de audio en tendencia a buscar en Instagram (ánimo, ritmo), sin nombrar canciones con derechos.\n${COMPACT}\n` +
+          `Forma: {"gancho":"","caption":"texto completo listo para pegar, incluye el gancho al inicio","hashtags":["3-5"],"primer_comentario":"","cta":"","alt_reel":"","audio_sugerido":""}` });
+    } else if (kind === "QA") {
+      model = "sonnet";
+      const { col, items } = await loadCampaign(db, proposal!);
+      const copy = (await lastOutput(db, job.proposal_id, "COPY"))?.data as Record<string, unknown> | undefined;
+      const images: { label: string; url: string }[] = [];
+      for (const i of items) {
+        const path = i.object_path as string | null;
+        if (!path) continue;
+        const { data: signed } = await db.storage.from("raxi-hq-private").createSignedUrl(path, 900);
+        if (signed?.signedUrl) images.push({ label: `Foto ${i.position} · ${(i.payload as Record<string, unknown>)?.seconds ?? "?"} s · texto en pantalla: "${i.caption ?? ""}"`, url: signed.signedUrl });
+      }
+      result = await callClaude({ model, maxTokens: 8000, aria: true, images, system: `${COMMON}\nEres QA Visual de Raxi HQ, independiente del equipo creativo. Eres estricto: solo apruebas lo que ves bien.\nReglas del dueño:\n${rulesOf(profile)}`,
+        prompt: `Campaña: ${col.title} (${(col.payload as Record<string, unknown>)?.format ?? "POSTS"} para Instagram, personaje ${proposal?.character_id}). Arriba están las fotos en el orden del montaje.\n` +
+          `Texto de la publicación propuesto (JSON): ${JSON.stringify(copy ?? {}).slice(0, 4000)}\n\n` +
+          `Usa mis_personajes de Aria para conocer la identidad oficial del personaje. Revisa en cada foto: identidad consistente, anatomía y manos, reflejos y luz coherentes, vestuario, texto o marcas extrañas, apariencia artificial, edad adulta evidente. ` +
+          `Revisa el montaje: duración total (ideal 7–10 s), que cada texto en pantalla sea legible en su tiempo y coincida con la foto. Revisa el copy: gancho, claridad, tono, hashtags, cumplimiento de Instagram (nada explícito). ` +
+          `Estados: APPROVED, APPROVED_WITH_CAUTION (detalles menores que no bloquean), REWRITE (solo el texto debe corregirse), REJECT (problema visual que exige cambiar fotos). Lista defectos concretos. Solo puedes juzgar lo que realmente ves.\n${COMPACT}\n` +
+          `Forma: {"estado":"APPROVED|APPROVED_WITH_CAUTION|REWRITE|REJECT","resumen":"","items":[{"posicion":1,"estado":"PASS|CAUTION|FAIL","nota":""}],"copy":{"estado":"OK|REWRITE","nota":""},"defectos":[]}` });
     } else if (kind === "REVIEW") {
       model = "sonnet";
       const research = await lastOutput(db, job.proposal_id, "RESEARCH");
@@ -331,7 +405,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
           `Si requiere fotos nuevas: un prompt autónomo en inglés por foto (identidad, escena, vestuario, cámara/POV, luz, realismo, salida única; máx. 120 palabras), texto ES/EN breve y alt. ` +
           `Modelo de Aria recomendado y costo estimado con precios reales.\n${COMPACT} (Los prompts pueden superar las 25 palabras.)\nForma: ${SCHEMAS.DESIGN}` });
     }
-    const output: Record<string, unknown> = { markdown: result.text.slice(0, 60000), data: lastJson(result.text), sources: result.sources, model: MODELS[model].id };
+    const output: Record<string, unknown> = { markdown: result.text.slice(0, 60000), data: kind === "FINAL" ? JSON.parse(result.text) : lastJson(result.text), sources: result.sources, model: MODELS[model].id };
     // Rescue instead of discarding paid work: a cut or malformed answer is converted to JSON by a cheap pass.
     if (SCHEMAS[kind] && (!output.data || result.stopReason === "max_tokens")) {
       const rescued = await rescueJson(result.text, SCHEMAS[kind]);
@@ -340,6 +414,16 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
     }
     const incomplete = SCHEMAS[kind] && !output.data ? "La respuesta no incluyó datos válidos ni pudo rescatarse. Reintenta este paso." : null;
     if (incomplete) throw Object.assign(new Error(incomplete), { partial: { output, usage: result.usage, cost: result.cost } });
+    if (kind === "QA" && proposal) {
+      const d = output.data as Record<string, unknown>;
+      const { items } = await loadCampaign(db, proposal);
+      const map: Record<string, string> = { PASS: "PASS", CAUTION: "PRELIMINARY_PASS", FAIL: "NEEDS_FIX" };
+      for (const r of (Array.isArray(d.items) ? d.items : []).slice(0, 60) as Record<string, unknown>[]) {
+        const it = items.find((i) => Number(i.position) === Number(r.posicion));
+        const qa = map[String(r.estado)];
+        if (it && qa) await db.from("raxi_portfolio_items").update({ qa_status: qa, qa_notes: txt(r.nota, 2000) || null, updated_at: now() }).eq("id", it.id);
+      }
+    }
     if (kind === "REVIEW" && proposal) {
       const d = output.data as Record<string, unknown>;
       const design = (await lastOutput(db, job.proposal_id, "DESIGN"))?.data as Record<string, unknown> | undefined;

@@ -5,15 +5,19 @@ export type PortfolioQa = 'VISUAL_REVIEW_REQUIRED' | 'PRELIMINARY_PASS' | 'NEEDS
 export type PortfolioDecision = 'PENDING' | 'APPROVED' | 'REJECTED';
 export type PortfolioItemStatus = 'DRAFT' | 'READY' | 'PUBLISHED' | 'SKIPPED';
 
+/** Publishing package written by Copy/QA/Director into the collection payload (all optional, validated). */
+export interface PublishPack {
+  format: 'REEL' | 'POSTS'; caption: string; hashtags: string[]; firstComment: string; audio: string; qa: string; publishedUrl: string | null;
+}
 export interface PortfolioCollection {
   id: string; externalId: string; characterId: string; title: string; channel: string;
-  status: string; concept: string | null; createdAt: string;
+  status: string; concept: string | null; createdAt: string; pack: PublishPack;
 }
 export interface PortfolioAsset { id: string; objectPath: string; mimeType: string; sha256: string; byteSize: number }
 export interface PortfolioItem {
   id: string; collectionId: string; position: number; caption: string; altText: string; hashtags: string[];
   crop: string; qaStatus: PortfolioQa; qaNotes: string; decision: PortfolioDecision; status: PortfolioItemStatus;
-  publishedUrl: string | null; asset: PortfolioAsset | null;
+  publishedUrl: string | null; asset: PortfolioAsset | null; seconds: number | null;
 }
 export interface PortfolioView { collections: (PortfolioCollection & { items: PortfolioItem[] })[] }
 
@@ -25,6 +29,25 @@ const str = (v: unknown, max = 5000): string => {
   return v;
 };
 const optStr = (v: unknown, max = 5000): string | null => (v === null || v === undefined ? null : str(v, max));
+const softStr = (v: unknown, max: number): string => (typeof v === 'string' ? v.slice(0, max) : '');
+
+/** Lenient: a missing or odd package never breaks the Fototeca, it just shows less. */
+export function parsePack(payload: unknown): PublishPack {
+  const p = (payload && typeof payload === 'object' ? payload : {}) as Record<string, unknown>;
+  const copy = (p.copy && typeof p.copy === 'object' ? p.copy : {}) as Record<string, unknown>;
+  const final = (p.final && typeof p.final === 'object' ? p.final : {}) as Record<string, unknown>;
+  const url = softStr(p.published_url, 300);
+  return {
+    format: p.format === 'REEL' ? 'REEL' : 'POSTS', caption: softStr(copy.caption, 2200),
+    hashtags: (Array.isArray(copy.hashtags) ? copy.hashtags : []).filter((h): h is string => typeof h === 'string' && h.length <= 60).slice(0, 30)
+      .map((h) => (h.startsWith('#') ? h : `#${h}`)),
+    firstComment: softStr(copy.primer_comentario, 2200), audio: softStr(copy.audio_sugerido, 400),
+    qa: [softStr(final.qa_estado, 40), softStr(final.qa_resumen, 600)].filter(Boolean).join(' · '),
+    publishedUrl: /^https:\/\/(www\.)?instagram\.com\//.test(url) ? url : null,
+  };
+}
+/** Caption + hashtags of the whole publication (Reel or carousel). */
+export const packText = (p: PublishPack): string => (p.hashtags.length ? `${p.caption}\n\n${p.hashtags.join(' ')}` : p.caption);
 
 /** Builds the view only from rows that belong to the given workspace. */
 export function buildPortfolio(workspaceId: string, rawCollections: unknown, rawItems: unknown, rawAssets: unknown): PortfolioView {
@@ -43,7 +66,7 @@ export function buildPortfolio(workspaceId: string, rawCollections: unknown, raw
     return {
       id: str(c.id, 64), externalId: str(c.external_id, 128), characterId: str(c.character_id, 64), title: str(c.title, 160),
       channel: str(c.channel, 32), status: str(c.status, 32), concept: optStr(c.concept, 4000), createdAt: str(c.created_at, 64),
-      items: [] as PortfolioItem[],
+      items: [] as PortfolioItem[], pack: parsePack(c.payload),
     };
   });
   const byId = new Map(collections.map((c) => [c.id, c]));
@@ -62,6 +85,7 @@ export function buildPortfolio(workspaceId: string, rawCollections: unknown, raw
       hashtags: Array.isArray(i.hashtags) ? (i.hashtags as unknown[]).map((h) => str(h, 100)) : [],
       crop: str(i.crop, 16), qaStatus: qa, qaNotes: optStr(i.qa_notes, 2000) ?? '', decision, status,
       publishedUrl: optStr(i.published_url, 500), asset: assetId ? assets.get(assetId) ?? null : null,
+      seconds: (() => { const n = Number((i.payload as Record<string, unknown> | null)?.seconds); return Number.isFinite(n) && n > 0 && n <= 30 ? n : null; })(),
     });
   }
   for (const c of collections) c.items.sort((a, b) => a.position - b.position);

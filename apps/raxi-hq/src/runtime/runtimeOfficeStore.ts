@@ -19,9 +19,11 @@ export const RUNTIME_STAGES={
 type RuntimeStage=keyof typeof RUNTIME_STAGES;
 // Only these deliveries exist: each stage hands over exactly one kind of finished work.
 const HANDOFF_ARTIFACTS:Partial<Record<RuntimeStage,Record<string,string>>>={
- DIRECTOR:{RESEARCH_BRIEF:'El Director entrega el encargo de investigación',STRATEGY_BRIEF:'El Director entrega la estrategia aprobada al Creativo'},
+ DIRECTOR:{RESEARCH_BRIEF:'El Director entrega el encargo de investigación',STRATEGY_BRIEF:'El Director entrega la estrategia aprobada al Creativo',CAMPAIGN_PACKAGE:'El Director entrega la campaña aprobada a Copy'},
  RESEARCHER:{RESEARCH_REPORT:'Entrega del reporte de investigación'},
  CREATIVE:{DESIGN_PACKAGE:'Entrega del diseño de campaña al Director'},
+ COPY:{SOCIAL_COPY:'Copy entrega el texto de la publicación a QA'},
+ QA:{QA_REPORT:'QA entrega su reporte al Director'},
 };
 const isStage=(s:unknown):s is RuntimeStage=>typeof s==='string'&&Object.prototype.hasOwnProperty.call(RUNTIME_STAGES,s);
 const empty=():HQState=>({agents:{},tasks:{},campaigns:{},events:[],handoffs:[],memorySignals:[],readOnly:true,mockMode:false,mode:'LIVE_READ_ONLY',sourceHealth:{source:'runtime',mode:'LIVE_READ_ONLY',connection:'DISCONNECTED',agentsLoaded:0,tasksLoaded:0,eventsLoaded:0}});
