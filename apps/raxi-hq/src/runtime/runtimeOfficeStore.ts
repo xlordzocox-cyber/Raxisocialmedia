@@ -5,6 +5,18 @@ export type RuntimeOfficeSink = (scope:{owner:string;workspace:string},hq:HQStat
 interface RuntimeTask {id:string;status:string;title:string;simulated:boolean;result:unknown}
 interface RuntimeEvent {id:number;workspace_id:string;agent_id:string|null;task_id:string;event_type:string;source_kind:string;evidence_status:string;occurred_at:string;payload:{simulated:boolean;stage:string;leaseUntil:string;phase?:string;operationalReceiptOnly?:boolean;providerAcknowledged?:boolean}}
 interface OfficeSnapshot {workspaceId:string;ownerId:string;serverTime:string;tasks:RuntimeTask[];events:RuntimeEvent[]}
+// Claude-led team (Modo Estudio): each verified stage maps to one of the 7 office rooms.
+export const RUNTIME_STAGES={
+ DIRECTOR:{displayName:'Director IA',zone:'WAR_ROOM'},
+ RESEARCHER:{displayName:'Investigador',zone:'RESEARCH_LAB'},
+ CREATIVE:{displayName:'Director Creativo',zone:'WAR_ROOM'},
+ PRODUCTION:{displayName:'Producción Aria',zone:'ARIA_LINK'},
+ QA:{displayName:'QA Visual',zone:'QA_LAB'},
+ COPY:{displayName:'Copy y Publicación',zone:'PUBLISHING'},
+ ARCHIVIST:{displayName:'Archivista',zone:'SUPERMEMORY_CORE'},
+} as const;
+type RuntimeStage=keyof typeof RUNTIME_STAGES;
+const isStage=(s:unknown):s is RuntimeStage=>typeof s==='string'&&Object.prototype.hasOwnProperty.call(RUNTIME_STAGES,s);
 const empty=():HQState=>({agents:{},tasks:{},campaigns:{},events:[],handoffs:[],memorySignals:[],readOnly:true,mockMode:false,mode:'LIVE_READ_ONLY',sourceHealth:{source:'runtime',mode:'LIVE_READ_ONLY',connection:'DISCONNECTED',agentsLoaded:0,tasksLoaded:0,eventsLoaded:0}});
 export { empty as emptyRuntimeHQ };
 export function projectRuntime(raw:unknown,owner:string,workspace:string,elapsed=0):{hq:HQState;tasks:RuntimeTask[]} {
@@ -16,8 +28,10 @@ export function projectRuntime(raw:unknown,owner:string,workspace:string,elapsed
  for(const e of [...s.events].sort((a,b)=>a.id-b.id)) {
   if(e.workspace_id!==workspace||!Number.isSafeInteger(e.id)||e.id<1||!Number.isFinite(Date.parse(e.occurred_at)))throw Error('Foreign or malformed event');
   const task=s.tasks.find(t=>t.id===e.task_id);if(!task)throw Error('Orphan runtime event');
-  if(task.simulated||e.source_kind!=='AGENT_EXECUTOR'||e.evidence_status!=='VERIFIED'||e.payload?.simulated!==false)continue;
-  const stage=e.payload.stage;if(!['DIRECTOR','RESEARCHER'].includes(stage)||!e.agent_id)continue;
+  if(task.simulated||e.evidence_status!=='VERIFIED'||e.payload?.simulated!==false)continue;
+  const stage=e.payload.stage;if(!isStage(stage)||!e.agent_id)continue;
+  // Aria Studio receipts are first-party evidence only for the Production stage.
+  if(!(e.source_kind==='AGENT_EXECUTOR'||(e.source_kind==='ARIA_MCP'&&stage==='PRODUCTION')))continue;
   // Dispatch admission is WAITING, never proof of provider execution.
   // ACK/RESULT are separate receipts; UNKNOWN and future types remain unprojected.
   const dispatch=e.event_type==='RUNTIME_DISPATCH_AUTHORIZED' && e.payload.phase==='DISPATCH_AUTHORIZED' &&
@@ -26,7 +40,7 @@ export function projectRuntime(raw:unknown,owner:string,workspace:string,elapsed
   const type:HQEvent['type']|undefined=dispatch?'TASK_ASSIGNED':e.event_type==='RUNTIME_ACKNOWLEDGED'?'TASK_STARTED':e.event_type==='RUNTIME_RESULT_COMMITTED'?'TASK_COMPLETED':undefined;
   if(!type)continue;
   const running=type==='TASK_STARTED'&&task.status==='RUNNING'&&Date.parse(e.payload.leaseUntil)>now;
-  hq.agents[e.agent_id]={id:e.agent_id,displayName:stage==='DIRECTOR'?'Director IA':'Investigador',role:stage,status:dispatch?'WAITING':running?'RUNNING':task.status==='COMPLETED'?'COMPLETED':task.status==='BLOCKED'?'BLOCKED':'IDLE',zone:stage==='DIRECTOR'?'WAR_ROOM':'RESEARCH_LAB',currentTaskId:task.id,capabilities:['authorized-read-only-task'],securityState:'READ_ONLY',lastEventAt:e.occurred_at};
+  hq.agents[e.agent_id]={id:e.agent_id,displayName:RUNTIME_STAGES[stage].displayName,role:stage,status:dispatch?'WAITING':running?'RUNNING':task.status==='COMPLETED'?'COMPLETED':task.status==='BLOCKED'?'BLOCKED':'IDLE',zone:RUNTIME_STAGES[stage].zone,currentTaskId:task.id,capabilities:['authorized-read-only-task'],securityState:'READ_ONLY',lastEventAt:e.occurred_at};
   hq.tasks[task.id]={id:task.id,title:task.title,status:task.status==='RUNNING'&&!running?'UNCONFIRMED':task.status,ownerAgentId:e.agent_id};
   hq.events.push({id:'RUNTIME-'+e.id,timestamp:e.occurred_at,type,label:e.event_type,actorId:e.agent_id,taskId:e.task_id,source:'runtime',verified:true});
  }
