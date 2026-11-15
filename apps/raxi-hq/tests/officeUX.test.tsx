@@ -268,7 +268,7 @@ test('mounted StrictMode App shares sprite/dock selection intent, preserves oper
   const auth=new AuthStore({getUser:async()=>({data:{user},error:null}),onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}),signOut:async()=>({error:null})} as unknown as SupabaseClient['auth']);
   const repository=()=>({findWorkspace:async()=>{reads++;return null;},createWorkspace:async()=>{throw Error('forbidden');},listIdeas:async()=>[],createIdea:async()=>{throw Error('forbidden');}});
   const oldFetch=globalThis.fetch;globalThis.fetch=async()=>{calls++;throw Error('forbidden');};
-  const tree=(key=0)=><StrictMode><AuthProvider store={auth}><MemoryRouter><Routes><Route element={<ProtectedRoute/>}><Route path="/" element={<App key={key} ideaRepository={repository}/>}/></Route></Routes></MemoryRouter></AuthProvider></StrictMode>;
+  const tree=(key=0)=><StrictMode><AuthProvider store={auth}><MemoryRouter><Routes><Route element={<ProtectedRoute/>}><Route path="/" element={<App showDemo key={key} ideaRepository={repository}/>}/></Route></Routes></MemoryRouter></AuthProvider></StrictMode>;
   let view!:ReactTestRenderer;
   try {
     await act(async()=>{view=create(tree());});

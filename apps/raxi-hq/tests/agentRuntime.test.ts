@@ -637,3 +637,18 @@ test('Aria MCP receipts animate only the Production agent',()=>{
  assert.equal(hq.agents['agent-PRODUCTION']?.zone,'ARIA_LINK');
  assert.equal(hq.agents['agent-QA'],undefined,'An Aria receipt cannot impersonate another stage');
 });
+
+test('registered team profiles render idle in their rooms; only verified events make them work',()=>{
+ const roles=['DIRECTOR','RESEARCHER','CREATIVE','PRODUCTION','QA','COPY','ARCHIVIST'];
+ const profiles=[...roles.map(r=>({id:'p-'+r,role:r,display_name:'Agente '+r,runtime_status:'CONNECTED'})),
+  {id:'p-off',role:'COPY',display_name:'Apagado',runtime_status:'DISABLED'},{id:'p-x',role:'INTRUDER',display_name:'X',runtime_status:'CONNECTED'}];
+ const tasks=[{id:'t',status:'RUNNING',title:'Director real',simulated:false,result:null}];
+ const events=[{id:1,workspace_id:workspace,agent_id:'p-DIRECTOR',task_id:'t',event_type:'RUNTIME_ACKNOWLEDGED',source_kind:'AGENT_EXECUTOR',evidence_status:'VERIFIED',occurred_at:'2026-11-15T07:00:00Z',payload:{simulated:false,stage:'DIRECTOR',leaseUntil:'2026-11-15T07:30:00Z'}}];
+ const {hq}=projectRuntime({workspaceId:workspace,ownerId:owner,serverTime:'2026-11-15T07:00:05Z',tasks,events,profiles},owner,workspace);
+ assert.equal(Object.keys(hq.agents).length,7);
+ assert.equal(hq.agents['p-DIRECTOR'].status,'RUNNING','event-backed agent keeps its verified state');
+ assert.equal(hq.agents['p-RESEARCHER'].status,'IDLE');assert.equal(hq.agents['p-RESEARCHER'].zone,'RESEARCH_LAB');
+ assert.equal(hq.agents['p-off'],undefined);assert.equal(hq.agents['p-x'],undefined);
+ assert.equal(hq.events.length,1,'profiles never create events');
+ assert.throws(()=>projectRuntime({workspaceId:workspace,ownerId:owner,serverTime:'2026-11-15T07:00:05Z',tasks,events,profiles:[{id:'',role:'QA',display_name:'x',runtime_status:'CONNECTED'}]},owner,workspace));
+});

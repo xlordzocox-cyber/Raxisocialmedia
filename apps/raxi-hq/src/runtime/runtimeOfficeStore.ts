@@ -4,7 +4,8 @@ import type { HQEvent } from '../domain/events';
 export type RuntimeOfficeSink = (scope:{owner:string;workspace:string},hq:HQState|null)=>void;
 interface RuntimeTask {id:string;status:string;title:string;simulated:boolean;result:unknown}
 interface RuntimeEvent {id:number;workspace_id:string;agent_id:string|null;task_id:string;event_type:string;source_kind:string;evidence_status:string;occurred_at:string;payload:{simulated:boolean;stage:string;leaseUntil:string;phase?:string;operationalReceiptOnly?:boolean;providerAcknowledged?:boolean}}
-interface OfficeSnapshot {workspaceId:string;ownerId:string;serverTime:string;tasks:RuntimeTask[];events:RuntimeEvent[]}
+interface RuntimeProfile {id:string;role:string;display_name:string;runtime_status:string}
+interface OfficeSnapshot {workspaceId:string;ownerId:string;serverTime:string;tasks:RuntimeTask[];events:RuntimeEvent[];profiles?:RuntimeProfile[]}
 // Claude-led team (Modo Estudio): each verified stage maps to one of the 7 office rooms.
 export const RUNTIME_STAGES={
  DIRECTOR:{displayName:'Director IA',zone:'WAR_ROOM'},
@@ -43,6 +44,15 @@ export function projectRuntime(raw:unknown,owner:string,workspace:string,elapsed
   hq.agents[e.agent_id]={id:e.agent_id,displayName:RUNTIME_STAGES[stage].displayName,role:stage,status:dispatch?'WAITING':running?'RUNNING':task.status==='COMPLETED'?'COMPLETED':task.status==='BLOCKED'?'BLOCKED':'IDLE',zone:RUNTIME_STAGES[stage].zone,currentTaskId:task.id,capabilities:['authorized-read-only-task'],securityState:'READ_ONLY',lastEventAt:e.occurred_at};
   hq.tasks[task.id]={id:task.id,title:task.title,status:task.status==='RUNNING'&&!running?'UNCONFIRMED':task.status,ownerAgentId:e.agent_id};
   hq.events.push({id:'RUNTIME-'+e.id,timestamp:e.occurred_at,type,label:e.event_type,actorId:e.agent_id,taskId:e.task_id,source:'runtime',verified:true});
+ }
+ // Registered team members are shown idle in their room. Only verified events above can make them work.
+ if(s.profiles!==undefined){
+  if(!Array.isArray(s.profiles)||s.profiles.length>50)throw Error('Invalid runtime profiles');
+  for(const p of s.profiles){
+   if(!p||typeof p.id!=='string'||!p.id||typeof p.display_name!=='string'||p.display_name.length>80)throw Error('Invalid runtime profile');
+   if(p.runtime_status!=='CONNECTED'||!isStage(p.role)||hq.agents[p.id])continue;
+   hq.agents[p.id]={id:p.id,displayName:p.display_name,role:p.role,status:'IDLE',zone:RUNTIME_STAGES[p.role].zone,capabilities:['registered-profile'],securityState:'READ_ONLY'};
+  }
  }
  hq.sourceHealth={...hq.sourceHealth,connection:'CONNECTED',lastSuccessfulRead:s.serverTime,agentsLoaded:Object.keys(hq.agents).length,eventsLoaded:hq.events.length,tasksLoaded:s.tasks.filter(t=>!t.simulated).length};
  return {hq,tasks:structuredClone(s.tasks)};

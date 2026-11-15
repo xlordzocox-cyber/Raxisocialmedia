@@ -25,7 +25,7 @@ const note = 'Solo repositorio de pruebas; ninguna escritura de producción.';
 
 function SessionOffice({ repository, campaigns, revision }: { repository: (id: string) => RealIdeaRepository; campaigns?: (id: string) => CampaignRepository; revision: number }) {
   const { user } = useAuth();
-  return <App key={`${user!.id}:${revision}`} ideaRepository={repository} campaignRepository={campaigns} />;
+  return <App showDemo key={`${user!.id}:${revision}`} ideaRepository={repository} campaignRepository={campaigns} />;
 }
 function fixture(options: { campaigns?: boolean; holdCampaignReads?: boolean; unavailable?: boolean } = {}) {
   const workspaceId = (id: string) => options.campaigns ? (id === owner ? 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' : 'dddddddd-dddd-4ddd-8ddd-dddddddddddd') : `workspace-${id}`;
