@@ -73,6 +73,7 @@ declare
  approval_key uuid:='22222222-2222-4222-8222-222222222222';
  task_id uuid;scope text;ret jsonb;approval uuid;projection jsonb;
  before_res bigint;after_res bigint;
+ v_forged_task uuid;v_forged_approval uuid;
 begin
  iden:=jsonb_build_object('provenance','SUPABASE_AUTH_STAGING','actorId',owner_id,
   'sessionId',sid,'workspaceId',wid,'projectRef','zvhxjindgyvtasstfjut',
@@ -84,6 +85,35 @@ begin
   'authorization',jsonb_build_object('confirmed',true,'maxCostMicros',5000,
     'expiresAt',to_char(clock_timestamp()+interval '20 minutes','YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')));
 
+ -- Even service_role must NOT be able to forge READY on INSERT.
+ -- Fixture includes a matching TASK APPROVED audit; the denial must come
+ -- from the INSERT state trigger, not a missing FK or CHECK.
+ begin
+  insert into public.raxi_agent_tasks(workspace_id,external_id,title,status,input_snapshot)
+   values(wid,'FORGED-READY-FIXTURE','forged ready fixture','WAITING_APPROVAL',
+    jsonb_build_object('spec',spec))
+   returning id into v_forged_task;
+  insert into public.raxi_approvals(workspace_id,subject_kind,subject_id,action,
+   actor_user_id,idempotency_key,context)
+   values(wid,'TASK',v_forged_task,'APPROVED',owner_id,
+    'FORGED-READY-FIXTURE',jsonb_build_object('kind','PERSISTED_HUMAN_EXECUTION_APPROVAL'))
+   returning id into v_forged_approval;
+  perform pg_temp.expect_denied('direct READY INSERT bypasses reservation',
+   format('insert into public.raxi_director_real_pilots(
+    workspace_id,task_id,actor_user_id,session_id,request_key,scope_sha256,
+    policy_version,provider,model,max_cost_micros,reserved_micros,expires_at,
+    status,approval_id,approval_key,approved_at)
+    values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,%L::uuid,%L,1,
+     %L,%L,5000,4000,clock_timestamp()+interval ''20 minutes'',
+     ''READY_FOR_MANUAL_EXECUTION'',%L::uuid,%L::uuid,clock_timestamp())',
+     wid::text,v_forged_task::text,owner_id::text,sid::text,
+     '88888888-8888-4888-8888-888888888888',repeat('a',64),
+     'openai','synthetic-model',v_forged_approval::text,
+     '88888888-8888-4888-8888-888888888889'));
+  raise exception 'ROLLBACK_FORGED_READY_FIXTURE' using errcode='P0199';
+ exception when sqlstate 'P0199' then
+  raise notice 'PASS: direct READY insertion denied despite valid FK and audit fixture';
+ end;
  -- Independent cross-language UTF-8 SHA-256 vector from JS JSON.stringify canonical fields.
  if public.raxi_director_real_scope(
   wid,'cccccccc-cccc-4ccc-8ccc-cccccccccccc',owner_id,
