@@ -25,6 +25,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
+      - name: Read pinned, historical PR59 migration sources only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: e4d617e85875d99d5c06908dad2ef1a46b02cd5d
+          path: issue49-upstream-pr59
+          persist-credentials: false
+      - name: Read pinned, historical Issue60 installed migration source only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 4a3099ecad9dc02ec5c4471664bcea7317759bd9
+          path: issue49-upstream-pr67
+          persist-credentials: false
       - name: Start isolated PostgreSQL 17 in temporary Docker container
         shell: bash
         run: |
@@ -104,6 +116,17 @@ jobs:
             docker cp "$path" "raxi-issue49-pg17-parity:/tmp/$name"
             docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f "/tmp/$name"
           done < <(find supabase/migrations -maxdepth 1 -name '*.sql' | sort)
+          # Verify *exact bytes* against read-only hashes of migration SQL
+          # recorded in the actual staging supabase_migrations.schema_migrations.
+          echo '046ed2d8ac15ebe65b5b0ef3afd0270acf5a7b8884f9abe6f911ab261a2d188e  issue49-upstream-pr59/supabase/proposals/supervised_campaign_staging_identity.sql' | sha256sum -c -
+          echo 'a45ea5c6ebbd0fbd06c5889b69d89780c2de6b2a76a198220b0f9aaba481b0d2  issue49-upstream-pr59/supabase/proposals/supervised_campaign_requests.sql' | sha256sum -c -
+          echo '50d8f96a133630f636513b2578f477a5a4b516693e44ca00742e312c4595fec8  issue49-upstream-pr67/supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql' | sha256sum -c -
+          docker cp issue49-upstream-pr59/supabase/proposals/supervised_campaign_staging_identity.sql raxi-issue49-pg17-parity:/tmp/host-identity.sql
+          docker cp issue49-upstream-pr59/supabase/proposals/supervised_campaign_requests.sql raxi-issue49-pg17-parity:/tmp/requests.sql
+          docker cp issue49-upstream-pr67/supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql raxi-issue49-pg17-parity:/tmp/runtime.sql
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/host-identity.sql
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/requests.sql
+          docker exec raxi-issue49-pg17-parity psql -X -1 -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/runtime.sql
           docker cp apps/raxi-hq/tests/pg17/issue49_director_staging_catalog_parity.sql raxi-issue49-pg17-parity:/tmp/catalog.sql
           docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/catalog.sql
           docker cp supabase/proposals/issue49_director_real_sql.candidate.sql raxi-issue49-pg17-parity:/tmp/candidate.sql
