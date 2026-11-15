@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { Link } from 'react-router-dom';
 import { hqStore, useHQState } from './store/hqStore';
 import { OfficeScene } from './office/OfficeScene';
 import { zoneOrder, zones } from './office/zones';
@@ -128,6 +129,7 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
       <div className="hq-session-controls" role="group" aria-label="Seleccionar Campus">
         {showDemo && <button type="button" aria-pressed={campusMode === 'REAL'} onClick={() => { void hqStore.switchMode('LIVE_READ_ONLY'); setCampusMode('REAL'); }}>REAL</button>}
         {showDemo && <button type="button" aria-pressed={campusMode === 'DEMO'} onClick={() => setCampusMode('DEMO')}>DEMO</button>}
+        <Link className="hq-nav-link" to="/fototeca">Fototeca</Link>
         <button type="button" onClick={() => { void signOut(); }}>Salir</button>
       </div>
     </header>
