@@ -97,13 +97,13 @@ function harness() {
  }) as unknown as typeof createClient;
  const gate=createUnpublishedDirectorNodeGate(config,fakeSdk);
  const request=(args:{token?:string;method?:string;headers?:Record<string,string>;
-   url?:string;body?:unknown;context?:typeof ctx|null}={})=>{
+   url?:string;body?:unknown;rawBody?:string;context?:typeof ctx|null}={})=>{
   const method=args.method??'POST';
   const headers={Origin:origin,'Content-Type':'application/json',
    Authorization:'Bearer '+(args.token??'session-A'),...args.headers};
   return gate(new Request(args.url??origin+STAGING_DIRECTOR_READINESS_PATH,{
    method,headers,...(!['GET','HEAD'].includes(method)?{
-    body:JSON.stringify(args.body??{workspaceId:workspace,taskId:task})}:{})
+    body:args.rawBody??JSON.stringify(args.body??{workspaceId:workspace,taskId:task})}:{})
   }),args.context===undefined?ctx:args.context as typeof ctx);
  };
  return {request,clients,calls,quota,active,get fetches(){return fetches;},
@@ -162,6 +162,16 @@ test('Durable SQL quota enforces a shared 30/min across requests without permitt
  assert.equal((await h.request()).status,429);
  assert.equal(h.calls.filter(x=>x==='rpc:raxi_director_real_read').length,before);
  assert.equal(h.quota.get(owner+':'+workspace),31);
+});
+test('Director accepts same valid 300-byte JSON with and without Content-Length, Auth remains 256',async()=>{
+ const h=harness();
+ const json=JSON.stringify({workspaceId:workspace,taskId:task});
+ const padded=json+' '.repeat(300-json.length);
+ assert.equal(new TextEncoder().encode(padded).length,300);
+ assert.equal((await h.request({rawBody:padded})).status,200);
+ assert.equal((await h.request({rawBody:padded,headers:{'Content-Length':'300'}})).status,200);
+ assert.equal((await h.request({rawBody:padded,headers:{'Content-Length':'513'}})).status,413);
+ assert.equal(h.calls.filter(x=>x==='rpc:raxi_director_real_read').length,2);
 });
 test('Unauthenticated/foreign/anonymous-like claims or wrong workspace cannot read',async()=>{
  const invalid=harness();
