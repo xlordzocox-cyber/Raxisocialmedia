@@ -112,7 +112,1465 @@ begin
    octet_length(p_spec::text)>8192 or
    p_spec->'externalResearch' is distinct from 'false'::jsonb or
    p_spec#>'{authorization,confirmed}' is distinct from 'true'::jsonb or
-   p_spec->>'provider' !~ '^[a-z0-9-]{1,50}$' or
+   jsonb_typeof(p_spec->'provider') is distinct from 'string' or
+   p_spec->>'provider' !~ '^[a-z0-9-]{1,50}
+   p_spec->>'provider'='simulated' or
+   jsonb_typeof(p_spec->'model') is distinct from 'string' or
+   p_spec->>'model' !~ '^[A-Za-z0-9._-]{1,100}
+   jsonb_typeof(p_spec#>'{authorization,maxCostMicros}') is distinct from 'number' or
+   jsonb_typeof(p_spec#>'{authorization,expiresAt}') is distinct from 'string'
+ then raise exception 'closed real Director text-only scope required' using errcode='42501'; end if;
+ begin
+  v_max:=(p_spec#>>'{authorization,maxCostMicros}')::bigint;
+  v_exp:=(p_spec#>>'{authorization,expiresAt}')::timestamptz;
+ exception when others then raise exception 'invalid cost or expiry' using errcode='42501'; end;
+ if v_max<=0 or v_exp<=clock_timestamp()+interval '60 seconds' or
+   v_exp>clock_timestamp()+interval '24 hours'
+ then raise exception 'limited positive budget and expiry required' using errcode='42501'; end if;
+ -- Serialize all preparations per workspace and reject foreign-owner workspace.
+ perform 1 from public.raxi_workspaces
+ where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'workspace ownership denied' using errcode='42501'; end if;
+ select * into existing from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and request_key=p_request_key;
+ if found then
+  select * into t from public.raxi_agent_tasks where id=existing.task_id and workspace_id=v_workspace;
+  if existing.actor_user_id<>v_actor or existing.session_id<>v_session or
+     existing.policy_version<>p_expected_policy_version or
+     t.input_snapshot->'spec' is distinct from p_spec
+  then raise exception 'idempotency scope conflict' using errcode='42501'; end if;
+  return jsonb_build_object('kind','DIRECTOR_REAL_PREPARED_NOT_EXECUTABLE',
+   'taskId',t.id,'status',existing.status,'scopeSha256',existing.scope_sha256,
+   'executionEnabled',false);
+ end if;
+ select * into pol from public.raxi_runtime_policies where workspace_id=v_workspace for update;
+ if not found or pol.enabled is distinct from true or pol.simulated is distinct from false or
+   pol.authorization_version<>p_expected_policy_version or
+   pol.provider is distinct from p_spec->>'provider' or pol.model is distinct from p_spec->>'model' or
+   pol.per_call_micros<=0 or pol.per_call_micros>v_max or pol.total_budget_micros<v_max or
+   pol.reserved_micros+pol.per_call_micros>pol.total_budget_micros or
+   pol.task_count>=pol.max_tasks or pol.max_tasks<>1 or pol.max_output_tokens>256 or
+   pol.expires_at<=v_exp or pol.expires_at<=clock_timestamp()+interval '60 seconds'
+ then raise exception 'real pilot policy is disabled or incompatible' using errcode='42501'; end if;
+ insert into public.raxi_agent_tasks(workspace_id,external_id,title,status,input_snapshot)
+ values(v_workspace,'DIRECTOR-REAL-'||p_request_key::text,'Director real pilot (NOT EXECUTABLE)',
+  'WAITING_APPROVAL',jsonb_build_object('runtime',true,'spec',p_spec,
+   'supervised',jsonb_build_object('provenance','DIRECTOR_REAL_PILOT_NOT_EXECUTABLE',
+    'stage','DIRECTOR','actorId',v_actor,'sessionId',v_session)))
+ returning * into t;
+ v_scope:=public.raxi_director_real_scope(v_workspace,t.id,v_actor,p_spec,pol.authorization_version);
+ insert into public.raxi_director_real_pilots(
+  workspace_id,task_id,actor_user_id,session_id,request_key,scope_sha256,policy_version,
+  provider,model,max_cost_micros,expires_at)
+ values(v_workspace,t.id,v_actor,v_session,p_request_key,v_scope,pol.authorization_version,
+  pol.provider,pol.model,v_max,v_exp);
+ return jsonb_build_object('kind','DIRECTOR_REAL_PREPARED_NOT_EXECUTABLE',
+  'taskId',t.id,'status','WAITING_HUMAN_EXECUTION_AUTH','scopeSha256',v_scope,
+  'executionEnabled',false);
+end; $f$;
+
+create function public.raxi_director_real_approve(
+ p_identity jsonb,p_task_id uuid,p_approval_key uuid,p_scope_sha256 text,p_confirmed boolean
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_session uuid; v_workspace uuid;
+ g public.raxi_director_real_pilots; p public.raxi_runtime_policies;
+ t public.raxi_agent_tasks; v_approval uuid;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_session:=(p_identity->>'sessionId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ if p_task_id is null or p_approval_key is null or
+   p_scope_sha256 is null or p_scope_sha256 !~ '^[a-f0-9]{64}
+   or p_confirmed is distinct from true
+ then raise exception 'second explicit human confirmation required' using errcode='42501'; end if;
+ perform 1 from public.raxi_workspaces where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'owner denied' using errcode='42501'; end if;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id for update;
+ if not found or g.actor_user_id<>v_actor or g.session_id<>v_session or
+   g.scope_sha256 is distinct from p_scope_sha256
+ then raise exception 'scope/session mismatch' using errcode='42501'; end if;
+ if g.status='READY_FOR_MANUAL_EXECUTION' and g.approval_key=p_approval_key then
+  return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
+   'taskId',g.task_id,'approvalId',g.approval_id,'executionEnabled',false);
+ end if;
+ if g.status<>'WAITING_HUMAN_EXECUTION_AUTH' then
+  raise exception 'cannot reapprove a used or revoked grant' using errcode='42501'; end if;
+ select * into t from public.raxi_agent_tasks where id=g.task_id and workspace_id=g.workspace_id for update;
+ if not found or t.status<>'WAITING_APPROVAL' or
+    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+      t.input_snapshot->'spec',g.policy_version)
+ then raise exception 'task snapshot changed' using errcode='42501'; end if;
+ select * into p from public.raxi_runtime_policies where workspace_id=v_workspace for update;
+ if not found or p.enabled is distinct from true or p.simulated is distinct from false or
+    p.authorization_version<>g.policy_version or p.provider<>g.provider or
+    p.model<>g.model or p.max_tasks<>1 or p.task_count<>0 or p.max_output_tokens>256 or
+    p.per_call_micros<=0 or p.per_call_micros>g.max_cost_micros or
+    p.reserved_micros+p.per_call_micros>p.total_budget_micros or
+    p.expires_at<=clock_timestamp()+interval '60 seconds' or
+    g.expires_at<=clock_timestamp()+interval '60 seconds'
+ then raise exception 'policy changed or budget not available' using errcode='42501'; end if;
+ insert into public.raxi_approvals(
+   workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+ values(v_workspace,'TASK',t.id,'APPROVED',v_actor,
+   'DIRECTOR-REAL-APPROVE:'||p_approval_key::text,
+   jsonb_build_object('kind','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+    'scopeSha256',g.scope_sha256,'sessionId',v_session,'policyVersion',g.policy_version,
+    'provider',g.provider,'model',g.model,'maxCostMicros',g.max_cost_micros,
+    'expiresAt',g.expires_at))
+ returning id into v_approval;
+ update public.raxi_runtime_policies set
+   reserved_micros=reserved_micros+p.per_call_micros,task_count=task_count+1
+ where workspace_id=v_workspace;
+ update public.raxi_director_real_pilots set
+   status='READY_FOR_MANUAL_EXECUTION',approval_id=v_approval,
+   approval_key=p_approval_key,approved_at=clock_timestamp(),
+   reserved_micros=p.per_call_micros
+ where id=g.id;
+ return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
+  'taskId',g.task_id,'approvalId',v_approval,'executionEnabled',false);
+end; $f$;
+
+create function public.raxi_director_real_revoke(
+ p_identity jsonb,p_task_id uuid,p_revoke_key uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_workspace uuid; g public.raxi_director_real_pilots; rid uuid;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ if p_task_id is null or p_revoke_key is null then
+  raise exception 'revoke requires explicit key' using errcode='42501'; end if;
+ perform 1 from public.raxi_workspaces where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'owner denied' using errcode='42501'; end if;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id for update;
+ if not found or g.actor_user_id<>v_actor then
+  raise exception 'task denied' using errcode='42501'; end if;
+ if g.status='REVOKED' and g.revoke_key=p_revoke_key then
+  return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
+ end if;
+ if g.status='REVOKED' then raise exception 'revocation replay conflict' using errcode='42501'; end if;
+ insert into public.raxi_approvals(
+  workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+ values(v_workspace,'TASK',g.task_id,'CANCELED',v_actor,
+  'DIRECTOR-REAL-REVOKE:'||p_revoke_key::text,
+  jsonb_build_object('kind','DIRECTOR_REAL_PERMISSION_REVOKED','scopeSha256',g.scope_sha256))
+ returning id into rid;
+ update public.raxi_director_real_pilots set
+  status='REVOKED',revoke_id=rid,revoke_key=p_revoke_key,revoked_at=clock_timestamp()
+ where id=g.id;
+ -- NEVER refund reserved_micros here: future paid-call uncertainty must be reconciled.
+ return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
+end; $f$;
+
+-- Read-only projection for a FUTURE server port, not a dispatch capability.
+create function public.raxi_director_real_read(
+ p_identity jsonb,p_task_id uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_session uuid; v_workspace uuid;
+ g public.raxi_director_real_pilots; t public.raxi_agent_tasks;
+ a public.raxi_approvals; p public.raxi_runtime_policies;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_session:=(p_identity->>'sessionId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id and actor_user_id=v_actor
+ and session_id=v_session and status='READY_FOR_MANUAL_EXECUTION';
+ if not found or g.expires_at<=clock_timestamp()+interval '60 seconds' then return null; end if;
+ select * into t from public.raxi_agent_tasks where id=p_task_id and workspace_id=v_workspace;
+ select * into p from public.raxi_runtime_policies where workspace_id=v_workspace;
+ select * into a from public.raxi_approvals where id=g.approval_id and workspace_id=v_workspace;
+ if t.id is null or t.status<>'WAITING_APPROVAL' or
+    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    p.workspace_id is null or not p.enabled or p.simulated or
+    p.authorization_version<>g.policy_version or p.provider<>g.provider or p.model<>g.model or
+    p.expires_at<=clock_timestamp()+interval '60 seconds' or
+    a.id is null or a.subject_kind<>'TASK' or a.subject_id<>t.id or
+    a.action<>'APPROVED' or a.actor_user_id<>v_actor or
+    a.context->>'scopeSha256' is distinct from g.scope_sha256 or
+    a.context->>'sessionId' is distinct from v_session::text or
+    a.context->>'policyVersion' is distinct from g.policy_version::text or
+    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+      t.input_snapshot->'spec',g.policy_version)
+ then return null; end if;
+ return jsonb_build_object(
+ 'provenance','TRUSTED_SERVER_SNAPSHOT','taskId',t.id,'workspaceId',v_workspace,
+ 'stage','DIRECTOR','simulated',false,'state','READY_FOR_MANUAL_EXECUTION',
+ 'spec',t.input_snapshot->'spec','scopeSha256',g.scope_sha256,
+ 'approval',jsonb_build_object(
+  'provenance','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+  'taskId',t.id,'workspaceId',v_workspace,'operatorId',v_actor,
+  'sessionId',v_session,'decision','APPROVED','revoked',false,
+  'scopeSha256',g.scope_sha256,'policyVersion',g.policy_version,
+  'provider',g.provider,'model',g.model,'maxCostMicros',g.max_cost_micros,
+  'issuedAt',a.decided_at,'expiresAt',g.expires_at),
+ 'policy',jsonb_build_object(
+  'workspaceId',v_workspace,'version',p.authorization_version,'enabled',true,
+  'simulated',false,'provider',p.provider,'model',p.model,
+  'perCallMicros',g.reserved_micros,'remainingMicros',g.reserved_micros,
+  'maxOutputTokens',p.max_output_tokens,'expiresAt',p.expires_at)
+ );
+end; $f$;
+
+-- Explicit ACL: never expose these objects/functions to browser JWT roles.
+revoke all on function public.raxi_director_real_protect() from public,anon,authenticated;
+revoke all on function public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_revoke(jsonb,uuid,uuid) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_read(jsonb,uuid) from public,anon,authenticated;
+grant execute on function public.raxi_director_real_protect() to service_role;
+grant execute on function public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint) to service_role;
+grant execute on function public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint) to service_role;
+grant execute on function public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean) to service_role;
+grant execute on function public.raxi_director_real_revoke(jsonb,uuid,uuid) to service_role;
+grant execute on function public.raxi_director_real_read(jsonb,uuid) to service_role;
+ or
+   p_spec->>'provider'='simulated' or
+   p_spec->>'model' !~ '^[A-Za-z0-9._-]{1,100}$' or
+   jsonb_typeof(p_spec#>'{authorization,maxCostMicros}') is distinct from 'number' or
+   jsonb_typeof(p_spec#>'{authorization,expiresAt}') is distinct from 'string'
+ then raise exception 'closed real Director text-only scope required' using errcode='42501'; end if;
+ begin
+  v_max:=(p_spec#>>'{authorization,maxCostMicros}')::bigint;
+  v_exp:=(p_spec#>>'{authorization,expiresAt}')::timestamptz;
+ exception when others then raise exception 'invalid cost or expiry' using errcode='42501'; end;
+ if v_max<=0 or v_exp<=clock_timestamp()+interval '60 seconds' or
+   v_exp>clock_timestamp()+interval '24 hours'
+ then raise exception 'limited positive budget and expiry required' using errcode='42501'; end if;
+ -- Serialize all preparations per workspace and reject foreign-owner workspace.
+ perform 1 from public.raxi_workspaces
+ where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'workspace ownership denied' using errcode='42501'; end if;
+ select * into existing from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and request_key=p_request_key;
+ if found then
+  select * into t from public.raxi_agent_tasks where id=existing.task_id and workspace_id=v_workspace;
+  if existing.actor_user_id<>v_actor or existing.session_id<>v_session or
+     existing.policy_version<>p_expected_policy_version or
+     t.input_snapshot->'spec' is distinct from p_spec
+  then raise exception 'idempotency scope conflict' using errcode='42501'; end if;
+  return jsonb_build_object('kind','DIRECTOR_REAL_PREPARED_NOT_EXECUTABLE',
+   'taskId',t.id,'status',existing.status,'scopeSha256',existing.scope_sha256,
+   'executionEnabled',false);
+ end if;
+ select * into pol from public.raxi_runtime_policies where workspace_id=v_workspace for update;
+ if not found or pol.enabled is distinct from true or pol.simulated is distinct from false or
+   pol.authorization_version<>p_expected_policy_version or
+   pol.provider is distinct from p_spec->>'provider' or pol.model is distinct from p_spec->>'model' or
+   pol.per_call_micros<=0 or pol.per_call_micros>v_max or pol.total_budget_micros<v_max or
+   pol.reserved_micros+pol.per_call_micros>pol.total_budget_micros or
+   pol.task_count>=pol.max_tasks or pol.max_tasks<>1 or pol.max_output_tokens>256 or
+   pol.expires_at<=v_exp or pol.expires_at<=clock_timestamp()+interval '60 seconds'
+ then raise exception 'real pilot policy is disabled or incompatible' using errcode='42501'; end if;
+ insert into public.raxi_agent_tasks(workspace_id,external_id,title,status,input_snapshot)
+ values(v_workspace,'DIRECTOR-REAL-'||p_request_key::text,'Director real pilot (NOT EXECUTABLE)',
+  'WAITING_APPROVAL',jsonb_build_object('runtime',true,'spec',p_spec,
+   'supervised',jsonb_build_object('provenance','DIRECTOR_REAL_PILOT_NOT_EXECUTABLE',
+    'stage','DIRECTOR','actorId',v_actor,'sessionId',v_session)))
+ returning * into t;
+ v_scope:=public.raxi_director_real_scope(v_workspace,t.id,v_actor,p_spec,pol.authorization_version);
+ insert into public.raxi_director_real_pilots(
+  workspace_id,task_id,actor_user_id,session_id,request_key,scope_sha256,policy_version,
+  provider,model,max_cost_micros,expires_at)
+ values(v_workspace,t.id,v_actor,v_session,p_request_key,v_scope,pol.authorization_version,
+  pol.provider,pol.model,v_max,v_exp);
+ return jsonb_build_object('kind','DIRECTOR_REAL_PREPARED_NOT_EXECUTABLE',
+  'taskId',t.id,'status','WAITING_HUMAN_EXECUTION_AUTH','scopeSha256',v_scope,
+  'executionEnabled',false);
+end; $f$;
+
+create function public.raxi_director_real_approve(
+ p_identity jsonb,p_task_id uuid,p_approval_key uuid,p_scope_sha256 text,p_confirmed boolean
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_session uuid; v_workspace uuid;
+ g public.raxi_director_real_pilots; p public.raxi_runtime_policies;
+ t public.raxi_agent_tasks; v_approval uuid;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_session:=(p_identity->>'sessionId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ if p_task_id is null or p_approval_key is null or p_scope_sha256 !~ '^[a-f0-9]{64}$'
+   or p_confirmed is distinct from true
+ then raise exception 'second explicit human confirmation required' using errcode='42501'; end if;
+ perform 1 from public.raxi_workspaces where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'owner denied' using errcode='42501'; end if;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id for update;
+ if not found or g.actor_user_id<>v_actor or g.session_id<>v_session or
+   g.scope_sha256<>p_scope_sha256
+ then raise exception 'scope/session mismatch' using errcode='42501'; end if;
+ if g.status='READY_FOR_MANUAL_EXECUTION' and g.approval_key=p_approval_key then
+  return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
+   'taskId',g.task_id,'approvalId',g.approval_id,'executionEnabled',false);
+ end if;
+ if g.status<>'WAITING_HUMAN_EXECUTION_AUTH' then
+  raise exception 'cannot reapprove a used or revoked grant' using errcode='42501'; end if;
+ select * into t from public.raxi_agent_tasks where id=g.task_id and workspace_id=g.workspace_id for update;
+ if not found or t.status<>'WAITING_APPROVAL' or
+    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+      t.input_snapshot->'spec',g.policy_version)
+ then raise exception 'task snapshot changed' using errcode='42501'; end if;
+ select * into p from public.raxi_runtime_policies where workspace_id=v_workspace for update;
+ if not found or p.enabled is distinct from true or p.simulated is distinct from false or
+    p.authorization_version<>g.policy_version or p.provider<>g.provider or
+    p.model<>g.model or p.max_tasks<>1 or p.task_count<>0 or p.max_output_tokens>256 or
+    p.per_call_micros<=0 or p.per_call_micros>g.max_cost_micros or
+    p.reserved_micros+p.per_call_micros>p.total_budget_micros or
+    p.expires_at<=clock_timestamp()+interval '60 seconds' or
+    g.expires_at<=clock_timestamp()+interval '60 seconds'
+ then raise exception 'policy changed or budget not available' using errcode='42501'; end if;
+ insert into public.raxi_approvals(
+   workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+ values(v_workspace,'TASK',t.id,'APPROVED',v_actor,
+   'DIRECTOR-REAL-APPROVE:'||p_approval_key::text,
+   jsonb_build_object('kind','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+    'scopeSha256',g.scope_sha256,'sessionId',v_session,'policyVersion',g.policy_version,
+    'provider',g.provider,'model',g.model,'maxCostMicros',g.max_cost_micros,
+    'expiresAt',g.expires_at))
+ returning id into v_approval;
+ update public.raxi_runtime_policies set
+   reserved_micros=reserved_micros+p.per_call_micros,task_count=task_count+1
+ where workspace_id=v_workspace;
+ update public.raxi_director_real_pilots set
+   status='READY_FOR_MANUAL_EXECUTION',approval_id=v_approval,
+   approval_key=p_approval_key,approved_at=clock_timestamp(),
+   reserved_micros=p.per_call_micros
+ where id=g.id;
+ return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
+  'taskId',g.task_id,'approvalId',v_approval,'executionEnabled',false);
+end; $f$;
+
+create function public.raxi_director_real_revoke(
+ p_identity jsonb,p_task_id uuid,p_revoke_key uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_workspace uuid; g public.raxi_director_real_pilots; rid uuid;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ if p_task_id is null or p_revoke_key is null then
+  raise exception 'revoke requires explicit key' using errcode='42501'; end if;
+ perform 1 from public.raxi_workspaces where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'owner denied' using errcode='42501'; end if;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id for update;
+ if not found or g.actor_user_id<>v_actor then
+  raise exception 'task denied' using errcode='42501'; end if;
+ if g.status='REVOKED' and g.revoke_key=p_revoke_key then
+  return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
+ end if;
+ if g.status='REVOKED' then raise exception 'revocation replay conflict' using errcode='42501'; end if;
+ insert into public.raxi_approvals(
+  workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+ values(v_workspace,'TASK',g.task_id,'CANCELED',v_actor,
+  'DIRECTOR-REAL-REVOKE:'||p_revoke_key::text,
+  jsonb_build_object('kind','DIRECTOR_REAL_PERMISSION_REVOKED','scopeSha256',g.scope_sha256))
+ returning id into rid;
+ update public.raxi_director_real_pilots set
+  status='REVOKED',revoke_id=rid,revoke_key=p_revoke_key,revoked_at=clock_timestamp()
+ where id=g.id;
+ -- NEVER refund reserved_micros here: future paid-call uncertainty must be reconciled.
+ return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
+end; $f$;
+
+-- Read-only projection for a FUTURE server port, not a dispatch capability.
+create function public.raxi_director_real_read(
+ p_identity jsonb,p_task_id uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_session uuid; v_workspace uuid;
+ g public.raxi_director_real_pilots; t public.raxi_agent_tasks;
+ a public.raxi_approvals; p public.raxi_runtime_policies;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_session:=(p_identity->>'sessionId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id and actor_user_id=v_actor
+ and session_id=v_session and status='READY_FOR_MANUAL_EXECUTION';
+ if not found or g.expires_at<=clock_timestamp()+interval '60 seconds' then return null; end if;
+ select * into t from public.raxi_agent_tasks where id=p_task_id and workspace_id=v_workspace;
+ select * into p from public.raxi_runtime_policies where workspace_id=v_workspace;
+ select * into a from public.raxi_approvals where id=g.approval_id and workspace_id=v_workspace;
+ if t.id is null or t.status<>'WAITING_APPROVAL' or
+    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    p.workspace_id is null or not p.enabled or p.simulated or
+    p.authorization_version<>g.policy_version or p.provider<>g.provider or p.model<>g.model or
+    p.expires_at<=clock_timestamp()+interval '60 seconds' or
+    a.id is null or a.subject_kind<>'TASK' or a.subject_id<>t.id or
+    a.action<>'APPROVED' or a.actor_user_id<>v_actor or
+    a.context->>'scopeSha256'<>g.scope_sha256 or
+    a.context->>'sessionId'<>v_session::text or
+    a.context->>'policyVersion'<>g.policy_version::text or
+    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+      t.input_snapshot->'spec',g.policy_version)
+ then return null; end if;
+ return jsonb_build_object(
+ 'provenance','TRUSTED_SERVER_SNAPSHOT','taskId',t.id,'workspaceId',v_workspace,
+ 'stage','DIRECTOR','simulated',false,'state','READY_FOR_MANUAL_EXECUTION',
+ 'spec',t.input_snapshot->'spec','scopeSha256',g.scope_sha256,
+ 'approval',jsonb_build_object(
+  'provenance','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+  'taskId',t.id,'workspaceId',v_workspace,'operatorId',v_actor,
+  'sessionId',v_session,'decision','APPROVED','revoked',false,
+  'scopeSha256',g.scope_sha256,'policyVersion',g.policy_version,
+  'provider',g.provider,'model',g.model,'maxCostMicros',g.max_cost_micros,
+  'issuedAt',a.decided_at,'expiresAt',g.expires_at),
+ 'policy',jsonb_build_object(
+  'workspaceId',v_workspace,'version',p.authorization_version,'enabled',true,
+  'simulated',false,'provider',p.provider,'model',p.model,
+  'perCallMicros',g.reserved_micros,'remainingMicros',g.reserved_micros,
+  'maxOutputTokens',p.max_output_tokens,'expiresAt',p.expires_at)
+ );
+end; $f$;
+
+-- Explicit ACL: never expose these objects/functions to browser JWT roles.
+revoke all on function public.raxi_director_real_protect() from public,anon,authenticated;
+revoke all on function public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_revoke(jsonb,uuid,uuid) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_read(jsonb,uuid) from public,anon,authenticated;
+grant execute on function public.raxi_director_real_protect() to service_role;
+grant execute on function public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint) to service_role;
+grant execute on function public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint) to service_role;
+grant execute on function public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean) to service_role;
+grant execute on function public.raxi_director_real_revoke(jsonb,uuid,uuid) to service_role;
+grant execute on function public.raxi_director_real_read(jsonb,uuid) to service_role;
+ or
+   jsonb_typeof(p_spec#>'{authorization,maxCostMicros}') is distinct from 'number' or
+   jsonb_typeof(p_spec#>'{authorization,expiresAt}') is distinct from 'string'
+ then raise exception 'closed real Director text-only scope required' using errcode='42501'; end if;
+ begin
+  v_max:=(p_spec#>>'{authorization,maxCostMicros}')::bigint;
+  v_exp:=(p_spec#>>'{authorization,expiresAt}')::timestamptz;
+ exception when others then raise exception 'invalid cost or expiry' using errcode='42501'; end;
+ if v_max<=0 or v_exp<=clock_timestamp()+interval '60 seconds' or
+   v_exp>clock_timestamp()+interval '24 hours'
+ then raise exception 'limited positive budget and expiry required' using errcode='42501'; end if;
+ -- Serialize all preparations per workspace and reject foreign-owner workspace.
+ perform 1 from public.raxi_workspaces
+ where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'workspace ownership denied' using errcode='42501'; end if;
+ select * into existing from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and request_key=p_request_key;
+ if found then
+  select * into t from public.raxi_agent_tasks where id=existing.task_id and workspace_id=v_workspace;
+  if existing.actor_user_id<>v_actor or existing.session_id<>v_session or
+     existing.policy_version<>p_expected_policy_version or
+     t.input_snapshot->'spec' is distinct from p_spec
+  then raise exception 'idempotency scope conflict' using errcode='42501'; end if;
+  return jsonb_build_object('kind','DIRECTOR_REAL_PREPARED_NOT_EXECUTABLE',
+   'taskId',t.id,'status',existing.status,'scopeSha256',existing.scope_sha256,
+   'executionEnabled',false);
+ end if;
+ select * into pol from public.raxi_runtime_policies where workspace_id=v_workspace for update;
+ if not found or pol.enabled is distinct from true or pol.simulated is distinct from false or
+   pol.authorization_version<>p_expected_policy_version or
+   pol.provider is distinct from p_spec->>'provider' or pol.model is distinct from p_spec->>'model' or
+   pol.per_call_micros<=0 or pol.per_call_micros>v_max or pol.total_budget_micros<v_max or
+   pol.reserved_micros+pol.per_call_micros>pol.total_budget_micros or
+   pol.task_count>=pol.max_tasks or pol.max_tasks<>1 or pol.max_output_tokens>256 or
+   pol.expires_at<=v_exp or pol.expires_at<=clock_timestamp()+interval '60 seconds'
+ then raise exception 'real pilot policy is disabled or incompatible' using errcode='42501'; end if;
+ insert into public.raxi_agent_tasks(workspace_id,external_id,title,status,input_snapshot)
+ values(v_workspace,'DIRECTOR-REAL-'||p_request_key::text,'Director real pilot (NOT EXECUTABLE)',
+  'WAITING_APPROVAL',jsonb_build_object('runtime',true,'spec',p_spec,
+   'supervised',jsonb_build_object('provenance','DIRECTOR_REAL_PILOT_NOT_EXECUTABLE',
+    'stage','DIRECTOR','actorId',v_actor,'sessionId',v_session)))
+ returning * into t;
+ v_scope:=public.raxi_director_real_scope(v_workspace,t.id,v_actor,p_spec,pol.authorization_version);
+ insert into public.raxi_director_real_pilots(
+  workspace_id,task_id,actor_user_id,session_id,request_key,scope_sha256,policy_version,
+  provider,model,max_cost_micros,expires_at)
+ values(v_workspace,t.id,v_actor,v_session,p_request_key,v_scope,pol.authorization_version,
+  pol.provider,pol.model,v_max,v_exp);
+ return jsonb_build_object('kind','DIRECTOR_REAL_PREPARED_NOT_EXECUTABLE',
+  'taskId',t.id,'status','WAITING_HUMAN_EXECUTION_AUTH','scopeSha256',v_scope,
+  'executionEnabled',false);
+end; $f$;
+
+create function public.raxi_director_real_approve(
+ p_identity jsonb,p_task_id uuid,p_approval_key uuid,p_scope_sha256 text,p_confirmed boolean
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_session uuid; v_workspace uuid;
+ g public.raxi_director_real_pilots; p public.raxi_runtime_policies;
+ t public.raxi_agent_tasks; v_approval uuid;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_session:=(p_identity->>'sessionId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ if p_task_id is null or p_approval_key is null or p_scope_sha256 !~ '^[a-f0-9]{64}$'
+   or p_confirmed is distinct from true
+ then raise exception 'second explicit human confirmation required' using errcode='42501'; end if;
+ perform 1 from public.raxi_workspaces where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'owner denied' using errcode='42501'; end if;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id for update;
+ if not found or g.actor_user_id<>v_actor or g.session_id<>v_session or
+   g.scope_sha256<>p_scope_sha256
+ then raise exception 'scope/session mismatch' using errcode='42501'; end if;
+ if g.status='READY_FOR_MANUAL_EXECUTION' and g.approval_key=p_approval_key then
+  return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
+   'taskId',g.task_id,'approvalId',g.approval_id,'executionEnabled',false);
+ end if;
+ if g.status<>'WAITING_HUMAN_EXECUTION_AUTH' then
+  raise exception 'cannot reapprove a used or revoked grant' using errcode='42501'; end if;
+ select * into t from public.raxi_agent_tasks where id=g.task_id and workspace_id=g.workspace_id for update;
+ if not found or t.status<>'WAITING_APPROVAL' or
+    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+      t.input_snapshot->'spec',g.policy_version)
+ then raise exception 'task snapshot changed' using errcode='42501'; end if;
+ select * into p from public.raxi_runtime_policies where workspace_id=v_workspace for update;
+ if not found or p.enabled is distinct from true or p.simulated is distinct from false or
+    p.authorization_version<>g.policy_version or p.provider<>g.provider or
+    p.model<>g.model or p.max_tasks<>1 or p.task_count<>0 or p.max_output_tokens>256 or
+    p.per_call_micros<=0 or p.per_call_micros>g.max_cost_micros or
+    p.reserved_micros+p.per_call_micros>p.total_budget_micros or
+    p.expires_at<=clock_timestamp()+interval '60 seconds' or
+    g.expires_at<=clock_timestamp()+interval '60 seconds'
+ then raise exception 'policy changed or budget not available' using errcode='42501'; end if;
+ insert into public.raxi_approvals(
+   workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+ values(v_workspace,'TASK',t.id,'APPROVED',v_actor,
+   'DIRECTOR-REAL-APPROVE:'||p_approval_key::text,
+   jsonb_build_object('kind','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+    'scopeSha256',g.scope_sha256,'sessionId',v_session,'policyVersion',g.policy_version,
+    'provider',g.provider,'model',g.model,'maxCostMicros',g.max_cost_micros,
+    'expiresAt',g.expires_at))
+ returning id into v_approval;
+ update public.raxi_runtime_policies set
+   reserved_micros=reserved_micros+p.per_call_micros,task_count=task_count+1
+ where workspace_id=v_workspace;
+ update public.raxi_director_real_pilots set
+   status='READY_FOR_MANUAL_EXECUTION',approval_id=v_approval,
+   approval_key=p_approval_key,approved_at=clock_timestamp(),
+   reserved_micros=p.per_call_micros
+ where id=g.id;
+ return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
+  'taskId',g.task_id,'approvalId',v_approval,'executionEnabled',false);
+end; $f$;
+
+create function public.raxi_director_real_revoke(
+ p_identity jsonb,p_task_id uuid,p_revoke_key uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_workspace uuid; g public.raxi_director_real_pilots; rid uuid;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ if p_task_id is null or p_revoke_key is null then
+  raise exception 'revoke requires explicit key' using errcode='42501'; end if;
+ perform 1 from public.raxi_workspaces where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'owner denied' using errcode='42501'; end if;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id for update;
+ if not found or g.actor_user_id<>v_actor then
+  raise exception 'task denied' using errcode='42501'; end if;
+ if g.status='REVOKED' and g.revoke_key=p_revoke_key then
+  return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
+ end if;
+ if g.status='REVOKED' then raise exception 'revocation replay conflict' using errcode='42501'; end if;
+ insert into public.raxi_approvals(
+  workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+ values(v_workspace,'TASK',g.task_id,'CANCELED',v_actor,
+  'DIRECTOR-REAL-REVOKE:'||p_revoke_key::text,
+  jsonb_build_object('kind','DIRECTOR_REAL_PERMISSION_REVOKED','scopeSha256',g.scope_sha256))
+ returning id into rid;
+ update public.raxi_director_real_pilots set
+  status='REVOKED',revoke_id=rid,revoke_key=p_revoke_key,revoked_at=clock_timestamp()
+ where id=g.id;
+ -- NEVER refund reserved_micros here: future paid-call uncertainty must be reconciled.
+ return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
+end; $f$;
+
+-- Read-only projection for a FUTURE server port, not a dispatch capability.
+create function public.raxi_director_real_read(
+ p_identity jsonb,p_task_id uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_session uuid; v_workspace uuid;
+ g public.raxi_director_real_pilots; t public.raxi_agent_tasks;
+ a public.raxi_approvals; p public.raxi_runtime_policies;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_session:=(p_identity->>'sessionId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id and actor_user_id=v_actor
+ and session_id=v_session and status='READY_FOR_MANUAL_EXECUTION';
+ if not found or g.expires_at<=clock_timestamp()+interval '60 seconds' then return null; end if;
+ select * into t from public.raxi_agent_tasks where id=p_task_id and workspace_id=v_workspace;
+ select * into p from public.raxi_runtime_policies where workspace_id=v_workspace;
+ select * into a from public.raxi_approvals where id=g.approval_id and workspace_id=v_workspace;
+ if t.id is null or t.status<>'WAITING_APPROVAL' or
+    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    p.workspace_id is null or not p.enabled or p.simulated or
+    p.authorization_version<>g.policy_version or p.provider<>g.provider or p.model<>g.model or
+    p.expires_at<=clock_timestamp()+interval '60 seconds' or
+    a.id is null or a.subject_kind<>'TASK' or a.subject_id<>t.id or
+    a.action<>'APPROVED' or a.actor_user_id<>v_actor or
+    a.context->>'scopeSha256'<>g.scope_sha256 or
+    a.context->>'sessionId'<>v_session::text or
+    a.context->>'policyVersion'<>g.policy_version::text or
+    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+      t.input_snapshot->'spec',g.policy_version)
+ then return null; end if;
+ return jsonb_build_object(
+ 'provenance','TRUSTED_SERVER_SNAPSHOT','taskId',t.id,'workspaceId',v_workspace,
+ 'stage','DIRECTOR','simulated',false,'state','READY_FOR_MANUAL_EXECUTION',
+ 'spec',t.input_snapshot->'spec','scopeSha256',g.scope_sha256,
+ 'approval',jsonb_build_object(
+  'provenance','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+  'taskId',t.id,'workspaceId',v_workspace,'operatorId',v_actor,
+  'sessionId',v_session,'decision','APPROVED','revoked',false,
+  'scopeSha256',g.scope_sha256,'policyVersion',g.policy_version,
+  'provider',g.provider,'model',g.model,'maxCostMicros',g.max_cost_micros,
+  'issuedAt',a.decided_at,'expiresAt',g.expires_at),
+ 'policy',jsonb_build_object(
+  'workspaceId',v_workspace,'version',p.authorization_version,'enabled',true,
+  'simulated',false,'provider',p.provider,'model',p.model,
+  'perCallMicros',g.reserved_micros,'remainingMicros',g.reserved_micros,
+  'maxOutputTokens',p.max_output_tokens,'expiresAt',p.expires_at)
+ );
+end; $f$;
+
+-- Explicit ACL: never expose these objects/functions to browser JWT roles.
+revoke all on function public.raxi_director_real_protect() from public,anon,authenticated;
+revoke all on function public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_revoke(jsonb,uuid,uuid) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_read(jsonb,uuid) from public,anon,authenticated;
+grant execute on function public.raxi_director_real_protect() to service_role;
+grant execute on function public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint) to service_role;
+grant execute on function public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint) to service_role;
+grant execute on function public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean) to service_role;
+grant execute on function public.raxi_director_real_revoke(jsonb,uuid,uuid) to service_role;
+grant execute on function public.raxi_director_real_read(jsonb,uuid) to service_role;
+ or
+   p_spec->>'provider'='simulated' or
+   p_spec->>'model' !~ '^[A-Za-z0-9._-]{1,100}$' or
+   jsonb_typeof(p_spec#>'{authorization,maxCostMicros}') is distinct from 'number' or
+   jsonb_typeof(p_spec#>'{authorization,expiresAt}') is distinct from 'string'
+ then raise exception 'closed real Director text-only scope required' using errcode='42501'; end if;
+ begin
+  v_max:=(p_spec#>>'{authorization,maxCostMicros}')::bigint;
+  v_exp:=(p_spec#>>'{authorization,expiresAt}')::timestamptz;
+ exception when others then raise exception 'invalid cost or expiry' using errcode='42501'; end;
+ if v_max<=0 or v_exp<=clock_timestamp()+interval '60 seconds' or
+   v_exp>clock_timestamp()+interval '24 hours'
+ then raise exception 'limited positive budget and expiry required' using errcode='42501'; end if;
+ -- Serialize all preparations per workspace and reject foreign-owner workspace.
+ perform 1 from public.raxi_workspaces
+ where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'workspace ownership denied' using errcode='42501'; end if;
+ select * into existing from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and request_key=p_request_key;
+ if found then
+  select * into t from public.raxi_agent_tasks where id=existing.task_id and workspace_id=v_workspace;
+  if existing.actor_user_id<>v_actor or existing.session_id<>v_session or
+     existing.policy_version<>p_expected_policy_version or
+     t.input_snapshot->'spec' is distinct from p_spec
+  then raise exception 'idempotency scope conflict' using errcode='42501'; end if;
+  return jsonb_build_object('kind','DIRECTOR_REAL_PREPARED_NOT_EXECUTABLE',
+   'taskId',t.id,'status',existing.status,'scopeSha256',existing.scope_sha256,
+   'executionEnabled',false);
+ end if;
+ select * into pol from public.raxi_runtime_policies where workspace_id=v_workspace for update;
+ if not found or pol.enabled is distinct from true or pol.simulated is distinct from false or
+   pol.authorization_version<>p_expected_policy_version or
+   pol.provider is distinct from p_spec->>'provider' or pol.model is distinct from p_spec->>'model' or
+   pol.per_call_micros<=0 or pol.per_call_micros>v_max or pol.total_budget_micros<v_max or
+   pol.reserved_micros+pol.per_call_micros>pol.total_budget_micros or
+   pol.task_count>=pol.max_tasks or pol.max_tasks<>1 or pol.max_output_tokens>256 or
+   pol.expires_at<=v_exp or pol.expires_at<=clock_timestamp()+interval '60 seconds'
+ then raise exception 'real pilot policy is disabled or incompatible' using errcode='42501'; end if;
+ insert into public.raxi_agent_tasks(workspace_id,external_id,title,status,input_snapshot)
+ values(v_workspace,'DIRECTOR-REAL-'||p_request_key::text,'Director real pilot (NOT EXECUTABLE)',
+  'WAITING_APPROVAL',jsonb_build_object('runtime',true,'spec',p_spec,
+   'supervised',jsonb_build_object('provenance','DIRECTOR_REAL_PILOT_NOT_EXECUTABLE',
+    'stage','DIRECTOR','actorId',v_actor,'sessionId',v_session)))
+ returning * into t;
+ v_scope:=public.raxi_director_real_scope(v_workspace,t.id,v_actor,p_spec,pol.authorization_version);
+ insert into public.raxi_director_real_pilots(
+  workspace_id,task_id,actor_user_id,session_id,request_key,scope_sha256,policy_version,
+  provider,model,max_cost_micros,expires_at)
+ values(v_workspace,t.id,v_actor,v_session,p_request_key,v_scope,pol.authorization_version,
+  pol.provider,pol.model,v_max,v_exp);
+ return jsonb_build_object('kind','DIRECTOR_REAL_PREPARED_NOT_EXECUTABLE',
+  'taskId',t.id,'status','WAITING_HUMAN_EXECUTION_AUTH','scopeSha256',v_scope,
+  'executionEnabled',false);
+end; $f$;
+
+create function public.raxi_director_real_approve(
+ p_identity jsonb,p_task_id uuid,p_approval_key uuid,p_scope_sha256 text,p_confirmed boolean
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_session uuid; v_workspace uuid;
+ g public.raxi_director_real_pilots; p public.raxi_runtime_policies;
+ t public.raxi_agent_tasks; v_approval uuid;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_session:=(p_identity->>'sessionId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ if p_task_id is null or p_approval_key is null or p_scope_sha256 !~ '^[a-f0-9]{64}$'
+   or p_confirmed is distinct from true
+ then raise exception 'second explicit human confirmation required' using errcode='42501'; end if;
+ perform 1 from public.raxi_workspaces where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'owner denied' using errcode='42501'; end if;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id for update;
+ if not found or g.actor_user_id<>v_actor or g.session_id<>v_session or
+   g.scope_sha256<>p_scope_sha256
+ then raise exception 'scope/session mismatch' using errcode='42501'; end if;
+ if g.status='READY_FOR_MANUAL_EXECUTION' and g.approval_key=p_approval_key then
+  return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
+   'taskId',g.task_id,'approvalId',g.approval_id,'executionEnabled',false);
+ end if;
+ if g.status<>'WAITING_HUMAN_EXECUTION_AUTH' then
+  raise exception 'cannot reapprove a used or revoked grant' using errcode='42501'; end if;
+ select * into t from public.raxi_agent_tasks where id=g.task_id and workspace_id=g.workspace_id for update;
+ if not found or t.status<>'WAITING_APPROVAL' or
+    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+      t.input_snapshot->'spec',g.policy_version)
+ then raise exception 'task snapshot changed' using errcode='42501'; end if;
+ select * into p from public.raxi_runtime_policies where workspace_id=v_workspace for update;
+ if not found or p.enabled is distinct from true or p.simulated is distinct from false or
+    p.authorization_version<>g.policy_version or p.provider<>g.provider or
+    p.model<>g.model or p.max_tasks<>1 or p.task_count<>0 or p.max_output_tokens>256 or
+    p.per_call_micros<=0 or p.per_call_micros>g.max_cost_micros or
+    p.reserved_micros+p.per_call_micros>p.total_budget_micros or
+    p.expires_at<=clock_timestamp()+interval '60 seconds' or
+    g.expires_at<=clock_timestamp()+interval '60 seconds'
+ then raise exception 'policy changed or budget not available' using errcode='42501'; end if;
+ insert into public.raxi_approvals(
+   workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+ values(v_workspace,'TASK',t.id,'APPROVED',v_actor,
+   'DIRECTOR-REAL-APPROVE:'||p_approval_key::text,
+   jsonb_build_object('kind','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+    'scopeSha256',g.scope_sha256,'sessionId',v_session,'policyVersion',g.policy_version,
+    'provider',g.provider,'model',g.model,'maxCostMicros',g.max_cost_micros,
+    'expiresAt',g.expires_at))
+ returning id into v_approval;
+ update public.raxi_runtime_policies set
+   reserved_micros=reserved_micros+p.per_call_micros,task_count=task_count+1
+ where workspace_id=v_workspace;
+ update public.raxi_director_real_pilots set
+   status='READY_FOR_MANUAL_EXECUTION',approval_id=v_approval,
+   approval_key=p_approval_key,approved_at=clock_timestamp(),
+   reserved_micros=p.per_call_micros
+ where id=g.id;
+ return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
+  'taskId',g.task_id,'approvalId',v_approval,'executionEnabled',false);
+end; $f$;
+
+create function public.raxi_director_real_revoke(
+ p_identity jsonb,p_task_id uuid,p_revoke_key uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_workspace uuid; g public.raxi_director_real_pilots; rid uuid;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ if p_task_id is null or p_revoke_key is null then
+  raise exception 'revoke requires explicit key' using errcode='42501'; end if;
+ perform 1 from public.raxi_workspaces where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'owner denied' using errcode='42501'; end if;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id for update;
+ if not found or g.actor_user_id<>v_actor then
+  raise exception 'task denied' using errcode='42501'; end if;
+ if g.status='REVOKED' and g.revoke_key=p_revoke_key then
+  return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
+ end if;
+ if g.status='REVOKED' then raise exception 'revocation replay conflict' using errcode='42501'; end if;
+ insert into public.raxi_approvals(
+  workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+ values(v_workspace,'TASK',g.task_id,'CANCELED',v_actor,
+  'DIRECTOR-REAL-REVOKE:'||p_revoke_key::text,
+  jsonb_build_object('kind','DIRECTOR_REAL_PERMISSION_REVOKED','scopeSha256',g.scope_sha256))
+ returning id into rid;
+ update public.raxi_director_real_pilots set
+  status='REVOKED',revoke_id=rid,revoke_key=p_revoke_key,revoked_at=clock_timestamp()
+ where id=g.id;
+ -- NEVER refund reserved_micros here: future paid-call uncertainty must be reconciled.
+ return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
+end; $f$;
+
+-- Read-only projection for a FUTURE server port, not a dispatch capability.
+create function public.raxi_director_real_read(
+ p_identity jsonb,p_task_id uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_session uuid; v_workspace uuid;
+ g public.raxi_director_real_pilots; t public.raxi_agent_tasks;
+ a public.raxi_approvals; p public.raxi_runtime_policies;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_session:=(p_identity->>'sessionId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id and actor_user_id=v_actor
+ and session_id=v_session and status='READY_FOR_MANUAL_EXECUTION';
+ if not found or g.expires_at<=clock_timestamp()+interval '60 seconds' then return null; end if;
+ select * into t from public.raxi_agent_tasks where id=p_task_id and workspace_id=v_workspace;
+ select * into p from public.raxi_runtime_policies where workspace_id=v_workspace;
+ select * into a from public.raxi_approvals where id=g.approval_id and workspace_id=v_workspace;
+ if t.id is null or t.status<>'WAITING_APPROVAL' or
+    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    p.workspace_id is null or not p.enabled or p.simulated or
+    p.authorization_version<>g.policy_version or p.provider<>g.provider or p.model<>g.model or
+    p.expires_at<=clock_timestamp()+interval '60 seconds' or
+    a.id is null or a.subject_kind<>'TASK' or a.subject_id<>t.id or
+    a.action<>'APPROVED' or a.actor_user_id<>v_actor or
+    a.context->>'scopeSha256'<>g.scope_sha256 or
+    a.context->>'sessionId'<>v_session::text or
+    a.context->>'policyVersion'<>g.policy_version::text or
+    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+      t.input_snapshot->'spec',g.policy_version)
+ then return null; end if;
+ return jsonb_build_object(
+ 'provenance','TRUSTED_SERVER_SNAPSHOT','taskId',t.id,'workspaceId',v_workspace,
+ 'stage','DIRECTOR','simulated',false,'state','READY_FOR_MANUAL_EXECUTION',
+ 'spec',t.input_snapshot->'spec','scopeSha256',g.scope_sha256,
+ 'approval',jsonb_build_object(
+  'provenance','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+  'taskId',t.id,'workspaceId',v_workspace,'operatorId',v_actor,
+  'sessionId',v_session,'decision','APPROVED','revoked',false,
+  'scopeSha256',g.scope_sha256,'policyVersion',g.policy_version,
+  'provider',g.provider,'model',g.model,'maxCostMicros',g.max_cost_micros,
+  'issuedAt',a.decided_at,'expiresAt',g.expires_at),
+ 'policy',jsonb_build_object(
+  'workspaceId',v_workspace,'version',p.authorization_version,'enabled',true,
+  'simulated',false,'provider',p.provider,'model',p.model,
+  'perCallMicros',g.reserved_micros,'remainingMicros',g.reserved_micros,
+  'maxOutputTokens',p.max_output_tokens,'expiresAt',p.expires_at)
+ );
+end; $f$;
+
+-- Explicit ACL: never expose these objects/functions to browser JWT roles.
+revoke all on function public.raxi_director_real_protect() from public,anon,authenticated;
+revoke all on function public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_revoke(jsonb,uuid,uuid) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_read(jsonb,uuid) from public,anon,authenticated;
+grant execute on function public.raxi_director_real_protect() to service_role;
+grant execute on function public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint) to service_role;
+grant execute on function public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint) to service_role;
+grant execute on function public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean) to service_role;
+grant execute on function public.raxi_director_real_revoke(jsonb,uuid,uuid) to service_role;
+grant execute on function public.raxi_director_real_read(jsonb,uuid) to service_role;
+
+   or p_confirmed is distinct from true
+ then raise exception 'second explicit human confirmation required' using errcode='42501'; end if;
+ perform 1 from public.raxi_workspaces where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'owner denied' using errcode='42501'; end if;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id for update;
+ if not found or g.actor_user_id<>v_actor or g.session_id<>v_session or
+   g.scope_sha256<>p_scope_sha256
+ then raise exception 'scope/session mismatch' using errcode='42501'; end if;
+ if g.status='READY_FOR_MANUAL_EXECUTION' and g.approval_key=p_approval_key then
+  return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
+   'taskId',g.task_id,'approvalId',g.approval_id,'executionEnabled',false);
+ end if;
+ if g.status<>'WAITING_HUMAN_EXECUTION_AUTH' then
+  raise exception 'cannot reapprove a used or revoked grant' using errcode='42501'; end if;
+ select * into t from public.raxi_agent_tasks where id=g.task_id and workspace_id=g.workspace_id for update;
+ if not found or t.status<>'WAITING_APPROVAL' or
+    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+      t.input_snapshot->'spec',g.policy_version)
+ then raise exception 'task snapshot changed' using errcode='42501'; end if;
+ select * into p from public.raxi_runtime_policies where workspace_id=v_workspace for update;
+ if not found or p.enabled is distinct from true or p.simulated is distinct from false or
+    p.authorization_version<>g.policy_version or p.provider<>g.provider or
+    p.model<>g.model or p.max_tasks<>1 or p.task_count<>0 or p.max_output_tokens>256 or
+    p.per_call_micros<=0 or p.per_call_micros>g.max_cost_micros or
+    p.reserved_micros+p.per_call_micros>p.total_budget_micros or
+    p.expires_at<=clock_timestamp()+interval '60 seconds' or
+    g.expires_at<=clock_timestamp()+interval '60 seconds'
+ then raise exception 'policy changed or budget not available' using errcode='42501'; end if;
+ insert into public.raxi_approvals(
+   workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+ values(v_workspace,'TASK',t.id,'APPROVED',v_actor,
+   'DIRECTOR-REAL-APPROVE:'||p_approval_key::text,
+   jsonb_build_object('kind','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+    'scopeSha256',g.scope_sha256,'sessionId',v_session,'policyVersion',g.policy_version,
+    'provider',g.provider,'model',g.model,'maxCostMicros',g.max_cost_micros,
+    'expiresAt',g.expires_at))
+ returning id into v_approval;
+ update public.raxi_runtime_policies set
+   reserved_micros=reserved_micros+p.per_call_micros,task_count=task_count+1
+ where workspace_id=v_workspace;
+ update public.raxi_director_real_pilots set
+   status='READY_FOR_MANUAL_EXECUTION',approval_id=v_approval,
+   approval_key=p_approval_key,approved_at=clock_timestamp(),
+   reserved_micros=p.per_call_micros
+ where id=g.id;
+ return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
+  'taskId',g.task_id,'approvalId',v_approval,'executionEnabled',false);
+end; $f$;
+
+create function public.raxi_director_real_revoke(
+ p_identity jsonb,p_task_id uuid,p_revoke_key uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_workspace uuid; g public.raxi_director_real_pilots; rid uuid;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ if p_task_id is null or p_revoke_key is null then
+  raise exception 'revoke requires explicit key' using errcode='42501'; end if;
+ perform 1 from public.raxi_workspaces where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'owner denied' using errcode='42501'; end if;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id for update;
+ if not found or g.actor_user_id<>v_actor then
+  raise exception 'task denied' using errcode='42501'; end if;
+ if g.status='REVOKED' and g.revoke_key=p_revoke_key then
+  return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
+ end if;
+ if g.status='REVOKED' then raise exception 'revocation replay conflict' using errcode='42501'; end if;
+ insert into public.raxi_approvals(
+  workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+ values(v_workspace,'TASK',g.task_id,'CANCELED',v_actor,
+  'DIRECTOR-REAL-REVOKE:'||p_revoke_key::text,
+  jsonb_build_object('kind','DIRECTOR_REAL_PERMISSION_REVOKED','scopeSha256',g.scope_sha256))
+ returning id into rid;
+ update public.raxi_director_real_pilots set
+  status='REVOKED',revoke_id=rid,revoke_key=p_revoke_key,revoked_at=clock_timestamp()
+ where id=g.id;
+ -- NEVER refund reserved_micros here: future paid-call uncertainty must be reconciled.
+ return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
+end; $f$;
+
+-- Read-only projection for a FUTURE server port, not a dispatch capability.
+create function public.raxi_director_real_read(
+ p_identity jsonb,p_task_id uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_session uuid; v_workspace uuid;
+ g public.raxi_director_real_pilots; t public.raxi_agent_tasks;
+ a public.raxi_approvals; p public.raxi_runtime_policies;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_session:=(p_identity->>'sessionId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id and actor_user_id=v_actor
+ and session_id=v_session and status='READY_FOR_MANUAL_EXECUTION';
+ if not found or g.expires_at<=clock_timestamp()+interval '60 seconds' then return null; end if;
+ select * into t from public.raxi_agent_tasks where id=p_task_id and workspace_id=v_workspace;
+ select * into p from public.raxi_runtime_policies where workspace_id=v_workspace;
+ select * into a from public.raxi_approvals where id=g.approval_id and workspace_id=v_workspace;
+ if t.id is null or t.status<>'WAITING_APPROVAL' or
+    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    p.workspace_id is null or not p.enabled or p.simulated or
+    p.authorization_version<>g.policy_version or p.provider<>g.provider or p.model<>g.model or
+    p.expires_at<=clock_timestamp()+interval '60 seconds' or
+    a.id is null or a.subject_kind<>'TASK' or a.subject_id<>t.id or
+    a.action<>'APPROVED' or a.actor_user_id<>v_actor or
+    a.context->>'scopeSha256'<>g.scope_sha256 or
+    a.context->>'sessionId'<>v_session::text or
+    a.context->>'policyVersion'<>g.policy_version::text or
+    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+      t.input_snapshot->'spec',g.policy_version)
+ then return null; end if;
+ return jsonb_build_object(
+ 'provenance','TRUSTED_SERVER_SNAPSHOT','taskId',t.id,'workspaceId',v_workspace,
+ 'stage','DIRECTOR','simulated',false,'state','READY_FOR_MANUAL_EXECUTION',
+ 'spec',t.input_snapshot->'spec','scopeSha256',g.scope_sha256,
+ 'approval',jsonb_build_object(
+  'provenance','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+  'taskId',t.id,'workspaceId',v_workspace,'operatorId',v_actor,
+  'sessionId',v_session,'decision','APPROVED','revoked',false,
+  'scopeSha256',g.scope_sha256,'policyVersion',g.policy_version,
+  'provider',g.provider,'model',g.model,'maxCostMicros',g.max_cost_micros,
+  'issuedAt',a.decided_at,'expiresAt',g.expires_at),
+ 'policy',jsonb_build_object(
+  'workspaceId',v_workspace,'version',p.authorization_version,'enabled',true,
+  'simulated',false,'provider',p.provider,'model',p.model,
+  'perCallMicros',g.reserved_micros,'remainingMicros',g.reserved_micros,
+  'maxOutputTokens',p.max_output_tokens,'expiresAt',p.expires_at)
+ );
+end; $f$;
+
+-- Explicit ACL: never expose these objects/functions to browser JWT roles.
+revoke all on function public.raxi_director_real_protect() from public,anon,authenticated;
+revoke all on function public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_revoke(jsonb,uuid,uuid) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_read(jsonb,uuid) from public,anon,authenticated;
+grant execute on function public.raxi_director_real_protect() to service_role;
+grant execute on function public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint) to service_role;
+grant execute on function public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint) to service_role;
+grant execute on function public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean) to service_role;
+grant execute on function public.raxi_director_real_revoke(jsonb,uuid,uuid) to service_role;
+grant execute on function public.raxi_director_real_read(jsonb,uuid) to service_role;
+ or
+   p_spec->>'provider'='simulated' or
+   p_spec->>'model' !~ '^[A-Za-z0-9._-]{1,100}$' or
+   jsonb_typeof(p_spec#>'{authorization,maxCostMicros}') is distinct from 'number' or
+   jsonb_typeof(p_spec#>'{authorization,expiresAt}') is distinct from 'string'
+ then raise exception 'closed real Director text-only scope required' using errcode='42501'; end if;
+ begin
+  v_max:=(p_spec#>>'{authorization,maxCostMicros}')::bigint;
+  v_exp:=(p_spec#>>'{authorization,expiresAt}')::timestamptz;
+ exception when others then raise exception 'invalid cost or expiry' using errcode='42501'; end;
+ if v_max<=0 or v_exp<=clock_timestamp()+interval '60 seconds' or
+   v_exp>clock_timestamp()+interval '24 hours'
+ then raise exception 'limited positive budget and expiry required' using errcode='42501'; end if;
+ -- Serialize all preparations per workspace and reject foreign-owner workspace.
+ perform 1 from public.raxi_workspaces
+ where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'workspace ownership denied' using errcode='42501'; end if;
+ select * into existing from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and request_key=p_request_key;
+ if found then
+  select * into t from public.raxi_agent_tasks where id=existing.task_id and workspace_id=v_workspace;
+  if existing.actor_user_id<>v_actor or existing.session_id<>v_session or
+     existing.policy_version<>p_expected_policy_version or
+     t.input_snapshot->'spec' is distinct from p_spec
+  then raise exception 'idempotency scope conflict' using errcode='42501'; end if;
+  return jsonb_build_object('kind','DIRECTOR_REAL_PREPARED_NOT_EXECUTABLE',
+   'taskId',t.id,'status',existing.status,'scopeSha256',existing.scope_sha256,
+   'executionEnabled',false);
+ end if;
+ select * into pol from public.raxi_runtime_policies where workspace_id=v_workspace for update;
+ if not found or pol.enabled is distinct from true or pol.simulated is distinct from false or
+   pol.authorization_version<>p_expected_policy_version or
+   pol.provider is distinct from p_spec->>'provider' or pol.model is distinct from p_spec->>'model' or
+   pol.per_call_micros<=0 or pol.per_call_micros>v_max or pol.total_budget_micros<v_max or
+   pol.reserved_micros+pol.per_call_micros>pol.total_budget_micros or
+   pol.task_count>=pol.max_tasks or pol.max_tasks<>1 or pol.max_output_tokens>256 or
+   pol.expires_at<=v_exp or pol.expires_at<=clock_timestamp()+interval '60 seconds'
+ then raise exception 'real pilot policy is disabled or incompatible' using errcode='42501'; end if;
+ insert into public.raxi_agent_tasks(workspace_id,external_id,title,status,input_snapshot)
+ values(v_workspace,'DIRECTOR-REAL-'||p_request_key::text,'Director real pilot (NOT EXECUTABLE)',
+  'WAITING_APPROVAL',jsonb_build_object('runtime',true,'spec',p_spec,
+   'supervised',jsonb_build_object('provenance','DIRECTOR_REAL_PILOT_NOT_EXECUTABLE',
+    'stage','DIRECTOR','actorId',v_actor,'sessionId',v_session)))
+ returning * into t;
+ v_scope:=public.raxi_director_real_scope(v_workspace,t.id,v_actor,p_spec,pol.authorization_version);
+ insert into public.raxi_director_real_pilots(
+  workspace_id,task_id,actor_user_id,session_id,request_key,scope_sha256,policy_version,
+  provider,model,max_cost_micros,expires_at)
+ values(v_workspace,t.id,v_actor,v_session,p_request_key,v_scope,pol.authorization_version,
+  pol.provider,pol.model,v_max,v_exp);
+ return jsonb_build_object('kind','DIRECTOR_REAL_PREPARED_NOT_EXECUTABLE',
+  'taskId',t.id,'status','WAITING_HUMAN_EXECUTION_AUTH','scopeSha256',v_scope,
+  'executionEnabled',false);
+end; $f$;
+
+create function public.raxi_director_real_approve(
+ p_identity jsonb,p_task_id uuid,p_approval_key uuid,p_scope_sha256 text,p_confirmed boolean
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_session uuid; v_workspace uuid;
+ g public.raxi_director_real_pilots; p public.raxi_runtime_policies;
+ t public.raxi_agent_tasks; v_approval uuid;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_session:=(p_identity->>'sessionId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ if p_task_id is null or p_approval_key is null or p_scope_sha256 !~ '^[a-f0-9]{64}$'
+   or p_confirmed is distinct from true
+ then raise exception 'second explicit human confirmation required' using errcode='42501'; end if;
+ perform 1 from public.raxi_workspaces where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'owner denied' using errcode='42501'; end if;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id for update;
+ if not found or g.actor_user_id<>v_actor or g.session_id<>v_session or
+   g.scope_sha256<>p_scope_sha256
+ then raise exception 'scope/session mismatch' using errcode='42501'; end if;
+ if g.status='READY_FOR_MANUAL_EXECUTION' and g.approval_key=p_approval_key then
+  return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
+   'taskId',g.task_id,'approvalId',g.approval_id,'executionEnabled',false);
+ end if;
+ if g.status<>'WAITING_HUMAN_EXECUTION_AUTH' then
+  raise exception 'cannot reapprove a used or revoked grant' using errcode='42501'; end if;
+ select * into t from public.raxi_agent_tasks where id=g.task_id and workspace_id=g.workspace_id for update;
+ if not found or t.status<>'WAITING_APPROVAL' or
+    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+      t.input_snapshot->'spec',g.policy_version)
+ then raise exception 'task snapshot changed' using errcode='42501'; end if;
+ select * into p from public.raxi_runtime_policies where workspace_id=v_workspace for update;
+ if not found or p.enabled is distinct from true or p.simulated is distinct from false or
+    p.authorization_version<>g.policy_version or p.provider<>g.provider or
+    p.model<>g.model or p.max_tasks<>1 or p.task_count<>0 or p.max_output_tokens>256 or
+    p.per_call_micros<=0 or p.per_call_micros>g.max_cost_micros or
+    p.reserved_micros+p.per_call_micros>p.total_budget_micros or
+    p.expires_at<=clock_timestamp()+interval '60 seconds' or
+    g.expires_at<=clock_timestamp()+interval '60 seconds'
+ then raise exception 'policy changed or budget not available' using errcode='42501'; end if;
+ insert into public.raxi_approvals(
+   workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+ values(v_workspace,'TASK',t.id,'APPROVED',v_actor,
+   'DIRECTOR-REAL-APPROVE:'||p_approval_key::text,
+   jsonb_build_object('kind','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+    'scopeSha256',g.scope_sha256,'sessionId',v_session,'policyVersion',g.policy_version,
+    'provider',g.provider,'model',g.model,'maxCostMicros',g.max_cost_micros,
+    'expiresAt',g.expires_at))
+ returning id into v_approval;
+ update public.raxi_runtime_policies set
+   reserved_micros=reserved_micros+p.per_call_micros,task_count=task_count+1
+ where workspace_id=v_workspace;
+ update public.raxi_director_real_pilots set
+   status='READY_FOR_MANUAL_EXECUTION',approval_id=v_approval,
+   approval_key=p_approval_key,approved_at=clock_timestamp(),
+   reserved_micros=p.per_call_micros
+ where id=g.id;
+ return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
+  'taskId',g.task_id,'approvalId',v_approval,'executionEnabled',false);
+end; $f$;
+
+create function public.raxi_director_real_revoke(
+ p_identity jsonb,p_task_id uuid,p_revoke_key uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_workspace uuid; g public.raxi_director_real_pilots; rid uuid;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ if p_task_id is null or p_revoke_key is null then
+  raise exception 'revoke requires explicit key' using errcode='42501'; end if;
+ perform 1 from public.raxi_workspaces where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'owner denied' using errcode='42501'; end if;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id for update;
+ if not found or g.actor_user_id<>v_actor then
+  raise exception 'task denied' using errcode='42501'; end if;
+ if g.status='REVOKED' and g.revoke_key=p_revoke_key then
+  return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
+ end if;
+ if g.status='REVOKED' then raise exception 'revocation replay conflict' using errcode='42501'; end if;
+ insert into public.raxi_approvals(
+  workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+ values(v_workspace,'TASK',g.task_id,'CANCELED',v_actor,
+  'DIRECTOR-REAL-REVOKE:'||p_revoke_key::text,
+  jsonb_build_object('kind','DIRECTOR_REAL_PERMISSION_REVOKED','scopeSha256',g.scope_sha256))
+ returning id into rid;
+ update public.raxi_director_real_pilots set
+  status='REVOKED',revoke_id=rid,revoke_key=p_revoke_key,revoked_at=clock_timestamp()
+ where id=g.id;
+ -- NEVER refund reserved_micros here: future paid-call uncertainty must be reconciled.
+ return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
+end; $f$;
+
+-- Read-only projection for a FUTURE server port, not a dispatch capability.
+create function public.raxi_director_real_read(
+ p_identity jsonb,p_task_id uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_session uuid; v_workspace uuid;
+ g public.raxi_director_real_pilots; t public.raxi_agent_tasks;
+ a public.raxi_approvals; p public.raxi_runtime_policies;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_session:=(p_identity->>'sessionId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id and actor_user_id=v_actor
+ and session_id=v_session and status='READY_FOR_MANUAL_EXECUTION';
+ if not found or g.expires_at<=clock_timestamp()+interval '60 seconds' then return null; end if;
+ select * into t from public.raxi_agent_tasks where id=p_task_id and workspace_id=v_workspace;
+ select * into p from public.raxi_runtime_policies where workspace_id=v_workspace;
+ select * into a from public.raxi_approvals where id=g.approval_id and workspace_id=v_workspace;
+ if t.id is null or t.status<>'WAITING_APPROVAL' or
+    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    p.workspace_id is null or not p.enabled or p.simulated or
+    p.authorization_version<>g.policy_version or p.provider<>g.provider or p.model<>g.model or
+    p.expires_at<=clock_timestamp()+interval '60 seconds' or
+    a.id is null or a.subject_kind<>'TASK' or a.subject_id<>t.id or
+    a.action<>'APPROVED' or a.actor_user_id<>v_actor or
+    a.context->>'scopeSha256'<>g.scope_sha256 or
+    a.context->>'sessionId'<>v_session::text or
+    a.context->>'policyVersion'<>g.policy_version::text or
+    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+      t.input_snapshot->'spec',g.policy_version)
+ then return null; end if;
+ return jsonb_build_object(
+ 'provenance','TRUSTED_SERVER_SNAPSHOT','taskId',t.id,'workspaceId',v_workspace,
+ 'stage','DIRECTOR','simulated',false,'state','READY_FOR_MANUAL_EXECUTION',
+ 'spec',t.input_snapshot->'spec','scopeSha256',g.scope_sha256,
+ 'approval',jsonb_build_object(
+  'provenance','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+  'taskId',t.id,'workspaceId',v_workspace,'operatorId',v_actor,
+  'sessionId',v_session,'decision','APPROVED','revoked',false,
+  'scopeSha256',g.scope_sha256,'policyVersion',g.policy_version,
+  'provider',g.provider,'model',g.model,'maxCostMicros',g.max_cost_micros,
+  'issuedAt',a.decided_at,'expiresAt',g.expires_at),
+ 'policy',jsonb_build_object(
+  'workspaceId',v_workspace,'version',p.authorization_version,'enabled',true,
+  'simulated',false,'provider',p.provider,'model',p.model,
+  'perCallMicros',g.reserved_micros,'remainingMicros',g.reserved_micros,
+  'maxOutputTokens',p.max_output_tokens,'expiresAt',p.expires_at)
+ );
+end; $f$;
+
+-- Explicit ACL: never expose these objects/functions to browser JWT roles.
+revoke all on function public.raxi_director_real_protect() from public,anon,authenticated;
+revoke all on function public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_revoke(jsonb,uuid,uuid) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_read(jsonb,uuid) from public,anon,authenticated;
+grant execute on function public.raxi_director_real_protect() to service_role;
+grant execute on function public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint) to service_role;
+grant execute on function public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint) to service_role;
+grant execute on function public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean) to service_role;
+grant execute on function public.raxi_director_real_revoke(jsonb,uuid,uuid) to service_role;
+grant execute on function public.raxi_director_real_read(jsonb,uuid) to service_role;
+ or
+   jsonb_typeof(p_spec#>'{authorization,maxCostMicros}') is distinct from 'number' or
+   jsonb_typeof(p_spec#>'{authorization,expiresAt}') is distinct from 'string'
+ then raise exception 'closed real Director text-only scope required' using errcode='42501'; end if;
+ begin
+  v_max:=(p_spec#>>'{authorization,maxCostMicros}')::bigint;
+  v_exp:=(p_spec#>>'{authorization,expiresAt}')::timestamptz;
+ exception when others then raise exception 'invalid cost or expiry' using errcode='42501'; end;
+ if v_max<=0 or v_exp<=clock_timestamp()+interval '60 seconds' or
+   v_exp>clock_timestamp()+interval '24 hours'
+ then raise exception 'limited positive budget and expiry required' using errcode='42501'; end if;
+ -- Serialize all preparations per workspace and reject foreign-owner workspace.
+ perform 1 from public.raxi_workspaces
+ where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'workspace ownership denied' using errcode='42501'; end if;
+ select * into existing from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and request_key=p_request_key;
+ if found then
+  select * into t from public.raxi_agent_tasks where id=existing.task_id and workspace_id=v_workspace;
+  if existing.actor_user_id<>v_actor or existing.session_id<>v_session or
+     existing.policy_version<>p_expected_policy_version or
+     t.input_snapshot->'spec' is distinct from p_spec
+  then raise exception 'idempotency scope conflict' using errcode='42501'; end if;
+  return jsonb_build_object('kind','DIRECTOR_REAL_PREPARED_NOT_EXECUTABLE',
+   'taskId',t.id,'status',existing.status,'scopeSha256',existing.scope_sha256,
+   'executionEnabled',false);
+ end if;
+ select * into pol from public.raxi_runtime_policies where workspace_id=v_workspace for update;
+ if not found or pol.enabled is distinct from true or pol.simulated is distinct from false or
+   pol.authorization_version<>p_expected_policy_version or
+   pol.provider is distinct from p_spec->>'provider' or pol.model is distinct from p_spec->>'model' or
+   pol.per_call_micros<=0 or pol.per_call_micros>v_max or pol.total_budget_micros<v_max or
+   pol.reserved_micros+pol.per_call_micros>pol.total_budget_micros or
+   pol.task_count>=pol.max_tasks or pol.max_tasks<>1 or pol.max_output_tokens>256 or
+   pol.expires_at<=v_exp or pol.expires_at<=clock_timestamp()+interval '60 seconds'
+ then raise exception 'real pilot policy is disabled or incompatible' using errcode='42501'; end if;
+ insert into public.raxi_agent_tasks(workspace_id,external_id,title,status,input_snapshot)
+ values(v_workspace,'DIRECTOR-REAL-'||p_request_key::text,'Director real pilot (NOT EXECUTABLE)',
+  'WAITING_APPROVAL',jsonb_build_object('runtime',true,'spec',p_spec,
+   'supervised',jsonb_build_object('provenance','DIRECTOR_REAL_PILOT_NOT_EXECUTABLE',
+    'stage','DIRECTOR','actorId',v_actor,'sessionId',v_session)))
+ returning * into t;
+ v_scope:=public.raxi_director_real_scope(v_workspace,t.id,v_actor,p_spec,pol.authorization_version);
+ insert into public.raxi_director_real_pilots(
+  workspace_id,task_id,actor_user_id,session_id,request_key,scope_sha256,policy_version,
+  provider,model,max_cost_micros,expires_at)
+ values(v_workspace,t.id,v_actor,v_session,p_request_key,v_scope,pol.authorization_version,
+  pol.provider,pol.model,v_max,v_exp);
+ return jsonb_build_object('kind','DIRECTOR_REAL_PREPARED_NOT_EXECUTABLE',
+  'taskId',t.id,'status','WAITING_HUMAN_EXECUTION_AUTH','scopeSha256',v_scope,
+  'executionEnabled',false);
+end; $f$;
+
+create function public.raxi_director_real_approve(
+ p_identity jsonb,p_task_id uuid,p_approval_key uuid,p_scope_sha256 text,p_confirmed boolean
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_session uuid; v_workspace uuid;
+ g public.raxi_director_real_pilots; p public.raxi_runtime_policies;
+ t public.raxi_agent_tasks; v_approval uuid;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_session:=(p_identity->>'sessionId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ if p_task_id is null or p_approval_key is null or p_scope_sha256 !~ '^[a-f0-9]{64}$'
+   or p_confirmed is distinct from true
+ then raise exception 'second explicit human confirmation required' using errcode='42501'; end if;
+ perform 1 from public.raxi_workspaces where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'owner denied' using errcode='42501'; end if;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id for update;
+ if not found or g.actor_user_id<>v_actor or g.session_id<>v_session or
+   g.scope_sha256<>p_scope_sha256
+ then raise exception 'scope/session mismatch' using errcode='42501'; end if;
+ if g.status='READY_FOR_MANUAL_EXECUTION' and g.approval_key=p_approval_key then
+  return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
+   'taskId',g.task_id,'approvalId',g.approval_id,'executionEnabled',false);
+ end if;
+ if g.status<>'WAITING_HUMAN_EXECUTION_AUTH' then
+  raise exception 'cannot reapprove a used or revoked grant' using errcode='42501'; end if;
+ select * into t from public.raxi_agent_tasks where id=g.task_id and workspace_id=g.workspace_id for update;
+ if not found or t.status<>'WAITING_APPROVAL' or
+    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+      t.input_snapshot->'spec',g.policy_version)
+ then raise exception 'task snapshot changed' using errcode='42501'; end if;
+ select * into p from public.raxi_runtime_policies where workspace_id=v_workspace for update;
+ if not found or p.enabled is distinct from true or p.simulated is distinct from false or
+    p.authorization_version<>g.policy_version or p.provider<>g.provider or
+    p.model<>g.model or p.max_tasks<>1 or p.task_count<>0 or p.max_output_tokens>256 or
+    p.per_call_micros<=0 or p.per_call_micros>g.max_cost_micros or
+    p.reserved_micros+p.per_call_micros>p.total_budget_micros or
+    p.expires_at<=clock_timestamp()+interval '60 seconds' or
+    g.expires_at<=clock_timestamp()+interval '60 seconds'
+ then raise exception 'policy changed or budget not available' using errcode='42501'; end if;
+ insert into public.raxi_approvals(
+   workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+ values(v_workspace,'TASK',t.id,'APPROVED',v_actor,
+   'DIRECTOR-REAL-APPROVE:'||p_approval_key::text,
+   jsonb_build_object('kind','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+    'scopeSha256',g.scope_sha256,'sessionId',v_session,'policyVersion',g.policy_version,
+    'provider',g.provider,'model',g.model,'maxCostMicros',g.max_cost_micros,
+    'expiresAt',g.expires_at))
+ returning id into v_approval;
+ update public.raxi_runtime_policies set
+   reserved_micros=reserved_micros+p.per_call_micros,task_count=task_count+1
+ where workspace_id=v_workspace;
+ update public.raxi_director_real_pilots set
+   status='READY_FOR_MANUAL_EXECUTION',approval_id=v_approval,
+   approval_key=p_approval_key,approved_at=clock_timestamp(),
+   reserved_micros=p.per_call_micros
+ where id=g.id;
+ return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
+  'taskId',g.task_id,'approvalId',v_approval,'executionEnabled',false);
+end; $f$;
+
+create function public.raxi_director_real_revoke(
+ p_identity jsonb,p_task_id uuid,p_revoke_key uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_workspace uuid; g public.raxi_director_real_pilots; rid uuid;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ if p_task_id is null or p_revoke_key is null then
+  raise exception 'revoke requires explicit key' using errcode='42501'; end if;
+ perform 1 from public.raxi_workspaces where id=v_workspace and owner_user_id=v_actor for update;
+ if not found then raise exception 'owner denied' using errcode='42501'; end if;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id for update;
+ if not found or g.actor_user_id<>v_actor then
+  raise exception 'task denied' using errcode='42501'; end if;
+ if g.status='REVOKED' and g.revoke_key=p_revoke_key then
+  return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
+ end if;
+ if g.status='REVOKED' then raise exception 'revocation replay conflict' using errcode='42501'; end if;
+ insert into public.raxi_approvals(
+  workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+ values(v_workspace,'TASK',g.task_id,'CANCELED',v_actor,
+  'DIRECTOR-REAL-REVOKE:'||p_revoke_key::text,
+  jsonb_build_object('kind','DIRECTOR_REAL_PERMISSION_REVOKED','scopeSha256',g.scope_sha256))
+ returning id into rid;
+ update public.raxi_director_real_pilots set
+  status='REVOKED',revoke_id=rid,revoke_key=p_revoke_key,revoked_at=clock_timestamp()
+ where id=g.id;
+ -- NEVER refund reserved_micros here: future paid-call uncertainty must be reconciled.
+ return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
+end; $f$;
+
+-- Read-only projection for a FUTURE server port, not a dispatch capability.
+create function public.raxi_director_real_read(
+ p_identity jsonb,p_task_id uuid
+) returns jsonb language plpgsql security invoker set search_path='' as $f$
+declare v_actor uuid; v_session uuid; v_workspace uuid;
+ g public.raxi_director_real_pilots; t public.raxi_agent_tasks;
+ a public.raxi_approvals; p public.raxi_runtime_policies;
+begin
+ if current_user<>'service_role' then raise exception 'server only' using errcode='42501'; end if;
+ perform public.raxi_supervised_host_identity(p_identity);
+ v_actor:=(p_identity->>'actorId')::uuid;
+ v_session:=(p_identity->>'sessionId')::uuid;
+ v_workspace:=(p_identity->>'workspaceId')::uuid;
+ select * into g from public.raxi_director_real_pilots
+ where workspace_id=v_workspace and task_id=p_task_id and actor_user_id=v_actor
+ and session_id=v_session and status='READY_FOR_MANUAL_EXECUTION';
+ if not found or g.expires_at<=clock_timestamp()+interval '60 seconds' then return null; end if;
+ select * into t from public.raxi_agent_tasks where id=p_task_id and workspace_id=v_workspace;
+ select * into p from public.raxi_runtime_policies where workspace_id=v_workspace;
+ select * into a from public.raxi_approvals where id=g.approval_id and workspace_id=v_workspace;
+ if t.id is null or t.status<>'WAITING_APPROVAL' or
+    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    p.workspace_id is null or not p.enabled or p.simulated or
+    p.authorization_version<>g.policy_version or p.provider<>g.provider or p.model<>g.model or
+    p.expires_at<=clock_timestamp()+interval '60 seconds' or
+    a.id is null or a.subject_kind<>'TASK' or a.subject_id<>t.id or
+    a.action<>'APPROVED' or a.actor_user_id<>v_actor or
+    a.context->>'scopeSha256'<>g.scope_sha256 or
+    a.context->>'sessionId'<>v_session::text or
+    a.context->>'policyVersion'<>g.policy_version::text or
+    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+      t.input_snapshot->'spec',g.policy_version)
+ then return null; end if;
+ return jsonb_build_object(
+ 'provenance','TRUSTED_SERVER_SNAPSHOT','taskId',t.id,'workspaceId',v_workspace,
+ 'stage','DIRECTOR','simulated',false,'state','READY_FOR_MANUAL_EXECUTION',
+ 'spec',t.input_snapshot->'spec','scopeSha256',g.scope_sha256,
+ 'approval',jsonb_build_object(
+  'provenance','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+  'taskId',t.id,'workspaceId',v_workspace,'operatorId',v_actor,
+  'sessionId',v_session,'decision','APPROVED','revoked',false,
+  'scopeSha256',g.scope_sha256,'policyVersion',g.policy_version,
+  'provider',g.provider,'model',g.model,'maxCostMicros',g.max_cost_micros,
+  'issuedAt',a.decided_at,'expiresAt',g.expires_at),
+ 'policy',jsonb_build_object(
+  'workspaceId',v_workspace,'version',p.authorization_version,'enabled',true,
+  'simulated',false,'provider',p.provider,'model',p.model,
+  'perCallMicros',g.reserved_micros,'remainingMicros',g.reserved_micros,
+  'maxOutputTokens',p.max_output_tokens,'expiresAt',p.expires_at)
+ );
+end; $f$;
+
+-- Explicit ACL: never expose these objects/functions to browser JWT roles.
+revoke all on function public.raxi_director_real_protect() from public,anon,authenticated;
+revoke all on function public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_revoke(jsonb,uuid,uuid) from public,anon,authenticated;
+revoke all on function public.raxi_director_real_read(jsonb,uuid) from public,anon,authenticated;
+grant execute on function public.raxi_director_real_protect() to service_role;
+grant execute on function public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint) to service_role;
+grant execute on function public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint) to service_role;
+grant execute on function public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean) to service_role;
+grant execute on function public.raxi_director_real_revoke(jsonb,uuid,uuid) to service_role;
+grant execute on function public.raxi_director_real_read(jsonb,uuid) to service_role;
+ or
    p_spec->>'provider'='simulated' or
    p_spec->>'model' !~ '^[A-Za-z0-9._-]{1,100}$' or
    jsonb_typeof(p_spec#>'{authorization,maxCostMicros}') is distinct from 'number' or
