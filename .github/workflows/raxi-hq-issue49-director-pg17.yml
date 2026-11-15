@@ -120,11 +120,27 @@ jobs:
           test "$(docker inspect raxi-issue49-pg17-parity --format '{{.HostConfig.Privileged}}')" = false
           docker cp supabase/tests/pg17-bootstrap.sql raxi-issue49-pg17-parity:/tmp/pg17-bootstrap.sql
           docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/pg17-bootstrap.sql
+          # The new versioned file mirrors a migration ALREADY applied only
+          # to staging. Its source is byte-for-byte the previously reviewed
+          # proposal; replay it after the historically installed PR59/Issue60
+          # schema, which is pinned below, not before its dependencies exist.
+          deferred="20261115040235_raxi_hq_issue49_director_real_gate_schema_only.sql"
+          test -f "supabase/migrations/$deferred"
+          cmp -s "supabase/migrations/$deferred" supabase/proposals/issue49_director_real_sql.candidate.sql
+          echo 'PASS_ISSUE49_APPLIED_MIGRATION_MIRROR_EXACT_BYTES'
           count="$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l)"
           test "$count" -gt 0
           echo "Repository migrations: $count"
           while IFS= read -r path; do
             name="$(basename "$path")"
+            if [[ "$name" == "$deferred" ]]; then
+              echo "Defer historically applied schema-only migration: $name"
+              continue
+            fi
+            if [[ "$name" > "$deferred" ]]; then
+              echo "FAIL: later migrations require updating the historical PG17 replay sequence: $name"
+              exit 1
+            fi
             echo "Applying repository migration: $name"
             docker cp "$path" "raxi-issue49-pg17-parity:/tmp/$name"
             docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f "/tmp/$name"
@@ -148,7 +164,7 @@ jobs:
           docker cp supabase/proposals/issue49_director_staging_postflight.review.sql raxi-issue49-pg17-parity:/tmp/postflight.sql
           docker cp supabase/proposals/issue49_director_staging_empty_undo.review.sql raxi-issue49-pg17-parity:/tmp/empty-undo.sql
           docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/preflight.sql
-          docker cp supabase/proposals/issue49_director_real_sql.candidate.sql raxi-issue49-pg17-parity:/tmp/candidate.sql
+          docker cp "supabase/migrations/20261115040235_raxi_hq_issue49_director_real_gate_schema_only.sql" raxi-issue49-pg17-parity:/tmp/candidate.sql
           docker exec raxi-issue49-pg17-parity psql -X -1 -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/candidate.sql
           docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/postflight.sql
           bash apps/raxi-hq/tests/pg17/issue49_director_staging_review_negative.sh raxi-issue49-pg17-parity attest
