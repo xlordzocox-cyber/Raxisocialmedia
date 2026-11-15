@@ -10,14 +10,14 @@ lock table public.raxi_agent_tasks, public.raxi_approvals,
 
 do $issue49_undo_guard$
 begin
+ -- Conserve ALL history, even if its provenance or approval context
+ -- does not match this pilot. A schema-only undo must begin from the same
+ -- completely blank runtime baseline required by the read-only preflight.
  if exists(select 1 from public.raxi_director_real_pilots) or
-    exists(select 1 from public.raxi_agent_tasks
-      where input_snapshot#>>'{supervised,provenance}' =
-        'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE') or
-    exists(select 1 from public.raxi_approvals
-      where context->>'kind' in
-        ('PERSISTED_HUMAN_EXECUTION_APPROVAL','DIRECTOR_REAL_PERMISSION_REVOKED')) then
-  raise exception 'ISSUE49_ROLLBACK_NO_GO: historical task/grant/pilot evidence exists; DO NOT ERASE'
+    exists(select 1 from public.raxi_agent_tasks) or
+    exists(select 1 from public.raxi_approvals where subject_kind='TASK') or
+    exists(select 1 from public.raxi_runtime_policies) then
+  raise exception 'ISSUE49_ROLLBACK_NO_GO: historical task/grant/policy/pilot evidence exists; DO NOT ERASE'
    using errcode='42501';
  end if;
  raise notice 'ISSUE49_ROLLBACK_EMPTY_SCHEMA_ONLY: no pilot/grant/task evidence; undo allowed';
