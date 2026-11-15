@@ -20,20 +20,29 @@ end; $acl$;
 
 set role service_role;
 do $qa$
-declare v jsonb; i integer; v_digest text;
+declare v jsonb; i integer; v_digest text; v_start_minute bigint;
 begin
+ -- Constrain the entire sequential quota exercise to one PostgreSQL minute.
+ -- If the window changes, the wrapper will discard the attempt and retry.
+ v_start_minute:=floor(extract(epoch from clock_timestamp())/60)::bigint;
  -- Without a signed JWT, the trusted host uses an HMAC digest; the DB
  -- consumes only a 64-hex digest, never a raw IP or caller header.
  for i in 1..8 loop
   v:=public.raxi_director_preauth_admit(repeat('a',64));
+  if floor(extract(epoch from clock_timestamp())/60)::bigint<>v_start_minute
+   then raise exception 'PREAUTH_QA_MINUTE_ROLLOVER_RETRY'; end if;
   if v is distinct from '{"status":"ALLOWED"}'::jsonb then
    raise exception 'PREAUTH_CLIENT_ALLOWED_%',i;end if;
  end loop;
  for i in 1..3 loop
   v:=public.raxi_director_preauth_admit(repeat('a',64));
+  if floor(extract(epoch from clock_timestamp())/60)::bigint<>v_start_minute
+   then raise exception 'PREAUTH_QA_MINUTE_ROLLOVER_RETRY'; end if;
   if v is distinct from '{"status":"RATE_LIMITED"}'::jsonb then
    raise exception 'PREAUTH_CLIENT_DENIAL_%',i;end if;
  end loop;
+  if floor(extract(epoch from clock_timestamp())/60)::bigint<>v_start_minute
+   then raise exception 'PREAUTH_QA_MINUTE_ROLLOVER_RETRY'; end if;
  if (select hit_count from public.raxi_director_preauth_counters
       where slot='CLIENT:'||repeat('a',64))<>8 or
     (select hit_count from public.raxi_director_preauth_counters
@@ -45,12 +54,18 @@ begin
  for i in 1..52 loop
   v_digest:=lpad(to_hex(i),64,'0');
   v:=public.raxi_director_preauth_admit(v_digest);
+  if floor(extract(epoch from clock_timestamp())/60)::bigint<>v_start_minute
+   then raise exception 'PREAUTH_QA_MINUTE_ROLLOVER_RETRY'; end if;
   if v is distinct from '{"status":"ALLOWED"}'::jsonb then
    raise exception 'PREAUTH_GLOBAL_ALLOWED_%',i;end if;
  end loop;
  v:=public.raxi_director_preauth_admit(repeat('b',64));
+  if floor(extract(epoch from clock_timestamp())/60)::bigint<>v_start_minute
+   then raise exception 'PREAUTH_QA_MINUTE_ROLLOVER_RETRY'; end if;
  if v is distinct from '{"status":"RATE_LIMITED"}'::jsonb then
   raise exception 'PREAUTH_GLOBAL_LIMIT_NOT_ENFORCED'; end if;
+  if floor(extract(epoch from clock_timestamp())/60)::bigint<>v_start_minute
+   then raise exception 'PREAUTH_QA_MINUTE_ROLLOVER_RETRY'; end if;
  if (select hit_count from public.raxi_director_preauth_counters
       where slot='GLOBAL')<>60 or
     exists(select 1 from public.raxi_director_preauth_counters
