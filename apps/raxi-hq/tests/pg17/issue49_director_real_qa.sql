@@ -6,7 +6,11 @@ language plpgsql as $f$
 begin
  begin
   execute p_statement;
- exception when sqlstate '42501' or sqlstate '23505' then
+ exception when sqlstate '42501' or sqlstate '23505' or sqlstate 'P0001' then
+  -- Existing TASK immutability triggers raise P0001; never mistake the
+  -- test helper's own FAILED exception (also P0001) for a valid denial.
+  if SQLSTATE='P0001' and SQLERRM not in
+   ('immutable task human approval','pilot identity and scope are immutable') then raise; end if;
   raise notice 'PASS DENIED: % [%]',p_label,SQLSTATE;
   return;
  end;
