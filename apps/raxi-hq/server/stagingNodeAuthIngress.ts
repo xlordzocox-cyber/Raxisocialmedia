@@ -78,7 +78,8 @@ export function createUnpublishedStagingNodeIngress(config:UnpublishedIngressCon
   const length=request.headers.get('content-length');
   if(length!==null){
    if(!/^(0|[1-9][0-9]{0,5})$/.test(length))return response(400,'Invalid body length');
-   if(Number(length)>256)return response(413,'Request too large');
+   const cap=config.path===STAGING_DIRECTOR_READINESS_PATH?512:256;
+   if(Number(length)>cap)return response(413,'Request too large');
   }
   // Fail closed before any Auth or privileged RPC; rateKey is trusted context,
   // not a spoofable X-Forwarded-For supplied by the request itself.
