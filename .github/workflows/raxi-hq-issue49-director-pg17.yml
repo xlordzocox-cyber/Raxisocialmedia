@@ -113,7 +113,31 @@ jobs:
           docker cp supabase/proposals/issue49_director_preauth_gate.candidate.sql raxi-issue49-pg17:/tmp/preauth.sql
           docker cp apps/raxi-hq/tests/pg17/issue49_director_preauth_qa.sql raxi-issue49-pg17:/tmp/preauth-qa.sql
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -f /tmp/preauth.sql
-          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -f /tmp/preauth-qa.sql
+          # Repeated tests of a fixed-minute quota MUST NOT cross a DB minute.
+          # The SQL also throws a unique marker if a rollover occurs mid-loop.
+          # Reset ONLY the isolated Docker counter table and retry at most 3 times.
+          passed=0
+          for attempt in 1 2 3; do
+            for second_attempt in $(seq 1 75); do
+              second="$(docker exec raxi-issue49-pg17 psql -X -q -At -U postgres -d raxi_rate_qa -c "select floor(extract(epoch from clock_timestamp()))::bigint % 60;")"
+              if [[ "$second" =~ ^[0-9]+$ ]] && ((second<=20)); then break; fi
+              sleep 1
+            done
+            if ((second>20)); then echo 'FAIL: no safe PG minute for sequential QA';exit 1;fi
+            docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -c "set role service_role;delete from public.raxi_director_preauth_counters;" >/dev/null
+            if docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -f /tmp/preauth-qa.sql > /tmp/preauth-sequential-qa.log 2>&1; then
+              cat /tmp/preauth-sequential-qa.log
+              passed=1
+              break
+            fi
+            if grep -Fq 'PREAUTH_QA_MINUTE_ROLLOVER_RETRY' /tmp/preauth-sequential-qa.log; then
+              echo "RETRY_PREAUTH_SEQUENTIAL_MINUTE_ROLLOVER: $attempt"
+              continue
+            fi
+            cat /tmp/preauth-sequential-qa.log
+            exit 1
+          done
+          test "$passed" -eq 1 || { echo 'FAIL: sequential PG QA never completed within one minute';exit 1; }
           # Fresh isolated database, shared cluster roles; never touches the real staging database.
           docker exec raxi-issue49-pg17 createdb -U postgres raxi_preauth_race
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_preauth_race -f /tmp/preauth.sql
