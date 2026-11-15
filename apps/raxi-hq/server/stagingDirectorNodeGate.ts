@@ -2,12 +2,12 @@
  * readiness path. NO Vercel route, listener, environment reads, task commands,
  * runOne, provider registration, scheduler or user-visible frontend import.
  */
-import {createClient,type SupabaseClient} from '@supabase/supabase-js';
+import {createClient} from '@supabase/supabase-js';
 import {supabaseSupervisedAuth} from '../../../server/agent-runtime/supabaseSupervisedAuth';
 import {createUnpublishedDirectorRealReadiness} from '../../../server/agent-runtime/stagingDirectorReadiness';
 import {SERVER_AUTH_OPTIONS} from '../../../server/agent-runtime/stagingAuthHostComposition';
 import {
- createUnpublishedStagingNodeIngress,STAGING_DIRECTOR_READINESS_PATH,
+ createUnpublishedStagingNodeIngress,STAGING_DIRECTOR_READINESS_PATH,exactStagingOrigin,
  type IngressAdmissionPort,
 } from './stagingNodeAuthIngress';
 
@@ -38,7 +38,8 @@ export function createUnpublishedDirectorNodeGate(
     config.publishableKey.length>512||
     typeof config.privilegedKey!=='string'||!config.privilegedKey.startsWith('sb_secret_')||
     config.privilegedKey.length>4096||config.publishableKey===config.privilegedKey||
-    !config.admission||typeof config.admission.admit!=='function')
+    !config.admission||typeof config.admission.admit!=='function'||
+    !exactStagingOrigin(config.approvedOrigin))
   throw Error('Separate authorized staging server ports required');
 
  // The ingress validates exact team deployment origin and requires a trusted
