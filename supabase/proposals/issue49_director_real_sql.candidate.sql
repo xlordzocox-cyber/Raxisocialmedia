@@ -42,9 +42,12 @@ create table public.raxi_director_real_pilots (
             reserved_micros=0 and revoked_at is null)
         or (status='REVOKED' and revoke_id is not null and revoke_key is not null and revoked_at is not null))
 );
-create unique index raxi_director_real_one_pending
- on public.raxi_director_real_pilots(workspace_id)
- where status in ('WAITING_HUMAN_EXECUTION_AUTH','READY_FOR_MANUAL_EXECUTION');
+-- The first REAL Director pilot permits exactly ONE gate per workspace for
+-- its entire lifetime, including REVOKED. This prevents recycling a previous
+-- reservation/task_count to authorize a second gate after revocation.
+-- Future multiple-pilot support requires a separately reviewed ledger design.
+create unique index raxi_director_real_one_lifetime
+ on public.raxi_director_real_pilots(workspace_id);
 
 alter table public.raxi_director_real_pilots enable row level security;
 -- Supabase's pg17-bootstrap grants ALL new table privileges to service_role
