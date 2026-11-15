@@ -147,6 +147,7 @@ test('Concrete factory refuses caller-injected admission and production/weak sec
   {projectUrl:'https://jrkefsylpfriiqefcmzq.supabase.co'},
   {preauthHmacSecret:privileged},
   {preauthHmacSecret:publishable},
+  {preauthHmacSecret:'sb_secret_'+'a'.repeat(40)},
   {approvedOrigin:'https://evil.example'},
   {admission:{async admit(){return 'ALLOW' as const;}}},
  ];
