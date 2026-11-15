@@ -3,6 +3,8 @@
  * provider or runOne call. Publishing requires a separately reviewed adapter.
  */
 export const STAGING_AUTH_DIAGNOSTIC_PATH='/api/raxi-hq/runtime-auth-readiness' as const;
+/** Explicit second allowlisted path; no arbitrary route/path injection. */
+export const STAGING_DIRECTOR_READINESS_PATH='/api/raxi-hq/director-real-readiness' as const;
 
 const BASE_HEADERS={
  'Cache-Control':'no-store, private',
@@ -23,6 +25,8 @@ export interface IngressAdmissionPort {
  admit(rateKey:string):Promise<'ALLOW'|'DENY'>;
 }
 export interface UnpublishedIngressConfig {
+ /** Closed set of inert routes; defaults to the original Auth diagnostic. */
+ path?:typeof STAGING_AUTH_DIAGNOSTIC_PATH|typeof STAGING_DIRECTOR_READINESS_PATH;
  /** Exact approved HTTPS staging Preview origin, not a wildcard or request header. */
  approvedOrigin:string;
  admission:IngressAdmissionPort;
@@ -51,7 +55,8 @@ function exactStagingOrigin(value:string):boolean {
  */
 export function createUnpublishedStagingNodeIngress(config:UnpublishedIngressConfig) {
  if(typeof window!=='undefined')throw Error('Server-only ingress');
- if(!config||!exactStagingOrigin(config.approvedOrigin)||
+ if(!config||!(config.path===undefined||config.path===STAGING_AUTH_DIAGNOSTIC_PATH||
+  config.path===STAGING_DIRECTOR_READINESS_PATH)||!exactStagingOrigin(config.approvedOrigin)||
     !config.admission||typeof config.admission.admit!=='function'||
     typeof config.authenticationHandler!=='function')
   throw Error('Approved staging ingress dependencies required');
@@ -60,7 +65,7 @@ export function createUnpublishedStagingNodeIngress(config:UnpublishedIngressCon
   // The future Node route must build Request.url from a trusted deployment URL.
   let url:URL;
   try{url=new URL(request.url);}catch{return response(403,'Ingress denied');}
-  if(url.origin!==config.approvedOrigin||url.pathname!==STAGING_AUTH_DIAGNOSTIC_PATH||
+  if(url.origin!==config.approvedOrigin||url.pathname!==(config.path??STAGING_AUTH_DIAGNOSTIC_PATH)||
      url.search||url.hash)return response(404,'Route not available');
   if(request.method!=='POST')return response(405,'Method not allowed',{Allow:'POST'});
   if(request.headers.get('origin')!==config.approvedOrigin)return response(403,'Origin denied');
