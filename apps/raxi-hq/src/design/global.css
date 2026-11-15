@@ -256,3 +256,6 @@ dl { font-size: 12px; } dt { color: var(--muted); margin-top: 10px; } dd { margi
 .campaign-step-result { margin-top: 8px; }
 .campaign-step-result summary { cursor: pointer; font-weight: 600; }
 .campaign-step-text { white-space: pre-wrap; word-break: break-word; font: inherit; font-size: .85rem; max-height: 480px; overflow: auto; background: rgba(0,0,0,.25); padding: 10px; border-radius: 8px; }
+.campaign-created { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: rgba(53,231,160,.12); }
+.campaign-created a { margin-left: 6px; font-weight: 600; }
+.campaign-changes { margin: 8px 0; padding: 8px 10px; border-radius: 8px; background: rgba(255,190,80,.12); }

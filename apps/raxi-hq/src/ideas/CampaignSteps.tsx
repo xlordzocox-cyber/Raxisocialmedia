@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { campaignCost, canRun, friendlyError, isActive, JOB_LABEL, JOB_STATUS, latest, type AgentJob, type JobKind } from './agentJobs';
 
@@ -15,6 +16,7 @@ export function CampaignSteps({ client, proposalId, jobs, onChange }: { client: 
   }
   const research = latest(jobs, proposalId, 'RESEARCH');
   const design = latest(jobs, proposalId, 'DESIGN');
+  const review = latest(jobs, proposalId, 'REVIEW');
   const spent = campaignCost(jobs, proposalId);
   return <div className="campaign-steps">
     <div className="team-proposal-actions" role="group" aria-label="Pasos de la campaña">
@@ -24,12 +26,21 @@ export function CampaignSteps({ client, proposalId, jobs, onChange }: { client: 
       <button type="button" disabled={busy || !canRun(jobs, proposalId, 'DESIGN')} onClick={() => void run('DESIGN')}>
         {design?.status === 'SUCCEEDED' ? '2 · Diseñar de nuevo' : '2 · Diseñar'}
       </button>
-      <button type="button" disabled title="Próximamente: requiere tu aprobación del costo">3 · Generar fotos</button>
+      <button type="button" disabled={busy || !canRun(jobs, proposalId, 'REVIEW')} onClick={() => void run('REVIEW')}>
+        {review?.status === 'SUCCEEDED' ? '3 · Revisar de nuevo' : '3 · Revisión del Director'}
+      </button>
+      <button type="button" disabled title="Próximamente: requiere tu aprobación del costo">4 · Generar fotos</button>
     </div>
     <p className="team-proposal-meta">Gastado en esta campaña: ${spent.toFixed(4)} USD</p>
     {notice && <p role="status">{notice}</p>}
-    {[research, design].filter((j): j is AgentJob => !!j).map((j) => <details key={j.id} className="campaign-step-result" open={isActive(j) || j.kind === 'DESIGN'}>
-      <summary>{JOB_LABEL[j.kind]} · {JOB_STATUS[j.status]}{j.status === 'SUCCEEDED' ? ` · $${j.costUsd.toFixed(4)}` : ''}</summary>
+    {review?.status === 'SUCCEEDED' && review.verdict === 'APROBADA' && review.campaign && <p className="campaign-created" role="status">
+      {review.campaign.kept ? `El Director aprobó, pero la campaña ya tenía decisiones tuyas y no se reemplazó.` : `✅ El Director aprobó y creó la campaña con ${review.campaign.items} publicaciones (borrador).`} <Link to="/fototeca">Ver en la Fototeca</Link>
+    </p>}
+    {review?.status === 'SUCCEEDED' && review.verdict === 'CAMBIOS' && <p className="campaign-changes" role="status">
+      El Director pidió cambios. Lee sus notas abajo y pulsa <b>2 · Diseñar de nuevo</b>: el Creativo las tomará en cuenta.
+    </p>}
+    {[research, design, review].filter((j): j is AgentJob => !!j).map((j) => <details key={j.id} className="campaign-step-result" open={isActive(j) || j.kind === 'REVIEW'}>
+      <summary>{JOB_LABEL[j.kind]} · {JOB_STATUS[j.status]}{j.verdict ? ` · ${j.verdict === 'APROBADA' ? 'Aprobada' : 'Con cambios'}` : ''}{j.status === 'SUCCEEDED' ? ` · $${j.costUsd.toFixed(4)}` : ''}</summary>
       {isActive(j) && <p role="status">El agente está trabajando. Esto tarda de 1 a 3 minutos.</p>}
       {j.status === 'FAILED' && <p role="alert">{j.error ?? 'Falló sin detalle.'}</p>}
       {j.markdown && <pre className="campaign-step-text">{j.markdown}</pre>}

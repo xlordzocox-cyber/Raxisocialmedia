@@ -17,6 +17,11 @@ export const RUNTIME_STAGES={
  ARCHIVIST:{displayName:'Archivista',zone:'SUPERMEMORY_CORE'},
 } as const;
 type RuntimeStage=keyof typeof RUNTIME_STAGES;
+// Only these deliveries exist: each stage hands over exactly one kind of finished work.
+const HANDOFF_ARTIFACTS:Partial<Record<RuntimeStage,{id:string;label:string}>>={
+ RESEARCHER:{id:'RESEARCH_REPORT',label:'Entrega del reporte de investigación'},
+ CREATIVE:{id:'DESIGN_PACKAGE',label:'Entrega del diseño de campaña al Director'},
+};
 const isStage=(s:unknown):s is RuntimeStage=>typeof s==='string'&&Object.prototype.hasOwnProperty.call(RUNTIME_STAGES,s);
 const empty=():HQState=>({agents:{},tasks:{},campaigns:{},events:[],handoffs:[],memorySignals:[],readOnly:true,mockMode:false,mode:'LIVE_READ_ONLY',sourceHealth:{source:'runtime',mode:'LIVE_READ_ONLY',connection:'DISCONNECTED',agentsLoaded:0,tasksLoaded:0,eventsLoaded:0}});
 export { empty as emptyRuntimeHQ };
@@ -35,8 +40,9 @@ export function projectRuntime(raw:unknown,owner:string,workspace:string,elapsed
   if(!(e.source_kind==='AGENT_EXECUTOR'||(e.source_kind==='ARIA_MCP'&&stage==='PRODUCTION')))continue;
   // A verified handoff of the research report: shown as a delivery, never changes anyone's status.
   if(e.event_type==='RUNTIME_HANDOFF'){
-   if(stage==='RESEARCHER'&&e.source_kind==='AGENT_EXECUTOR'&&e.payload.artifact==='RESEARCH_REPORT'&&typeof e.payload.targetAgentId==='string'&&e.payload.targetAgentId&&e.payload.targetAgentId!==e.agent_id)
-    hq.events.push({id:'RUNTIME-'+e.id,timestamp:e.occurred_at,type:'HANDOFF_SENT',label:'Entrega del reporte de investigación',actorId:e.agent_id,targetId:e.payload.targetAgentId,taskId:e.task_id,source:'runtime',verified:true});
+   const artifact=HANDOFF_ARTIFACTS[stage];
+   if(artifact&&e.source_kind==='AGENT_EXECUTOR'&&e.payload.artifact===artifact.id&&typeof e.payload.targetAgentId==='string'&&e.payload.targetAgentId&&e.payload.targetAgentId!==e.agent_id)
+    hq.events.push({id:'RUNTIME-'+e.id,timestamp:e.occurred_at,type:'HANDOFF_SENT',label:artifact.label,actorId:e.agent_id,targetId:e.payload.targetAgentId,taskId:e.task_id,source:'runtime',verified:true});
    continue;
   }
   // Dispatch admission is WAITING, never proof of provider execution.

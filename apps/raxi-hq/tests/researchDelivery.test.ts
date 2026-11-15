@@ -53,3 +53,11 @@ test('research delivery: the researcher walks over, hands the papers, and walks 
   const done = deliveryFrame(walkMs * 2 + 1800, route, to);
   assert.equal(done.phase, 'done'); assert.deepEqual(done.senderOffset, { x: 0, y: 0 }); assert.equal(done.papers.alpha, 0);
 });
+
+test('design delivery: the Creative hands the design package to the Director; mismatched artifacts are ignored', () => {
+  const s2 = (events: unknown[]) => ({ ...snap(events), profiles: [...snap([]).profiles, { id: 'dir', role: 'DIRECTOR', display_name: 'Director IA', runtime_status: 'CONNECTED' }] });
+  const ok = projectRuntime(s2([ev(1, 'cre', 'RUNTIME_HANDOFF', { stage: 'CREATIVE', targetAgentId: 'dir', artifact: 'DESIGN_PACKAGE' })]), owner, workspace).hq.events;
+  assert.equal(ok[0]?.type, 'HANDOFF_SENT'); assert.equal(ok[0]?.targetId, 'dir');
+  const bad = projectRuntime(s2([ev(1, 'cre', 'RUNTIME_HANDOFF', { stage: 'CREATIVE', targetAgentId: 'dir', artifact: 'RESEARCH_REPORT' })]), owner, workspace).hq.events;
+  assert.equal(bad.length, 0);
+});

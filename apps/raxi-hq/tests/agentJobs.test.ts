@@ -26,3 +26,13 @@ test('agent jobs: Investigar before Diseñar, nothing new while a step runs, cos
   assert.equal(friendlyError('ERROR: campaign budget reached'), 'Esta campaña alcanzó su tope de gasto.');
   assert.equal(friendlyError(undefined), 'No se pudo iniciar el paso.');
 });
+
+test('agent jobs: the Director reviews only after a finished design; verdict and created campaign are read safely', () => {
+  const designed = parseJobs([job('1', 'RESEARCH', 'SUCCEEDED'), job('2', 'DESIGN', 'SUCCEEDED')]);
+  assert.equal(canRun(parseJobs([job('1', 'RESEARCH', 'SUCCEEDED')]), 'p1', 'REVIEW'), false);
+  assert.equal(canRun(designed, 'p1', 'REVIEW'), true);
+  const [review] = parseJobs([job('3', 'REVIEW', 'SUCCEEDED', { output: { markdown: 'ok', data: { veredicto: 'APROBADA' }, campaign: { externalId: 'CAMP-X', items: 9, kept: false } } })]);
+  assert.equal(review.verdict, 'APROBADA'); assert.deepEqual(review.campaign, { externalId: 'CAMP-X', items: 9, kept: false });
+  const [weird] = parseJobs([job('4', 'REVIEW', 'SUCCEEDED', { output: { data: { veredicto: 'TAL VEZ' }, campaign: { externalId: 5 } } })]);
+  assert.equal(weird.verdict, null); assert.equal(weird.campaign, null);
+});
