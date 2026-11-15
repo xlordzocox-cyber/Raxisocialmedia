@@ -290,6 +290,14 @@ begin
     revoke_id=%L::uuid,revoke_key=%L::uuid,revoked_at=clock_timestamp(),
     reserved_micros=0 where task_id=%L::uuid',
     'REVOKED',approval::text,'88888888-8888-4888-8888-888888888888',task_id::text));
+ -- Preserve all approval fields but forge revoke_id with the original
+ -- APPROVED row: must be denied without a distinct TASK CANCELED audit.
+ perform pg_temp.expect_denied('forged revoke cannot cite APPROVED as CANCELED',
+  format('update public.raxi_director_real_pilots set
+     status=%L,revoke_id=%L::uuid,revoke_key=%L::uuid,
+     revoked_at=clock_timestamp() where task_id=%L::uuid',
+    'REVOKED',approval::text,
+    '99999999-9999-4999-8999-999999999999',task_id::text));
  -- Another session of SAME human owner can revoke, never auto refund budget.
  select public.raxi_director_real_revoke(other_session,task_id,
    '55555555-5555-4555-8555-555555555555') into ret;
@@ -305,6 +313,16 @@ begin
   raise exception 'FAILED: budget reservation incorrectly refunded';end if;
  if (select count(*) from public.raxi_approvals where subject_kind='TASK' and action='CANCELED')<>1 then
   raise exception 'FAILED: revocation audit missing';end if;
+ if not exists (
+  select 1 from public.raxi_director_real_pilots g
+  join public.raxi_approvals a on a.id=g.revoke_id and a.workspace_id=g.workspace_id
+  where g.task_id=(ret->>'taskId')::uuid and g.status='REVOKED'
+    and a.action='CANCELED' and a.subject_kind='TASK'
+    and a.subject_id=g.task_id and a.actor_user_id=g.actor_user_id
+    and a.context->>'kind'='DIRECTOR_REAL_PERMISSION_REVOKED'
+    and a.context->>'scopeSha256'=g.scope_sha256
+    and a.idempotency_key='DIRECTOR-REAL-REVOKE:'||g.revoke_key::text
+ ) then raise exception 'FAILED: revocation evidence not linked to gate';end if;
  perform pg_temp.expect_denied('revocation with another key not idempotent',
   format('select public.raxi_director_real_revoke(%L::jsonb,%L::uuid,%L::uuid)',
     other_session::text,task_id::text,'66666666-6666-4666-8666-666666666666'));
