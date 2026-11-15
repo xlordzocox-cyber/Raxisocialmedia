@@ -278,11 +278,29 @@ begin
   format('update public.raxi_director_real_pilots set scope_sha256=%L where task_id=%L::uuid',
    repeat('b',64),task_id::text));
 
+ -- Direct service_role UPDATE must not erase grant, timestamp or reservation.
+ perform pg_temp.expect_denied('forged revocation cannot erase grant and reserve',
+  format('update public.raxi_director_real_pilots set status=%L,
+    revoke_id=%L::uuid,revoke_key=%L::uuid,revoked_at=clock_timestamp(),
+    approval_id=null,approval_key=null,approved_at=null,reserved_micros=0
+    where task_id=%L::uuid',
+    'REVOKED',approval::text,'77777777-7777-4777-8777-777777777777',task_id::text));
+ perform pg_temp.expect_denied('forged revocation cannot zero reserved budget',
+  format('update public.raxi_director_real_pilots set status=%L,
+    revoke_id=%L::uuid,revoke_key=%L::uuid,revoked_at=clock_timestamp(),
+    reserved_micros=0 where task_id=%L::uuid',
+    'REVOKED',approval::text,'88888888-8888-4888-8888-888888888888',task_id::text));
  -- Another session of SAME human owner can revoke, never auto refund budget.
  select public.raxi_director_real_revoke(other_session,task_id,
    '55555555-5555-4555-8555-555555555555') into ret;
  if ret->>'executionEnabled'<>'false' or public.raxi_director_real_read(iden,task_id) is not null
  then raise exception 'FAILED: revocation did not deny future reads';end if;
+ if not exists(select 1 from public.raxi_director_real_pilots gp
+     where gp.task_id=(ret->>'taskId')::uuid and gp.approval_id=approval
+       and gp.approval_key='22222222-2222-4222-8222-222222222222'::uuid
+       and gp.approved_at is not null and gp.reserved_micros=4000)
+ then raise exception 'FAILED: approved pilot evidence lost on revoke';end if;
+ raise notice 'PASS: legitimate revoke preserved original approval and budget reservation';
  if (select reserved_micros from public.raxi_runtime_policies where workspace_id=wid)<>4000 then
   raise exception 'FAILED: budget reservation incorrectly refunded';end if;
  if (select count(*) from public.raxi_approvals where subject_kind='TASK' and action='CANCELED')<>1 then
