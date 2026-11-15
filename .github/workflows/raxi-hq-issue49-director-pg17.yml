@@ -9,6 +9,11 @@ on:
       - 'apps/raxi-hq/tests/pg17/issue49_director_real_*.sql'
       - 'apps/raxi-hq/tests/pg17/issue49_director_hosted_rate_qa.sql'
       - 'supabase/proposals/issue49_supervised_rate_hosted_snapshot.offline.sql'
+      - 'supabase/proposals/issue49_director_preauth_gate.candidate.sql'
+      - 'supabase/history/20261111003603_raxi_hq_pr59_supervised_campaign_requests.applied.sql'
+      - 'apps/raxi-hq/tests/pg17/issue49_rate_historical_parity.sql'
+      - 'apps/raxi-hq/tests/pg17/issue49_director_preauth_qa.sql'
+      - 'apps/raxi-hq/tests/pg17/issue49_director_preauth_concurrency.sh'
       - 'apps/raxi-hq/tests/pg17/issue49_director_real_concurrency.sh'
       - 'apps/raxi-hq/tests/pg17/issue49_director_staging_catalog_parity.sql'
       - 'supabase/migrations/**'
@@ -101,6 +106,19 @@ jobs:
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -f /tmp/hosted-rate.sql
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -f /tmp/rate-qa.sql
           echo 'PASS_ISSUE49_HOSTED_RATE_PG17_REAL_SQL_OFFLINE'
+      - name: Exercise SQL pre-JWT limiter and concurrent connections in isolated PostgreSQL 17
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker cp supabase/proposals/issue49_director_preauth_gate.candidate.sql raxi-issue49-pg17:/tmp/preauth.sql
+          docker cp apps/raxi-hq/tests/pg17/issue49_director_preauth_qa.sql raxi-issue49-pg17:/tmp/preauth-qa.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -f /tmp/preauth.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -f /tmp/preauth-qa.sql
+          # Fresh isolated database, shared cluster roles; never touches the real staging database.
+          docker exec raxi-issue49-pg17 createdb -U postgres raxi_preauth_race
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_preauth_race -f /tmp/preauth.sql
+          bash apps/raxi-hq/tests/pg17/issue49_director_preauth_concurrency.sh raxi-issue49-pg17 raxi_preauth_race
+          echo 'PASS_ISSUE49_PREAUTH_PG17_SQL_AND_PHYSICAL_CONCURRENCY'
       - name: Verify independent PostgreSQL backends, idempotency and rollback in separate DB
         shell: bash
         run: |
@@ -172,12 +190,18 @@ jobs:
           # recorded in the actual staging supabase_migrations.schema_migrations.
           echo '046ed2d8ac15ebe65b5b0ef3afd0270acf5a7b8884f9abe6f911ab261a2d188e  issue49-upstream-pr59/supabase/proposals/supervised_campaign_staging_identity.sql' | sha256sum -c -
           echo 'a45ea5c6ebbd0fbd06c5889b69d89780c2de6b2a76a198220b0f9aaba481b0d2  issue49-upstream-pr59/supabase/proposals/supervised_campaign_requests.sql' | sha256sum -c -
+          # A first-party byte-identical archive is preserved independently of
+          # PR59's draft-only Git ref. It is historical SOURCE, not a NEW migration.
+          cmp -s supabase/history/20261111003603_raxi_hq_pr59_supervised_campaign_requests.applied.sql issue49-upstream-pr59/supabase/proposals/supervised_campaign_requests.sql
+          echo 'PASS_RATE_PR59_HISTORICAL_SQL_MATCHES_HOSTED_LEDGER_BYTES'
           echo '50d8f96a133630f636513b2578f477a5a4b516693e44ca00742e312c4595fec8  issue49-upstream-pr67/supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql' | sha256sum -c -
           docker cp issue49-upstream-pr59/supabase/proposals/supervised_campaign_staging_identity.sql raxi-issue49-pg17-parity:/tmp/host-identity.sql
-          docker cp issue49-upstream-pr59/supabase/proposals/supervised_campaign_requests.sql raxi-issue49-pg17-parity:/tmp/requests.sql
+          docker cp supabase/history/20261111003603_raxi_hq_pr59_supervised_campaign_requests.applied.sql raxi-issue49-pg17-parity:/tmp/requests.sql
+          docker cp apps/raxi-hq/tests/pg17/issue49_rate_historical_parity.sql raxi-issue49-pg17-parity:/tmp/rate-history-parity.sql
           docker cp issue49-upstream-pr67/supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql raxi-issue49-pg17-parity:/tmp/runtime.sql
           docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/host-identity.sql
           docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/requests.sql
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/rate-history-parity.sql
           docker exec raxi-issue49-pg17-parity psql -X -1 -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/runtime.sql
           docker cp apps/raxi-hq/tests/pg17/issue49_director_staging_catalog_parity.sql raxi-issue49-pg17-parity:/tmp/catalog.sql
           docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/catalog.sql
