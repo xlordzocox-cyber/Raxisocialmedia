@@ -11,6 +11,17 @@
 - Una segunda capa de limitador *previo a JWT* `IngressAdmissionPort` está requerida, pero **NO IMPLEMENTADA** aquí: debe ser una implementación duradera/atómica que el host futuro aporte en el montaje autorizado, no una cuota en memoria ni una clave derivada de headers spoofables. Sin esta dependencia no se puede construir la ruta.
 - La respuesta al cliente es solamente `persistedApprovalVisible: boolean` (si `raxi_director_real_read` entrega snapshot canónico para la misma sesión), siempre `readOnly:true`, `hostMounted:false`, `liveEnabled:false`, `actionsEnabled:false`, `executionEnabled:false` y `providerCalls:0`. **No equivale a autorización de ejecución**: falta cotización oficial verificada, política y segunda evaluación atómica previa a despacho.
 
+## Dependencia histórica SQL y reconstrucción reproducible
+
+La RPC `public.raxi_supervised_request_rate_admit(jsonb,text)` y la tabla `raxi_supervised_request_rate_counters` **sí existen en staging**, con la primera accesible solo por `service_role` y sin `DELETE/TRUNCATE` para ese rol. Su instalación histórica **no estaba versionada como SQL completo dentro de `main`**. Esto es una discrepancia de reproducibilidad y no se considera corregida por las pruebas TypeScript sintéticas.
+
+- Se capturó la definición real mediante `pg_get_functiondef` en una consulta **solo lectura** al proyecto staging. SHA256 del texto de función almacenado: `57b94e50e622acb3c6dee7e41707993b1f0d0a2087d358627e2a455d817e67b7`.
+- `supabase/proposals/issue49_supervised_rate_hosted_snapshot.offline.sql` conserva esa definición y el esquema mínimo de la tabla, ACL y RLS verificados. **Solo replay offline**, NO migración ni instrucción para reaplicar a staging.
+- `apps/raxi-hq/tests/pg17/issue49_director_hosted_rate_qa.sql` ejecuta la RPC **real** dentro de un PostgreSQL 17 desechable separado, verifica hash idéntico, límites de 30/min PRE-FLIGHT y 3/min SUBMIT, rechazo de rol público y bloqueo tras revocar una sesión sintética.
+- El workflow PostgreSQL 17 ejecuta estos archivos en una base adicional `raxi_rate_qa` en Docker `--network none`, no mediante mocks ni acceso al servicio hospedado.
+
+**Pendiente formal antes de publicar:** reconciliar el catálogo hospedado y el historial de migraciones de la RPC histórica, dejando una migración o baseline aprobado para reconstruir staging desde cero, con autorización separada antes de cualquier SQL remoto. El host actual fallará cerrado (503) si esa RPC no está disponible.
+
 ## Validación que sí se puede ejecutar offline
 
 `apps/raxi-hq/tests/stagingDirectorNodeGate.test.ts`: fake SDK sin red, *dos sesiones de un solo propietario*, revocación de A con B independiente, revocación durante la llamada y rechazo al revalidar, dueño/workspace extranjeros, JWT inválido, cuota persistente representada por puerto falso compartido que rechaza solicitud 31, limitador previo denegado/caído, Origin y URL incorrectos, body mal formado, RPC no permitidas, snapshot adulterado. **Esta prueba es sintética**, no reemplaza un E2E real de Supabase Auth en staging ni valida la cuota bajo concurrencia física (eso requiere otro incremento).
