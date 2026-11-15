@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { campaignCost, canRun, friendlyError, parseJobs } from '../src/ideas/agentJobs';
+import { campaignCost, canRun, friendlyError, needsOwner, parseJobs, parsePipelines, stepState } from '../src/ideas/agentJobs';
 
 const job = (id: string, kind: string, status: string, extra: Record<string, unknown> = {}) => ({
   id, proposal_id: 'p1', kind, status, cost_usd: '0.0500', error: null, created_at: `2026-11-15T1${id}:00:00Z`,
@@ -15,7 +15,9 @@ test('agent jobs: parsed safely, unknown kinds and unsafe sources dropped, newes
 });
 
 test('agent jobs: Investigar before Diseñar, nothing new while a step runs, costs add up', () => {
-  assert.equal(canRun([], 'p1', 'RESEARCH'), true);
+  assert.equal(canRun([], 'p1', 'BRIEF'), true);
+  assert.equal(canRun([], 'p1', 'RESEARCH'), false);
+  assert.equal(canRun(parseJobs([job('0', 'BRIEF', 'SUCCEEDED')]), 'p1', 'RESEARCH'), true);
   assert.equal(canRun([], 'p1', 'DESIGN'), false);
   const done = parseJobs([job('1', 'RESEARCH', 'SUCCEEDED')]);
   assert.equal(canRun(done, 'p1', 'DESIGN'), true);
@@ -35,4 +37,18 @@ test('agent jobs: the Director reviews only after a finished design; verdict and
   assert.equal(review.verdict, 'APROBADA'); assert.deepEqual(review.campaign, { externalId: 'CAMP-X', items: 9, kept: false });
   const [weird] = parseJobs([job('4', 'REVIEW', 'SUCCEEDED', { output: { data: { veredicto: 'TAL VEZ' }, campaign: { externalId: 5 } } })]);
   assert.equal(weird.verdict, null); assert.equal(weird.campaign, null);
+});
+
+test('campaign pipeline: rows validated; route shows done/current/te toca/failed honestly', () => {
+  const [p] = parsePipelines([{ proposal_id: 'p1', status: 'WAITING_APPROVAL', stage: 'STRATEGY', gate: 'STRATEGY_APPROVAL', note: null }, { proposal_id: 'x', status: 'BOGUS', stage: 'BRIEF' }, null]);
+  assert.equal(parsePipelines([{ proposal_id: 'x', status: 'BOGUS', stage: 'BRIEF' }]).length, 0);
+  assert.equal(stepState(p, 'RESEARCH'), 'done'); assert.equal(stepState(p, 'STRATEGY'), 'done');
+  assert.equal(stepState(p, 'GATE'), 'waiting'); assert.equal(stepState(p, 'DESIGN'), 'todo');
+  assert.equal(needsOwner(p), true);
+  const running = { ...p, status: 'RUNNING' as const, stage: 'DESIGN' as const, gate: null };
+  assert.equal(stepState(running, 'GATE'), 'done'); assert.equal(stepState(running, 'DESIGN'), 'current'); assert.equal(needsOwner(running), false);
+  const failed = { ...running, status: 'FAILED' as const };
+  assert.equal(stepState(failed, 'DESIGN'), 'failed'); assert.equal(needsOwner(failed), true);
+  const ready = { ...running, status: 'READY_FOR_PRODUCTION' as const, stage: 'DONE' as const };
+  assert.equal(stepState(ready, 'DONE'), 'done');
 });

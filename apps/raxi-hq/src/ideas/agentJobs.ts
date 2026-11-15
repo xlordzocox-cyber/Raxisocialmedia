@@ -1,11 +1,11 @@
-export type JobKind = 'RESEARCH' | 'DESIGN' | 'REVIEW';
+export type JobKind = 'BRIEF' | 'RESEARCH' | 'STRATEGY' | 'DESIGN' | 'REVIEW';
 export type JobStatus = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED';
 export type AgentJob = {
   id: string; proposalId: string; kind: JobKind; status: JobStatus; costUsd: number;
-  markdown: string; verdict: 'APROBADA' | 'CAMBIOS' | null; campaign: { externalId: string; items: number; kept: boolean } | null; sources: { url: string; title: string }[]; error: string | null; createdAt: string;
+  markdown: string; verdict: 'APROBADA' | 'CAMBIOS' | null; decision: 'SUFICIENTE' | 'MAS_INVESTIGACION' | null; campaign: { externalId: string; items: number; kept: boolean } | null; sources: { url: string; title: string }[]; error: string | null; createdAt: string;
 };
 
-const KINDS = new Set(['RESEARCH', 'DESIGN', 'REVIEW']);
+const KINDS = new Set(['BRIEF', 'RESEARCH', 'STRATEGY', 'DESIGN', 'REVIEW']);
 const STATUSES = new Set(['PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELED']);
 
 /** Validates rows from raxi_agent_jobs. Unknown kinds/statuses and non-https sources are dropped. */
@@ -25,6 +25,7 @@ export function parseJobs(rows: unknown): AgentJob[] {
       id: r.id, proposalId: r.proposal_id, kind: r.kind as JobKind, status: r.status as JobStatus,
       costUsd: Number(r.cost_usd) || 0, markdown: typeof output.markdown === 'string' ? output.markdown : '',
       verdict: data.veredicto === 'APROBADA' || data.veredicto === 'CAMBIOS' ? data.veredicto : null,
+      decision: data.decision === 'SUFICIENTE' || data.decision === 'MAS_INVESTIGACION' ? data.decision : null,
       campaign: camp && typeof camp.externalId === 'string' ? { externalId: camp.externalId, items: Number(camp.items) || 0, kept: camp.kept === true } : null,
       sources, error: typeof r.error === 'string' ? r.error : null, createdAt: String(r.created_at ?? ''),
     });
@@ -44,8 +45,8 @@ export function isActive(job: AgentJob | undefined): boolean {
 /** Steps follow the order Investigar → Diseñar. */
 export function canRun(jobs: AgentJob[], proposalId: string, kind: JobKind): boolean {
   if (jobs.some((j) => j.proposalId === proposalId && isActive(j))) return false;
-  if (kind === 'RESEARCH') return true;
-  const before: JobKind = kind === 'DESIGN' ? 'RESEARCH' : 'DESIGN';
+  if (kind === 'BRIEF') return true;
+  const before: JobKind = kind === 'DESIGN' || kind === 'STRATEGY' ? 'RESEARCH' : kind === 'RESEARCH' ? 'BRIEF' : 'DESIGN';
   return jobs.some((j) => j.proposalId === proposalId && j.kind === before && j.status === 'SUCCEEDED');
 }
 
@@ -58,6 +59,8 @@ const ERRORS: Record<string, string> = {
   'campaign budget reached': 'Esta campaña alcanzó su tope de gasto.',
   'research first': 'Primero hay que investigar.',
   'design first': 'Primero hay que diseñar.',
+  'nothing to decide': 'Esta campaña ya no espera esa decisión. Recarga.',
+  'note required': 'Escribe qué cambios quieres.',
   'this step is already running': 'Este paso ya está en marcha.',
   'campaign not accepted': 'La campaña debe estar aceptada.',
 };
@@ -66,7 +69,50 @@ export function friendlyError(message: string | undefined): string {
   return hit ? ERRORS[hit] : 'No se pudo iniciar el paso.';
 }
 
-export const JOB_LABEL: Record<JobKind, string> = { RESEARCH: 'Investigación', DESIGN: 'Diseño de campaña', REVIEW: 'Revisión del Director' };
+export const JOB_LABEL: Record<JobKind, string> = {
+  BRIEF: 'Brief del Director', RESEARCH: 'Investigación', STRATEGY: 'Análisis y estrategia del Director', DESIGN: 'Diseño de campaña', REVIEW: 'Revisión del Director',
+};
 export const JOB_STATUS: Record<JobStatus, string> = {
   PENDING: 'En cola', RUNNING: 'Trabajando…', SUCCEEDED: 'Listo', FAILED: 'Falló', CANCELED: 'Cancelado',
 };
+
+export type PipelineStatus = 'RUNNING' | 'WAITING_APPROVAL' | 'PAUSED' | 'FAILED' | 'READY_FOR_PRODUCTION';
+export type PipelineStage = 'BRIEF' | 'RESEARCH' | 'STRATEGY' | 'DESIGN' | 'REVIEW' | 'DONE';
+export type Pipeline = { proposalId: string; status: PipelineStatus; stage: PipelineStage; gate: 'STRATEGY_APPROVAL' | null; note: string | null };
+const P_STATUS = new Set(['RUNNING', 'WAITING_APPROVAL', 'PAUSED', 'FAILED', 'READY_FOR_PRODUCTION']);
+const P_STAGE = new Set(['BRIEF', 'RESEARCH', 'STRATEGY', 'DESIGN', 'REVIEW', 'DONE']);
+
+/** Validates rows from raxi_campaign_pipelines (owner-read). Malformed rows are dropped. */
+export function parsePipelines(rows: unknown): Pipeline[] {
+  if (!Array.isArray(rows)) return [];
+  return (rows as Record<string, unknown>[]).flatMap((r) => {
+    if (!r || typeof r.proposal_id !== 'string' || !P_STATUS.has(String(r.status)) || !P_STAGE.has(String(r.stage))) return [];
+    return [{ proposalId: r.proposal_id, status: r.status as PipelineStatus, stage: r.stage as PipelineStage,
+      gate: r.gate === 'STRATEGY_APPROVAL' ? 'STRATEGY_APPROVAL' as const : null, note: typeof r.note === 'string' ? r.note.slice(0, 1000) : null }];
+  });
+}
+
+/** The visible route of a campaign, following the master flow. */
+export const PIPELINE_STEPS: { key: JobKind | 'GATE' | 'DONE'; label: string }[] = [
+  { key: 'BRIEF', label: 'Director: evalúa y delega' },
+  { key: 'RESEARCH', label: 'Investigación' },
+  { key: 'STRATEGY', label: 'Director: analiza y propone estrategia' },
+  { key: 'GATE', label: 'Tú: apruebas la estrategia' },
+  { key: 'DESIGN', label: 'Dirección creativa' },
+  { key: 'REVIEW', label: 'Director: revisa y crea la campaña' },
+  { key: 'DONE', label: 'Campaña en la Fototeca (borrador)' },
+];
+const ORDER = ['BRIEF', 'RESEARCH', 'STRATEGY', 'GATE', 'DESIGN', 'REVIEW', 'DONE'];
+
+export type StepState = 'done' | 'current' | 'waiting' | 'failed' | 'todo';
+export function stepState(pipeline: Pipeline, step: string): StepState {
+  const at = pipeline.status === 'WAITING_APPROVAL' ? 'GATE' : pipeline.stage;
+  const i = ORDER.indexOf(step), j = ORDER.indexOf(at);
+  if (pipeline.status === 'READY_FOR_PRODUCTION') return 'done';
+  if (i < j) return 'done';
+  if (i > j) return 'todo';
+  if (pipeline.status === 'WAITING_APPROVAL') return 'waiting';
+  if (pipeline.status === 'FAILED' || pipeline.status === 'PAUSED') return 'failed';
+  return 'current';
+}
+export const needsOwner = (p: Pipeline | undefined): boolean => !!p && (p.status === 'WAITING_APPROVAL' || p.status === 'FAILED' || p.status === 'PAUSED');

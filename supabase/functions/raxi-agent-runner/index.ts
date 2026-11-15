@@ -16,13 +16,17 @@ const MCP_BETA = "mcp-client-2025-11-20";
 const ARIA_READ_ONLY = ["mis_personajes", "modelos", "saldo"];
 const STAGE: Record<string, { stage: string; agent: string }> = {
   SMOKE: { stage: "DIRECTOR", agent: "director" },
+  BRIEF: { stage: "DIRECTOR", agent: "director" },
+  STRATEGY: { stage: "DIRECTOR", agent: "director" },
   RESEARCH: { stage: "RESEARCHER", agent: "researcher" },
   DESIGN: { stage: "CREATIVE", agent: "creative" },
   REVIEW: { stage: "DIRECTOR", agent: "director" },
 };
 // Who hands what to whom before a step starts (shown as a walk in the office).
 const HANDOFF: Record<string, { from: string; fromStage: string; artifact: string; after: string }> = {
-  DESIGN: { from: "researcher", fromStage: "RESEARCHER", artifact: "RESEARCH_REPORT", after: "RESEARCH" },
+  RESEARCH: { from: "director", fromStage: "DIRECTOR", artifact: "RESEARCH_BRIEF", after: "BRIEF" },
+  STRATEGY: { from: "researcher", fromStage: "RESEARCHER", artifact: "RESEARCH_REPORT", after: "RESEARCH" },
+  DESIGN: { from: "director", fromStage: "DIRECTOR", artifact: "STRATEGY_BRIEF", after: "STRATEGY" },
   REVIEW: { from: "creative", fromStage: "CREATIVE", artifact: "DESIGN_PACKAGE", after: "DESIGN" },
 };
 
@@ -98,6 +102,8 @@ const COMMON = `Eres parte del equipo de agentes de Raxi HQ, la oficina de IA de
 Escribe en español de México. Nunca inventes datos, cifras, cuentas ni fuentes; si algo no se pudo verificar, dilo explícitamente.
 No generes imágenes ni gastes créditos de Aria Studio. Distingue hechos verificados, inferencias e hipótesis.`;
 
+const TITLES: Record<string, string> = { BRIEF: "Brief del Director", RESEARCH: "Investigar", STRATEGY: "Análisis y estrategia del Director",
+  DESIGN: "Diseñar", REVIEW: "Revisión del Director" };
 const CHANNELS = new Set(["INSTAGRAM", "INSTAGRAM_STORY", "TEASER", "FANVUE_FEED", "FANVUE_CHAT"]);
 const txt = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
@@ -191,12 +197,13 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
     ? (await db.from("raxi_team_proposals").select("*").eq("id", job.proposal_id).single()).data
     : null;
 
+  const input = (job.input ?? {}) as Record<string, unknown>;
   // Visible, verified activity in the office.
   const taskId = crypto.randomUUID();
   const now = () => new Date().toISOString();
   await db.from("raxi_agent_tasks").insert({
     id: taskId, workspace_id: job.workspace_id, agent_id: profile?.id ?? null, external_id: `JOB-${String(job.id).slice(0, 8)}-${kind}`,
-    title: `${kind === "RESEARCH" ? "Investigar" : kind === "DESIGN" ? "Diseñar" : kind === "REVIEW" ? "Revisión del Director" : "Prueba de conexión"}${proposal ? `: ${proposal.title}` : ""}`.slice(0, 1400),
+    title: `${TITLES[kind] ?? "Prueba de conexión"}${proposal ? `: ${proposal.title}` : ""}`.slice(0, 1400),
     status: "RUNNING", input_snapshot: { runtime: "true", policy: { simulated: false }, executor: "claude-api", job: job.id }, started_at: now(),
   });
   const event = (type: string) => db.from("raxi_agent_events").insert({
@@ -210,7 +217,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
     // The previous agent hands its finished work to this one: a real, verified step shown as a walk in the office.
     const { data: giver } = await db.from("raxi_agent_profiles").select("id")
       .eq("workspace_id", job.workspace_id).eq("agent_key", hand.from).single();
-    if (giver?.id) {
+    if (giver?.id && giver.id !== profile.id) {
       await db.from("raxi_agent_events").insert({
         workspace_id: job.workspace_id, agent_id: giver.id, task_id: taskId, event_type: "RUNTIME_HANDOFF",
         source_kind: "AGENT_EXECUTOR", evidence_status: "VERIFIED", source_ref: `raxi-agent-runner:${job.id}`,
@@ -218,7 +225,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
           targetAgentId: profile.id, artifact: hand.artifact, executor: "claude-api" },
         occurred_at: now(),
       });
-      await new Promise((r) => setTimeout(r, 9000)); // let the office show the delivery before the Creative starts
+      await new Promise((r) => setTimeout(r, 9000)); // let the office show the delivery before the receiver starts
     }
   }
   await event("RUNTIME_ACKNOWLEDGED");
@@ -231,10 +238,29 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       model = "haiku";
       result = await callClaude({ model, maxTokens: 600, aria: true, system: COMMON,
         prompt: "Prueba de conexión. Usa las herramientas de Aria Studio mis_personajes y modelos. Responde SOLO un bloque ```json con {\"personajes\": [ids], \"modelos_disponibles\": número, \"ok\": true}." });
+    } else if (kind === "BRIEF") {
+      model = "sonnet";
+      result = await callClaude({ model, maxTokens: 2500, system: `${COMMON}\nEres el Director IA de Raxi HQ. Recibes una idea aceptada por el dueño y defines el trabajo antes de delegar. No investigas tú: encargas.\nReglas del dueño:\n${rulesOf(profile)}`,
+        prompt: `Idea aceptada: ${proposal?.title} (${proposal?.channel}, personaje ${proposal?.character_id}).\nResumen: ${proposal?.summary}\nPor qué: ${proposal?.rationale ?? "—"}\n\n` +
+          `Evalúa viabilidad y define el encargo para el Investigador. Termina con un bloque \`\`\`json {"viable":true,"objetivo_trabajo","preguntas_investigacion":[],"criterios_exito":[],"riesgos":[],"notas_para_el_equipo"}\`\`\`. Breve y concreto.` });
+    } else if (kind === "STRATEGY") {
+      model = "sonnet";
+      const research = await lastOutput(db, job.proposal_id, "RESEARCH");
+      const brief = await lastOutput(db, job.proposal_id, "BRIEF");
+      const prev = input.owner_note ? await lastOutput(db, job.proposal_id, "STRATEGY") : null;
+      result = await callClaude({ model, maxTokens: 6000, system: `${COMMON}\nEres el Director IA de Raxi HQ. Evalúas la investigación con criterio y conviertes los hallazgos en una estrategia de campaña. El dueño debe aprobarla antes de que el equipo creativo empiece.\nReglas del dueño:\n${rulesOf(profile)}`,
+        prompt: `Campaña: ${proposal?.title} (${proposal?.channel}, personaje ${proposal?.character_id}).\nResumen: ${proposal?.summary}\n\n` +
+          `Tu encargo inicial (JSON):\n${JSON.stringify(brief?.data ?? {}).slice(0, 4000)}\n\nInvestigación entregada (JSON):\n${JSON.stringify(research?.data ?? {}).slice(0, 12000)}\n\n` +
+          (input.owner_note ? `El dueño revisó tu estrategia anterior y pidió estos cambios (obligatorios):\n${String(input.owner_note).slice(0, 1000)}\n\nEstrategia anterior (JSON):\n${JSON.stringify(prev?.data ?? {}).slice(0, 6000)}\n\n` : "") +
+          `1) Evalúa la investigación: ¿responde el encargo, cumple las reglas (≥2-3 modelos digitales además de cualquier referencia), separa hechos de hipótesis? Si falta algo esencial, decide "MAS_INVESTIGACION" con preguntas concretas (solo si de verdad es necesario). ` +
+          `2) Si es suficiente, redacta la estrategia: objetivo, audiencia, plataformas y rol de cada una (Instagram/Stories/Reels/Fanvue), etapa del funnel, mensajes clave, formatos, duración, métrica principal y secundarias, hipótesis a medir, riesgos y cómo mitigarlos. ` +
+          `Termina con un bloque \`\`\`json {"decision":"SUFICIENTE|MAS_INVESTIGACION","evaluacion_investigacion","preguntas_extra":[],"estrategia":{"objetivo","audiencia","plataformas":[{"plataforma","rol"}],"funnel","mensajes_clave":[],"formatos":[],"duracion","metrica_principal","metricas_secundarias":[],"hipotesis":[],"riesgos":[{"riesgo","mitigacion"}]}}\`\`\`. Si la decisión es MAS_INVESTIGACION, "estrategia" va en null.` });
     } else if (kind === "RESEARCH") {
       model = "sonnet";
-      result = await callClaude({ model, maxTokens: 4000, webSearch: 8, system: `${COMMON}\nEres el Investigador.\nReglas del dueño:\n${rulesOf(profile)}`,
+      result = await callClaude({ model, maxTokens: 8000, webSearch: 8, system: `${COMMON}\nEres el Investigador.\nReglas del dueño:\n${rulesOf(profile)}`,
         prompt: `Campaña aceptada por el dueño:\n- Título: ${proposal?.title}\n- Personaje: ${proposal?.character_id}\n- Canal: ${proposal?.channel}\n- Resumen: ${proposal?.summary}\n\n` +
+          (input.brief ? `Encargo del Director (JSON):\n${JSON.stringify(input.brief).slice(0, 4000)}\n\n` : "") +
+          (input.follow_up ? `El Director revisó tu investigación anterior y pide responder específicamente:\n${JSON.stringify(input.follow_up).slice(0, 3000)}\n\n` : "") +
           `Investiga en la web al menos 3 modelos o creadoras digitales/virtuales (cuentas de IA o personajes virtuales) con estética o propuesta parecida a este personaje. ` +
           `Para cada una: nombre o usuario, plataforma, por qué es comparable y qué patrones de contenido usa (formatos, escenarios, encuadres, textos, ritmo de publicación). ` +
           `Incluye cifras solo si aparecen en una fuente, con su fecha. Luego sintetiza patrones adaptables a esta campaña, qué NO copiar y 2-3 hipótesis medibles.\n` +
@@ -243,13 +269,15 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       model = "sonnet";
       const research = await lastOutput(db, job.proposal_id, "RESEARCH");
       const design = await lastOutput(db, job.proposal_id, "DESIGN");
+      const strategy = (await lastOutput(db, job.proposal_id, "STRATEGY"))?.data as Record<string, unknown> | undefined;
       const archive = await archiveSummary(db, String(job.workspace_id));
       result = await callClaude({ model, maxTokens: 16000, aria: true, system: `${COMMON}\nEres el Director IA de Raxi HQ: revisas el trabajo del equipo antes de que exista una campaña. Eres exigente y honesto: si algo no cumple, lo regresas.\nReglas del dueño:\n${rulesOf(profile)}`,
         prompt: `Campaña: ${proposal?.title} (${proposal?.channel}, personaje ${proposal?.character_id}).\nResumen: ${proposal?.summary}\n\n` +
-          `Investigación (JSON):\n${JSON.stringify(research?.data ?? {}).slice(0, 10000)}\n\nDiseño del Director Creativo (JSON):\n${JSON.stringify(design?.data ?? {}).slice(0, 20000)}\n\n` +
+          (strategy?.estrategia ? `Estrategia aprobada por el dueño (JSON):\n${JSON.stringify(strategy.estrategia).slice(0, 6000)}\n\n` : "") +
+          `Investigación (JSON):\n${JSON.stringify(research?.data ?? {}).slice(0, 8000)}\n\nDiseño del Director Creativo (JSON):\n${JSON.stringify(design?.data ?? {}).slice(0, 20000)}\n\n` +
           `Fotos que ya existen en la Fototeca:\n${archive}\n\n` +
           `Usa mis_personajes de Aria para comprobar que el diseño respeta la identidad exacta del personaje, y modelos/saldo para comprobar costo y saldo reales. ` +
-          `Revisa: coherencia con la investigación, identidad y edad adulta, que los prompts sean autónomos y sin contradicciones (POV, luz, vestuario), que las fotos citadas existan, textos, riesgos de plataforma (etiqueta de IA, nada explícito en Instagram), costo vs. tope de $2 por campaña. ` +
+          `Revisa: que el diseño cumpla la estrategia aprobada, coherencia con la investigación, identidad y edad adulta, que los prompts sean autónomos y sin contradicciones (POV, luz, vestuario), que las fotos citadas existan, textos, riesgos de plataforma (etiqueta de IA, nada explícito en Instagram), costo vs. tope de $2 por campaña. ` +
           `Si todo cumple, aprueba y entrega el paquete final de campaña (puedes corregir textos menores). Si hay problemas de fondo, pide cambios concretos y no entregues paquete.\n` +
           `Termina con un bloque \`\`\`json {"veredicto":"APROBADA|CAMBIOS","revision":[{"punto","estado":"OK|FALLA","nota"}],"cambios_requeridos":[],` +
           `"campana":{"objetivo","audiencia","metrica_principal","cta","calendario":[{"dia","publicacion"}],"hashtags":[]},` +
@@ -259,10 +287,12 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       const archive = await archiveSummary(db, String(job.workspace_id));
       const research = { output: await lastOutput(db, job.proposal_id, "RESEARCH") };
       const lastReview = (await lastOutput(db, job.proposal_id, "REVIEW"))?.data as Record<string, unknown> | undefined;
+      const strategy = (await lastOutput(db, job.proposal_id, "STRATEGY"))?.data as Record<string, unknown> | undefined;
       const notes = lastReview && lastReview.veredicto === "CAMBIOS" ? JSON.stringify(lastReview.cambios_requeridos ?? []).slice(0, 4000) : "";
       result = await callClaude({ model, maxTokens: 16000, aria: true, system: `${COMMON}\nEres el Director Creativo.\nReglas del dueño:\n${rulesOf(profile)}`,
         prompt: `Campaña: ${proposal?.title} (${proposal?.channel}, personaje ${proposal?.character_id}).\nResumen: ${proposal?.summary}\n\n` +
           `Investigación previa (JSON):\n${JSON.stringify(research?.output?.data ?? {}).slice(0, 12000)}\n\n` +
+          (strategy?.estrategia ? `Estrategia aprobada por el dueño (JSON, obligatoria):\n${JSON.stringify(strategy.estrategia).slice(0, 6000)}\n\n` : "") +
           (notes ? `El Director pidió estos cambios a tu diseño anterior; atiéndelos todos:\n${notes}\n\n` : "") +
           `Fotos que ya existen en la Fototeca (colección → posición: descripción):\n${archive}\n\n` +
           `Usa la herramienta mis_personajes de Aria para respetar la identidad exacta del personaje y modelos para el precio real por imagen. ` +
@@ -273,7 +303,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
     }
     const output: Record<string, unknown> = { markdown: result.text.slice(0, 60000), data: lastJson(result.text), sources: result.sources, model: MODELS[model].id };
     const incomplete = result.stopReason === "max_tokens" ? "La respuesta quedó cortada por su longitud. Vuelve a intentarlo."
-      : (kind === "DESIGN" || kind === "REVIEW") && !output.data ? "El diseño no incluyó un bloque de datos válido. Vuelve a intentarlo." : null;
+      : ["BRIEF", "STRATEGY", "DESIGN", "REVIEW"].includes(kind) && !output.data ? "La respuesta no incluyó un bloque de datos válido. Vuelve a intentarlo." : null;
     if (incomplete) throw Object.assign(new Error(incomplete), { partial: { output, usage: result.usage, cost: result.cost } });
     if (kind === "REVIEW" && proposal) {
       const d = output.data as Record<string, unknown>;
@@ -296,6 +326,9 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
   } finally {
     clearInterval(heartbeat);
   }
+  // The Director decides the next step of an "Iniciar campaña" pipeline (no-op for manual steps).
+  const { error: advanceError } = await db.rpc("raxi_pipeline_advance", { p_job: job.id });
+  if (advanceError) console.error("pipeline advance failed", advanceError.message);
 }
 
 Deno.serve(async (req) => {

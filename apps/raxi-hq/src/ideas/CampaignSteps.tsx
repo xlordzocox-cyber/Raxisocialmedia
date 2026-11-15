@@ -1,46 +1,84 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { campaignCost, canRun, friendlyError, isActive, JOB_LABEL, JOB_STATUS, latest, type AgentJob, type JobKind } from './agentJobs';
+import {
+  campaignCost, friendlyError, isActive, JOB_LABEL, JOB_STATUS, latest, PIPELINE_STEPS, stepState,
+  type AgentJob, type JobKind, type Pipeline,
+} from './agentJobs';
 
-/** Step buttons for an accepted campaign. Only calls the owner/budget-checked RPC; never spends on images. */
-export function CampaignSteps({ client, proposalId, jobs, onChange }: { client: SupabaseClient; proposalId: string; jobs: AgentJob[]; onChange: () => void }) {
+const ICON = { done: '✓', current: '●', waiting: '!', failed: '✕', todo: '○' } as const;
+const SHOWN: JobKind[] = ['BRIEF', 'RESEARCH', 'STRATEGY', 'DESIGN', 'REVIEW'];
+
+/** "Iniciar campaña": the Director chains the departments; the owner only acts at gates. Calls audited RPCs only. */
+export function CampaignSteps({ client, proposalId, jobs, pipeline, onChange }: {
+  client: SupabaseClient; proposalId: string; jobs: AgentJob[]; pipeline: Pipeline | undefined; onChange: () => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string>();
-  async function run(kind: JobKind) {
+  const [changes, setChanges] = useState(false);
+  const [note, setNote] = useState('');
+
+  async function call(fn: 'raxi_start_campaign' | 'raxi_campaign_decide', args: Record<string, unknown>, ok: string) {
     setBusy(true); setNotice(undefined);
-    const { error } = await client.rpc('raxi_request_agent_job', { p_proposal: proposalId, p_kind: kind });
+    const { error } = await client.rpc(fn, args);
     setBusy(false);
-    setNotice(error ? friendlyError(error.message) : `${JOB_LABEL[kind]} en marcha. Mira la oficina: el agente ya está trabajando.`);
+    setNotice(error ? friendlyError(error.message) : ok);
+    if (!error) { setChanges(false); setNote(''); }
     onChange();
   }
-  const research = latest(jobs, proposalId, 'RESEARCH');
-  const design = latest(jobs, proposalId, 'DESIGN');
-  const review = latest(jobs, proposalId, 'REVIEW');
+
   const spent = campaignCost(jobs, proposalId);
-  return <div className="campaign-steps">
-    <div className="team-proposal-actions" role="group" aria-label="Pasos de la campaña">
-      <button type="button" disabled={busy || !canRun(jobs, proposalId, 'RESEARCH')} onClick={() => void run('RESEARCH')}>
-        {research?.status === 'SUCCEEDED' ? '1 · Investigar de nuevo' : '1 · Investigar'}
-      </button>
-      <button type="button" disabled={busy || !canRun(jobs, proposalId, 'DESIGN')} onClick={() => void run('DESIGN')}>
-        {design?.status === 'SUCCEEDED' ? '2 · Diseñar de nuevo' : '2 · Diseñar'}
-      </button>
-      <button type="button" disabled={busy || !canRun(jobs, proposalId, 'REVIEW')} onClick={() => void run('REVIEW')}>
-        {review?.status === 'SUCCEEDED' ? '3 · Revisar de nuevo' : '3 · Revisión del Director'}
-      </button>
-      <button type="button" disabled title="Próximamente: requiere tu aprobación del costo">4 · Generar fotos</button>
-    </div>
-    <p className="team-proposal-meta">Gastado en esta campaña: ${spent.toFixed(4)} USD</p>
+  const review = latest(jobs, proposalId, 'REVIEW');
+  const results = SHOWN.map((k) => latest(jobs, proposalId, k)).filter((j): j is AgentJob => !!j);
+
+  if (!pipeline) return <div className="campaign-steps">
+    <button type="button" className="campaign-start" disabled={busy} onClick={() => void call('raxi_start_campaign', { p_proposal: proposalId },
+      'Campaña iniciada. El Director ya está trabajando; mira la oficina.')}>▶ Iniciar campaña</button>
+    <p className="team-proposal-meta">El Director coordina al equipo y solo te detiene para aprobar la estrategia. Tope: $2 por campaña.</p>
+    {spent > 0 && <p className="team-proposal-meta">Gastado antes en pruebas manuales: ${spent.toFixed(4)} USD (cuenta para el tope).</p>}
     {notice && <p role="status">{notice}</p>}
-    {review?.status === 'SUCCEEDED' && review.verdict === 'APROBADA' && review.campaign && <p className="campaign-created" role="status">
-      {review.campaign.kept ? `El Director aprobó, pero la campaña ya tenía decisiones tuyas y no se reemplazó.` : `✅ El Director aprobó y creó la campaña con ${review.campaign.items} publicaciones (borrador).`} <Link to="/fototeca">Ver en la Fototeca</Link>
+  </div>;
+
+  return <div className="campaign-steps">
+    <ol className="campaign-route" aria-label="Avance de la campaña">
+      {PIPELINE_STEPS.map((s) => { const st = stepState(pipeline, s.key); return <li key={s.key} className={`route-${st}`}>
+        <span aria-hidden="true">{ICON[st]}</span> {s.label}{st === 'current' ? ' · trabajando…' : st === 'waiting' ? ' · te toca' : ''}
+      </li>; })}
+    </ol>
+    <p className="team-proposal-meta">Gastado en esta campaña: ${spent.toFixed(4)} USD de $2.00</p>
+
+    {pipeline.status === 'WAITING_APPROVAL' && pipeline.gate === 'STRATEGY_APPROVAL' && <div className="campaign-gate" role="region" aria-label="Te toca: aprobar estrategia">
+      <p><b>TE TOCA · Aprobar la estrategia.</b> El Director la propone abajo. El equipo creativo no empieza hasta que la apruebes.</p>
+      {!changes ? <div className="team-proposal-actions">
+        <button type="button" disabled={busy} onClick={() => void call('raxi_campaign_decide', { p_proposal: proposalId, p_decision: 'APPROVE' },
+          'Estrategia aprobada. El Director se la entrega al Creativo.')}>Aprobar estrategia</button>
+        <button type="button" disabled={busy} onClick={() => setChanges(true)}>Pedir cambios</button>
+      </div> : <div className="campaign-changes-form">
+        <label>¿Qué debe cambiar el Director?<textarea value={note} maxLength={1000} rows={3} onChange={(e) => setNote(e.target.value)} /></label>
+        <div className="team-proposal-actions">
+          <button type="button" disabled={busy || !note.trim()} onClick={() => void call('raxi_campaign_decide', { p_proposal: proposalId, p_decision: 'CHANGES', p_note: note },
+            'Enviado. El Director rehace la estrategia con tus notas.')}>Enviar cambios</button>
+          <button type="button" disabled={busy} onClick={() => setChanges(false)}>Cancelar</button>
+        </div>
+      </div>}
+    </div>}
+
+    {(pipeline.status === 'FAILED' || pipeline.status === 'PAUSED') && <div className="campaign-changes" role="alert">
+      <p>{pipeline.status === 'FAILED' ? 'Un paso falló' : 'La campaña está en pausa'}: {pipeline.note ?? 'sin detalle.'}</p>
+      <button type="button" disabled={busy} onClick={() => void call('raxi_campaign_decide', { p_proposal: proposalId, p_decision: 'RESUME' },
+        'Reanudado: el equipo vuelve a intentar ese paso.')}>Reintentar este paso</button>
+    </div>}
+
+    {pipeline.status === 'READY_FOR_PRODUCTION' && review?.campaign && <p className="campaign-created" role="status">
+      {review.campaign.kept ? 'El Director aprobó, pero la campaña ya tenía decisiones tuyas y no se reemplazó.' : `✅ El Director aprobó y creó la campaña con ${review.campaign.items} publicaciones (borrador).`} <Link to="/fototeca">Ver en la Fototeca</Link>
+      <br /><span className="team-proposal-meta">Siguiente: generar fotos con tu aprobación del costo (en construcción).</span>
     </p>}
-    {review?.status === 'SUCCEEDED' && review.verdict === 'CAMBIOS' && <p className="campaign-changes" role="status">
-      El Director pidió cambios. Lee sus notas abajo y pulsa <b>2 · Diseñar de nuevo</b>: el Creativo las tomará en cuenta.
-    </p>}
-    {[research, design, review].filter((j): j is AgentJob => !!j).map((j) => <details key={j.id} className="campaign-step-result" open={isActive(j) || j.kind === 'REVIEW'}>
-      <summary>{JOB_LABEL[j.kind]} · {JOB_STATUS[j.status]}{j.verdict ? ` · ${j.verdict === 'APROBADA' ? 'Aprobada' : 'Con cambios'}` : ''}{j.status === 'SUCCEEDED' ? ` · $${j.costUsd.toFixed(4)}` : ''}</summary>
+    {notice && <p role="status">{notice}</p>}
+
+    {results.map((j) => <details key={j.id} className="campaign-step-result"
+      open={isActive(j) || (j.kind === 'STRATEGY' && pipeline.gate === 'STRATEGY_APPROVAL') || (j.kind === 'REVIEW' && pipeline.status === 'READY_FOR_PRODUCTION')}>
+      <summary>{JOB_LABEL[j.kind]} · {JOB_STATUS[j.status]}{j.status === 'SUCCEEDED' || j.status === 'FAILED' ? ` · $${j.costUsd.toFixed(4)}` : ''}
+        {j.verdict ? ` · ${j.verdict === 'APROBADA' ? 'Aprobada' : 'Con cambios'}` : ''}{j.decision === 'MAS_INVESTIGACION' ? ' · pidió más investigación' : ''}</summary>
       {isActive(j) && <p role="status">El agente está trabajando. Esto tarda de 1 a 3 minutos.</p>}
       {j.status === 'FAILED' && <p role="alert">{j.error ?? 'Falló sin detalle.'}</p>}
       {j.markdown && <pre className="campaign-step-text">{j.markdown}</pre>}

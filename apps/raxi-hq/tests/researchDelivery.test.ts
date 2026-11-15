@@ -61,3 +61,12 @@ test('design delivery: the Creative hands the design package to the Director; mi
   const bad = projectRuntime(s2([ev(1, 'cre', 'RUNTIME_HANDOFF', { stage: 'CREATIVE', targetAgentId: 'dir', artifact: 'RESEARCH_REPORT' })]), owner, workspace).hq.events;
   assert.equal(bad.length, 0);
 });
+
+test('director deliveries: the Director hands the brief and the approved strategy; unknown artifacts ignored', () => {
+  const s3 = (events: unknown[]) => ({ ...snap(events), profiles: [...snap([]).profiles, { id: 'dir', role: 'DIRECTOR', display_name: 'Director IA', runtime_status: 'CONNECTED' }] });
+  for (const [artifact, target] of [['RESEARCH_BRIEF', 'res'], ['STRATEGY_BRIEF', 'cre']]) {
+    const evs = projectRuntime(s3([ev(1, 'dir', 'RUNTIME_HANDOFF', { stage: 'DIRECTOR', targetAgentId: target, artifact })]), owner, workspace).hq.events;
+    assert.equal(evs[0]?.actorId, 'dir'); assert.equal(evs[0]?.targetId, target);
+  }
+  assert.equal(projectRuntime(s3([ev(1, 'dir', 'RUNTIME_HANDOFF', { stage: 'DIRECTOR', targetAgentId: 'cre', artifact: 'toString' })]), owner, workspace).hq.events.length, 0);
+});

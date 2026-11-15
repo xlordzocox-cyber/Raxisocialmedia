@@ -18,9 +18,10 @@ export const RUNTIME_STAGES={
 } as const;
 type RuntimeStage=keyof typeof RUNTIME_STAGES;
 // Only these deliveries exist: each stage hands over exactly one kind of finished work.
-const HANDOFF_ARTIFACTS:Partial<Record<RuntimeStage,{id:string;label:string}>>={
- RESEARCHER:{id:'RESEARCH_REPORT',label:'Entrega del reporte de investigación'},
- CREATIVE:{id:'DESIGN_PACKAGE',label:'Entrega del diseño de campaña al Director'},
+const HANDOFF_ARTIFACTS:Partial<Record<RuntimeStage,Record<string,string>>>={
+ DIRECTOR:{RESEARCH_BRIEF:'El Director entrega el encargo de investigación',STRATEGY_BRIEF:'El Director entrega la estrategia aprobada al Creativo'},
+ RESEARCHER:{RESEARCH_REPORT:'Entrega del reporte de investigación'},
+ CREATIVE:{DESIGN_PACKAGE:'Entrega del diseño de campaña al Director'},
 };
 const isStage=(s:unknown):s is RuntimeStage=>typeof s==='string'&&Object.prototype.hasOwnProperty.call(RUNTIME_STAGES,s);
 const empty=():HQState=>({agents:{},tasks:{},campaigns:{},events:[],handoffs:[],memorySignals:[],readOnly:true,mockMode:false,mode:'LIVE_READ_ONLY',sourceHealth:{source:'runtime',mode:'LIVE_READ_ONLY',connection:'DISCONNECTED',agentsLoaded:0,tasksLoaded:0,eventsLoaded:0}});
@@ -40,9 +41,9 @@ export function projectRuntime(raw:unknown,owner:string,workspace:string,elapsed
   if(!(e.source_kind==='AGENT_EXECUTOR'||(e.source_kind==='ARIA_MCP'&&stage==='PRODUCTION')))continue;
   // A verified handoff of the research report: shown as a delivery, never changes anyone's status.
   if(e.event_type==='RUNTIME_HANDOFF'){
-   const artifact=HANDOFF_ARTIFACTS[stage];
-   if(artifact&&e.source_kind==='AGENT_EXECUTOR'&&e.payload.artifact===artifact.id&&typeof e.payload.targetAgentId==='string'&&e.payload.targetAgentId&&e.payload.targetAgentId!==e.agent_id)
-    hq.events.push({id:'RUNTIME-'+e.id,timestamp:e.occurred_at,type:'HANDOFF_SENT',label:artifact.label,actorId:e.agent_id,targetId:e.payload.targetAgentId,taskId:e.task_id,source:'runtime',verified:true});
+   const label=typeof e.payload.artifact==='string'&&Object.hasOwn(HANDOFF_ARTIFACTS[stage]??{},e.payload.artifact)?HANDOFF_ARTIFACTS[stage]![e.payload.artifact]:undefined;
+   if(label&&e.source_kind==='AGENT_EXECUTOR'&&typeof e.payload.targetAgentId==='string'&&e.payload.targetAgentId&&e.payload.targetAgentId!==e.agent_id)
+    hq.events.push({id:'RUNTIME-'+e.id,timestamp:e.occurred_at,type:'HANDOFF_SENT',label,actorId:e.agent_id,targetId:e.payload.targetAgentId,taskId:e.task_id,source:'runtime',verified:true});
    continue;
   }
   // Dispatch admission is WAITING, never proof of provider execution.

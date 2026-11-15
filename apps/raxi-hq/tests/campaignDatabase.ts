@@ -31,6 +31,7 @@ export async function campaignDatabase(includeCampaignProposal = true, dataDir?:
     '20261115154028_raxi_hq_team_proposals.sql',
     '20261115170000_raxi_hq_agent_jobs.sql',
     '20261115172000_raxi_hq_director_review.sql',
+    '20261115180000_raxi_hq_campaign_pipeline.sql',
   ]);
   for (const file of readdirSync('../../supabase/migrations').filter(f =>
     f.endsWith('.sql') && f !== stagedRuntimeOnly && !postFreezeProduct.has(f) &&

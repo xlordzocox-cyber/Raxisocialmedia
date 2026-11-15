@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { CampaignSteps } from './CampaignSteps';
-import { isActive, parseJobs, type AgentJob } from './agentJobs';
+import { isActive, needsOwner, parseJobs, parsePipelines, type AgentJob, type Pipeline } from './agentJobs';
 import { agentLabel, canDecide, canUndo, parseProposals, STATUS_LABEL, visibleProposals, type TeamProposal } from './teamProposals';
 
 /** Agent jobs are optional: any failure leaves the proposals usable with no step history. */
@@ -10,6 +10,13 @@ async function readJobs(client: SupabaseClient, workspace: string): Promise<Agen
     const { data, error } = await client.from('raxi_agent_jobs').select('id, proposal_id, kind, status, output, cost_usd, error, created_at')
       .eq('workspace_id', workspace).order('created_at', { ascending: false }).limit(100);
     return error ? [] : parseJobs(data);
+  } catch { return []; }
+}
+
+async function readPipelines(client: SupabaseClient, workspace: string): Promise<Pipeline[]> {
+  try {
+    const { data, error } = await client.from('raxi_campaign_pipelines').select('proposal_id, status, stage, gate, note').eq('workspace_id', workspace);
+    return error ? [] : parsePipelines(data);
   } catch { return []; }
 }
 
@@ -22,17 +29,19 @@ export function TeamProposalsPanel({ client, workspace }: { client: SupabaseClie
   const [busy, setBusy] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [jobs, setJobs] = useState<AgentJob[]>([]);
+  const [pipelines, setPipelines] = useState<Pipeline[]>([]);
 
   const load = useCallback(async () => {
     try {
       const { data, error } = await client.from('raxi_team_proposals').select('*').eq('workspace_id', workspace);
       if (error) { setState({ phase: error.code === '42P01' ? 'unavailable' : 'error' }); return; }
       setState({ phase: 'ready', items: parseProposals(workspace, data) });
-      setJobs(await readJobs(client, workspace));
+      const [j, p] = await Promise.all([readJobs(client, workspace), readPipelines(client, workspace)]);
+      setJobs(j); setPipelines(p);
     } catch { setState({ phase: 'error' }); }
   }, [client, workspace]);
   useEffect(() => { void load(); }, [load]);
-  const working = jobs.some((j) => isActive(j));
+  const working = jobs.some((j) => isActive(j)) || pipelines.some((p) => p.status === 'RUNNING');
   useEffect(() => {
     if (!working) return;
     const t = setInterval(() => { void load(); }, 5000);
@@ -51,9 +60,10 @@ export function TeamProposalsPanel({ client, workspace }: { client: SupabaseClie
   const items = state.phase === 'ready' ? visibleProposals(state.items, showDismissed) : [];
   const dismissed = state.phase === 'ready' ? state.items.filter((p) => p.status === 'DISMISSED').length : 0;
   const fresh = state.phase === 'ready' ? state.items.filter((p) => p.status === 'PROPOSED').length : 0;
+  const yourTurn = pipelines.filter((p) => needsOwner(p)).length;
   return <section className="team-proposals" aria-label="Propuestas del equipo">
     <header>
-      <h3>Propuestas del equipo{fresh ? <span className="team-proposals-count">{fresh} nuevas</span> : null}</h3>
+      <h3>Propuestas del equipo{fresh ? <span className="team-proposals-count">{fresh} nuevas</span> : null}{yourTurn ? <span className="team-proposals-count your-turn">Te toca: {yourTurn}</span> : null}</h3>
       <p>Ideas creadas por los agentes. Están separadas de las tuyas y solo avanzan si tú dices que te interesan.</p>
     </header>
     {state.phase === 'loading' && <p role="status">Consultando propuestas…</p>}
@@ -73,7 +83,7 @@ export function TeamProposalsPanel({ client, workspace }: { client: SupabaseClie
         {canDecide(p) && <button type="button" disabled={!!busy} onClick={() => void decide(p, 'DISMISSED')}>Descartar</button>}
         {canUndo(p) && <button type="button" disabled={!!busy} onClick={() => void decide(p, 'PROPOSED')}>Deshacer</button>}
       </div>
-      {(p.status === 'ACCEPTED' || p.status === 'IN_PROGRESS') && <CampaignSteps client={client} proposalId={p.id} jobs={jobs} onChange={() => void load()} />}
+      {(p.status === 'ACCEPTED' || p.status === 'IN_PROGRESS') && <CampaignSteps client={client} proposalId={p.id} jobs={jobs} pipeline={pipelines.find((x) => x.proposalId === p.id)} onChange={() => void load()} />}
     </article>)}
     {dismissed > 0 && <button type="button" className="team-proposals-toggle" onClick={() => setShowDismissed((v) => !v)}>{showDismissed ? 'Ocultar descartadas' : `Ver descartadas (${dismissed})`}</button>}
     {notice && <p role="status">{notice}</p>}
