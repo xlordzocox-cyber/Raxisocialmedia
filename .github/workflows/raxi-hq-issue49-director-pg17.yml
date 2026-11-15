@@ -1,0 +1,55 @@
+name: Issue49 Director REAL SQL candidate - isolated native PostgreSQL17
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/proposals/issue49_director_real_sql.candidate.sql'
+      - 'apps/raxi-hq/tests/pg17/issue49_director_real_*.sql'
+      - '.github/workflows/raxi-hq-issue49-director-pg17.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: issue49-pg17-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  isolated-pg17:
+    name: PostgreSQL17 native test (network none, no hosted database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Start isolated PostgreSQL 17 in temporary Docker container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name raxi-issue49-pg17 \
+            --network none \
+            --tmpfs /var/lib/postgresql/data:rw,nosuid,size=512m \
+            --env POSTGRES_HOST_AUTH_METHOD=trust postgres:17
+          for i in $(seq 1 60); do
+            if docker exec raxi-issue49-pg17 pg_isready -U postgres -d postgres >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec raxi-issue49-pg17 pg_isready -U postgres -d postgres
+          docker inspect raxi-issue49-pg17 --format 'Network={{.HostConfig.NetworkMode}} Privileged={{.HostConfig.Privileged}} PublishedPorts={{json .HostConfig.PortBindings}}'
+          test "$(docker inspect raxi-issue49-pg17 --format '{{.HostConfig.NetworkMode}}')" = none
+          test "$(docker inspect raxi-issue49-pg17 --format '{{.HostConfig.Privileged}}')" = false
+          docker exec raxi-issue49-pg17 psql -X -U postgres -d postgres -Atc 'show server_version_num;' | grep -E '^17[0-9]{4}$'
+      - name: Execute fixture, REAL Director SQL proposal and denial battery
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker cp apps/raxi-hq/tests/pg17/issue49_director_real_fixture.sql raxi-issue49-pg17:/tmp/fixture.sql
+          docker cp supabase/proposals/issue49_director_real_sql.candidate.sql raxi-issue49-pg17:/tmp/candidate.sql
+          docker cp apps/raxi-hq/tests/pg17/issue49_director_real_qa.sql raxi-issue49-pg17:/tmp/qa.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/fixture.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/candidate.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/qa.sql
+          echo 'PG17_NATIVE_ISOLATED_DIRECTOR_QA_PASS'
+      - name: Destroy disposable DB on success or failure
+        if: always()
+        shell: bash
+        run: docker rm -f raxi-issue49-pg17 2>/dev/null || true
