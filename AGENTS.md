@@ -43,15 +43,16 @@ Raxi es una personalidad digital adulta con identidad visual ya establecida dent
 | Superficie | Nivel máximo permitido |
 |---|---|
 | Instagram (feed, carrusel, Reels), Stories, teaser y cualquier red pública | **SFW o spicy ocasional** (sensual, lingerie/sleepwear, sugerente) dentro de las normas de la plataforma. **Nunca NSFW ni desnudez.** |
-| Fanvue feed y Fanvue chatting | **NSFW permitido: desnudez adulta** del personaje virtual, generada solo con Aria Studio (modo adulto/"hot"). |
+| Fanvue feed | **NSFW: desnudez adulta** del personaje virtual, generada solo con Aria Studio (modo adulto/"hot"). Sin actos sexuales gráficos. |
+| Fanvue chatting | **NSFW y explícito sexual gráfico** permitido (nivel EXPLICIT), solo para mensajes privados de pago. |
 
 Reglas que no cambian en ninguna superficie:
 
 - Los personajes son adultos virtuales y siempre deben verse claramente adultos; nunca rasgos, contextos o vestuario que sugieran minoría de edad.
 - Nunca usar la cara, el cuerpo o el nombre de una persona real; nunca Aria Cruz para contenido adulto.
-- **No mezclar:** una foto NSFW jamás se asigna, recorta, reutiliza ni se insinúa en una campaña de Instagram/Stories/teaser. Las colecciones NSFW se guardan aparte y QA rechaza cualquier NSFW en una superficie pública.
-- Cada generación NSFW requiere la misma aprobación de costo explícita de Luis, marcada como "NSFW · Fanvue".
-- Actos sexuales gráficos u otros niveles más allá de la desnudez quedan fuera hasta que Luis decida otra cosa explícitamente.
+- **No mezclar, por niveles:** SFW/spicy (público) → NSFW (Fanvue feed) → EXPLICIT (solo Fanvue chatting). Una foto solo puede ir a su nivel o a uno superior, nunca hacia abajo: nada NSFW en público y nada EXPLICIT en el feed de Fanvue ni en público. Cada nivel tiene colecciones separadas y QA rechaza cualquier foto de nivel superior al de la superficie.
+- Cada generación NSFW o EXPLICIT requiere la aprobación de costo explícita de Luis, marcada con su nivel ("NSFW · Fanvue feed" / "EXPLICIT · Fanvue chatting").
+- Antes de la primera publicación en Fanvue se verifican las normas vigentes de Fanvue sobre contenido generado con IA y su etiquetado.
 
 ## Aria Studio MCP policy
 

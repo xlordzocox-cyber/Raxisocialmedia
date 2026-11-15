@@ -407,9 +407,14 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       const personaje = String(person?.id ?? character);
       const formato = items.some((i) => i.crop === "9:16") ? "9:16" : "3:4";
       const unit = Number(m.usd_std);
-      const fotos = todo.map((i) => ({ item_id: i.id, posicion: i.position, prompt: String((i.payload as Record<string, unknown>).prompt ?? "").slice(0, 4000) }));
+      // Luis's fixed prompt for this character always goes first; the scene from the design goes below it.
+      const { data: fixedRow } = await db.from("raxi_character_profiles").select("fixed_prompt").eq("workspace_id", job.workspace_id).eq("character_id", character).maybeSingle();
+      const fixed = txt(fixedRow?.fixed_prompt, 4000);
+      const fotos = todo.map((i) => { const scene = String((i.payload as Record<string, unknown>).prompt ?? "").slice(0, 4000);
+        return { item_id: i.id, posicion: i.position, prompt: fixed ? `${fixed}\n\nSCENE:\n${scene}` : scene }; });
       const plan = { modelo_key: key, modelo_nombre: m.nombre, precio_unitario_usd: unit, calidad: "std", formato, personaje, fotos,
         total_usd: Number((unit * fotos.length).toFixed(4)),
+        prompt_fijo: fixed ? "Incluido al inicio de cada foto" : "Sin prompt fijo para este personaje",
         nota: fromNote ? "Modelo que pediste en tu nota." : fromPref ? "Tu modelo preferido (conserva mejor la cara)." : fromText ? "Modelo indicado en el diseño." : "Se usa el modelo general por defecto." };
       result = { text: JSON.stringify(plan), usage: {}, stopReason: "end_turn", cost: 0, sources: [] };
     } else if (kind === "GENERATE") {
@@ -590,7 +595,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
           `Fotos que ya existen en la Fototeca (colección → posición: descripción):\n${archive}\n\n` +
           `Usa mis_personajes de Aria para respetar la identidad exacta del personaje y modelos para el precio real por imagen. ` +
           `Diseña concepto, microhistoria y publicaciones. Si es un Reel con fotos ya existentes: kit de montaje sin generar nada, "coleccion_existente" = id de la colección y "posicion" = número de foto en ella; "publicaciones" vacío. ` +
-          `Si requiere fotos nuevas: un prompt autónomo en inglés por foto (identidad, escena, vestuario, cámara/POV, luz, realismo, salida única; máx. 120 palabras), texto ES/EN breve y alt. ` +
+          `Si requiere fotos nuevas: un prompt en inglés por foto con SOLO la escena (acción, lugar, vestuario, cámara/POV, luz, realismo; máx. 120 palabras): Producción antepone automáticamente el prompt fijo del personaje (identidad, anatomía, collar, @Image1), así que no lo repitas ni lo contradigas. Texto ES/EN breve y alt. ` +
           `Modelo de Aria recomendado y costo estimado con precios reales.\n${COMPACT} (Los prompts pueden superar las 25 palabras.)\nForma: ${SCHEMAS.DESIGN}` });
     }
     const output: Record<string, unknown> = { markdown: result.text.slice(0, 60000), data: ["FINAL", "PRODUCTION", "GENERATE"].includes(kind) ? JSON.parse(result.text) : lastJson(result.text), sources: result.sources, model: MODELS[model].id };
