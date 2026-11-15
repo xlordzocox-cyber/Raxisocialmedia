@@ -7,6 +7,8 @@ on:
       - 'supabase/proposals/issue49_director_staging_*.review.sql'
       - 'apps/raxi-hq/tests/pg17/issue49_director_staging_review_negative.sh'
       - 'apps/raxi-hq/tests/pg17/issue49_director_real_*.sql'
+      - 'apps/raxi-hq/tests/pg17/issue49_director_hosted_rate_qa.sql'
+      - 'supabase/proposals/issue49_supervised_rate_hosted_snapshot.offline.sql'
       - 'apps/raxi-hq/tests/pg17/issue49_director_real_concurrency.sh'
       - 'apps/raxi-hq/tests/pg17/issue49_director_staging_catalog_parity.sql'
       - 'supabase/migrations/**'
@@ -78,6 +80,18 @@ jobs:
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -Atc "select to_regclass('public.raxi_director_real_pilots') is not null" | grep -qx t
           echo 'PASS_ISSUE49_ROLLBACK_DENIED_ON_PERSISTED_PILOT_EVIDENCE'
           echo 'PG17_NATIVE_ISOLATED_DIRECTOR_QA_PASS'
+      - name: Reconstruct and exercise hosted rate SQL in separate isolated PG17 database
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Synthetic DB in same --network none temporary container; never hosted.
+          docker exec raxi-issue49-pg17 createdb -U postgres raxi_rate_qa
+          docker cp supabase/proposals/issue49_supervised_rate_hosted_snapshot.offline.sql raxi-issue49-pg17:/tmp/hosted-rate.sql
+          docker cp apps/raxi-hq/tests/pg17/issue49_director_hosted_rate_qa.sql raxi-issue49-pg17:/tmp/rate-qa.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -f /tmp/fixture.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -f /tmp/hosted-rate.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -f /tmp/rate-qa.sql
+          echo 'PASS_ISSUE49_HOSTED_RATE_PG17_REAL_SQL_OFFLINE'
       - name: Verify independent PostgreSQL backends, idempotency and rollback in separate DB
         shell: bash
         run: |
