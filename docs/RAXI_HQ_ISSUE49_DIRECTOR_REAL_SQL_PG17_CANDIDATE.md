@@ -46,3 +46,7 @@ Workflow `raxi-hq-issue49-director-pg17.yml` inicia `postgres:17` en Docker con 
 5. Integrar eventos reales a Pixi exclusivamente desde evidencia duradera `AGENT_EXECUTOR / VERIFIED / simulated=false`. Sin evidencia, estado quieto.
 
 La existencia de este SQL **no** autoriza nuevas cuentas, secretos, cambios a campañas existentes, proveedores, consumos, despliegues, trabajo nocturno ni producción.
+
+## Límite de un piloto de por vida (corrección de revisión)
+
+La exclusividad para el primer piloto es **por workspace y de por vida**, incluso si el registro queda `REVOKED`. El índice `raxi_director_real_one_lifetime` impide que una segunda tarea reutilice `reserved_micros` y `task_count` del registro revocado, aun cuando se intente insertar un nuevo registro pendiente directamente mediante `service_role`. La prueba PostgreSQL17 usa una segunda tarea con llave foránea válida y comprueba el rechazo después de una revocación real de fixture; toda la fixture adicional se revierte. Esta decisión simplifica el piloto único deliberadamente: **cualquier segundo piloto futuro exige un rediseño separado, aprobado y probado de acumulación/contabilidad de reservas**; no relajar el índice sin ese cambio.
