@@ -47,7 +47,9 @@ create unique index raxi_director_real_one_pending
  where status in ('WAITING_HUMAN_EXECUTION_AUTH','READY_FOR_MANUAL_EXECUTION');
 
 alter table public.raxi_director_real_pilots enable row level security;
-revoke all on public.raxi_director_real_pilots from public,anon,authenticated;
+-- Supabase's pg17-bootstrap grants ALL new table privileges to service_role
+-- by DEFAULT; revoke them first so DELETE/TRUNCATE cannot erase immutable gates.
+revoke all on public.raxi_director_real_pilots from public,anon,authenticated,service_role;
 grant select,insert,update on public.raxi_director_real_pilots to service_role;
 
 -- The record cannot be silently rebound to another identity/scope/price.
