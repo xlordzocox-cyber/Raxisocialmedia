@@ -400,6 +400,30 @@ begin
  if public.raxi_director_real_revoke(other_session,task_id,
    '55555555-5555-4555-8555-555555555555')->>'kind'<>'DIRECTOR_REAL_REVOKED' then
   raise exception 'FAILED: stable revocation replay';end if;
+ -- Revocation MUST NOT free a second pilot: the old 4000 microUSD remains
+ -- conserved under the same policy. Force a second fully valid task FK and
+ -- attempt a fresh WAITING gate; the lifetime UNIQUE(workspace_id) must deny.
+ begin
+  insert into public.raxi_agent_tasks(workspace_id,external_id,title,status,input_snapshot)
+   values(wid,'DIRECTOR-SECOND-LIFETIME','second real pilot forbidden',
+    'WAITING_APPROVAL',jsonb_build_object('spec',spec))
+   returning id into v_forged_task;
+  perform pg_temp.expect_denied('revoked reservation cannot be reused by second pilot',
+   format('insert into public.raxi_director_real_pilots(
+     workspace_id,task_id,actor_user_id,session_id,request_key,
+     scope_sha256,policy_version,provider,model,max_cost_micros,expires_at)
+     values (%L::uuid,%L::uuid,%L::uuid,%L::uuid,%L::uuid,%L,1,
+     %L,%L,5000,clock_timestamp()+interval ''20 minutes'')',
+     wid::text,v_forged_task::text,owner_id::text,sid::text,
+     'bbbb1111-1111-4111-8111-111111111111',
+     public.raxi_director_real_scope(wid,v_forged_task,owner_id,spec,1),
+     'openai','synthetic-model'));
+  raise exception 'ROLLBACK_LIFETIME_TEST' using errcode='P0199';
+ exception when sqlstate 'P0199' then
+  raise notice 'PASS: one lifetime Director gate per workspace despite revoked grant';
+ end;
+ if (select reserved_micros from public.raxi_runtime_policies where workspace_id=wid)<>4000
+ then raise exception 'FAILED: historical reservation changed after forbidden second gate';end if;
  if (select count(*) from public.raxi_agent_tasks where workspace_id=wid)<>1 or
     (select count(*) from public.raxi_director_real_pilots where workspace_id=wid)<>1
  then raise exception 'FAILED: unexpected task duplication';end if;
