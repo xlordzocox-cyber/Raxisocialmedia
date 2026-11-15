@@ -5,7 +5,8 @@ import { campaignDatabase } from './campaignDatabase';
 import { rpcRepository, requestHandler, runOne, taskSpec, runtimeResultBytes, RUNTIME_RESULT_MAX_BYTES, type Source, type Provider, type TaskSpec } from '../../../server/agent-runtime/runtime';
 import { simulatedProvider, openAIProvider } from '../../../server/agent-runtime/providers';
 import { PILOT_QUOTE, planPilotBudget } from '../../../server/agent-runtime/pilotBudget';
-import { RuntimeOfficeStore, projectRuntime } from '../src/runtime/runtimeOfficeStore';
+import { RuntimeOfficeStore, projectRuntime, applyVerifiedRuntimeMotion } from '../src/runtime/runtimeOfficeStore';
+import { AgentMotion } from '../src/office/agents/agentMotion';
 import { RuntimeOfficePanel } from '../src/runtime/RuntimeOfficePanel';
 import { createElement, StrictMode } from 'react';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
@@ -161,6 +162,152 @@ test('canonical runtime projection excludes simulation, expires active leases an
  assert.throws(()=>projectRuntime({...snapshot,events:[snapshot.events[0],snapshot.events[0]]},owner,workspace));
  let finish!:(v:unknown)=>void;const store=new RuntimeOfficeStore(()=>new Promise(r=>{finish=r;}),owner,workspace);
  const reading=store.load();store.dispose();const retired=store.getSnapshot();finish(snapshot);await reading;assert.equal(store.getSnapshot(),retired);
+});
+
+test('issue #60: only a newly observed verified REAL start induces a visual route; no event is synthesized',()=>{
+ const serverTime='2026-11-04T12:00:00Z';
+ const base={workspaceId:workspace,ownerId:owner,serverTime,
+  tasks:[{id:'task-1',status:'RUNNING',title:'REAL Director trial',simulated:false,result:null}],
+  events:[] as unknown[]};
+ const start={id:1,workspace_id:workspace,task_id:'task-1',agent_id:'agent-director',
+  event_type:'RUNTIME_ACKNOWLEDGED',source_kind:'AGENT_EXECUTOR',evidence_status:'VERIFIED',
+  occurred_at:serverTime,payload:{simulated:false,stage:'DIRECTOR',leaseUntil:'2026-11-04T12:01:00Z'}};
+ const initial=projectRuntime(base,owner,workspace).hq;
+ const next=projectRuntime({...base,events:[start]},owner,workspace).hq;
+ const before=structuredClone(next);
+ const moving=applyVerifiedRuntimeMotion(initial,next);
+ assert.equal(moving.agents['agent-director'].status,'RUNNING');
+ assert.equal(moving.agents['agent-director'].zone,'GITHUB_HUB');
+ assert.equal(moving.agents['agent-director'].destinationZone,'WAR_ROOM');
+ assert.deepEqual(moving.events,next.events,'no manufactured handoff/receipt or execution event');
+ assert.deepEqual(next,before,'canonical snapshot is not mutated');
+ const motion=new AgentMotion(moving.agents['agent-director'],0);
+ const position={...motion.position};motion.sync(moving.agents['agent-director']);
+ assert.equal(motion.walking,true);
+ motion.update(100);assert.notDeepEqual(motion.position,position);
+ motion.update(20000);assert.equal(motion.walking,false);
+ assert.equal(applyVerifiedRuntimeMotion(moving,next).agents['agent-director'].destinationZone,undefined,'polling does not replay route');
+ assert.equal(applyVerifiedRuntimeMotion(null,next).agents['agent-director'].destinationZone,undefined,'cold start does not replay historical events');
+ const completed=projectRuntime({...base,tasks:[{...base.tasks[0],status:'COMPLETED'}],
+  events:[start,{...start,id:2,event_type:'RUNTIME_RESULT_COMMITTED'}]},owner,workspace).hq;
+ assert.equal(applyVerifiedRuntimeMotion(initial,completed).agents['agent-director'].destinationZone,undefined,'fast completion does not masquerade as active work');
+ const expired=projectRuntime({...base,events:[start]},owner,workspace,61_000).hq;
+ assert.equal(applyVerifiedRuntimeMotion(initial,expired).agents['agent-director'].destinationZone,undefined,'expired lease cannot walk as active');
+ const simulated=projectRuntime({...base,events:[{...start,payload:{...start.payload,simulated:true}}]},owner,workspace).hq;
+ assert.deepEqual(simulated.agents,{});
+ assert.deepEqual(applyVerifiedRuntimeMotion(initial,simulated).agents,{});
+ const already=applyVerifiedRuntimeMotion(next,next);
+ assert.equal(already.agents['agent-director'].destinationZone,undefined,'existing agent never teleports');
+});
+
+test('issue #60: researcher route is backed by its own verified event and denied after disconnect',()=>{
+ const serverTime='2026-11-04T12:00:00Z';
+ const base={workspaceId:workspace,ownerId:owner,serverTime,
+  tasks:[{id:'task-2',status:'RUNNING',title:'REAL research trial',simulated:false,result:null}],
+  events:[] as unknown[]};
+ const started={id:3,workspace_id:workspace,task_id:'task-2',agent_id:'agent-researcher',
+  event_type:'RUNTIME_ACKNOWLEDGED',source_kind:'AGENT_EXECUTOR',evidence_status:'VERIFIED',
+  occurred_at:serverTime,payload:{simulated:false,stage:'RESEARCHER',leaseUntil:'2026-11-04T12:01:00Z'}};
+ const previous=projectRuntime(base,owner,workspace).hq;
+ const current=projectRuntime({...base,events:[started]},owner,workspace).hq;
+ const visual=applyVerifiedRuntimeMotion(previous,current);
+ assert.equal(visual.agents['agent-researcher'].zone,'WAR_ROOM');
+ assert.equal(visual.agents['agent-researcher'].destinationZone,'RESEARCH_LAB');
+ const disconnected={...previous,sourceHealth:{...previous.sourceHealth,connection:'DISCONNECTED' as const}};
+ assert.equal(applyVerifiedRuntimeMotion(disconnected,current).agents['agent-researcher'].destinationZone,undefined);
+ const spoofed=projectRuntime({...base,events:[{...started,evidence_status:'UNVERIFIED'}]},owner,workspace).hq;
+ assert.deepEqual(applyVerifiedRuntimeMotion(previous,spoofed).agents,{});
+ assert.throws(()=>projectRuntime({...base,tasks:[{...base.tasks[0],id:'other-task'}],events:[started]},owner,workspace),'orphan task evidence fails closed');
+});
+
+
+test('issue #60 dispatch is WAITING, verified and never a claim that the provider has started',()=>{
+ const now='2026-11-04T12:00:00Z';
+ const base={workspaceId:workspace,ownerId:owner,serverTime:now,
+  tasks:[{id:'task-dispatch',status:'QUEUED',title:'Approved dispatch',simulated:false,result:null}],
+  events:[] as unknown[]};
+ const admitted={id:10,workspace_id:workspace,task_id:'task-dispatch',agent_id:'director-agent',
+  event_type:'RUNTIME_DISPATCH_AUTHORIZED',source_kind:'AGENT_EXECUTOR',evidence_status:'VERIFIED',
+  occurred_at:now,payload:{simulated:false,stage:'DIRECTOR',leaseUntil:'2026-11-04T12:01:00Z',
+   operationalReceiptOnly:true,providerAcknowledged:false,phase:'DISPATCH_AUTHORIZED'}};
+ const before=projectRuntime(base,owner,workspace).hq;
+ const projected=projectRuntime({...base,events:[admitted]},owner,workspace).hq;
+ assert.deepEqual(projected.events.map(item=>item.type),['TASK_ASSIGNED']);
+ assert.equal(projected.agents['director-agent'].status,'WAITING');
+ assert.equal(projected.tasks['task-dispatch'].status,'QUEUED');
+ const motionState=applyVerifiedRuntimeMotion(before,projected);
+ assert.equal(motionState.agents['director-agent'].zone,'GITHUB_HUB');
+ assert.equal(motionState.agents['director-agent'].destinationZone,'WAR_ROOM');
+ const motion=new AgentMotion(motionState.agents['director-agent'],0);
+ motion.sync(motionState.agents['director-agent']);assert.equal(motion.walking,true);
+ assert.deepEqual(projectRuntime({...base,events:[{...admitted,payload:{...admitted.payload,phase:'UNKNOWN'}}]},owner,workspace).hq.agents,{});
+ assert.deepEqual(projectRuntime({...base,events:[{...admitted,payload:{...admitted.payload,providerAcknowledged:true}}]},owner,workspace).hq.agents,{});
+ assert.deepEqual(projectRuntime({...base,events:[admitted]},owner,workspace,61_000).hq.agents,{});
+ assert.equal(applyVerifiedRuntimeMotion(null,projected).agents['director-agent'].destinationZone,undefined);
+ assert.deepEqual(projectRuntime({...base,tasks:[{...base.tasks[0],status:'COMPLETED'}],events:[admitted]},owner,workspace).hq.agents,{});
+});
+
+
+test('issue #60 SQL dispatch receipt is atomic and does not claim provider acknowledgment',async()=>{
+ const f=await fixture(true);
+ try {
+  await f.db.exec(readFileSync('../../supabase/proposals/issue60_runtime_dispatch_receipt.sql','utf8'));
+  const taskId=await f.create();
+  const run=(await f.repository.claim(taskId,'dispatch-receipt-test'))!.run;
+  await f.repository.step(run.id,run.lease_token,'dispatch');
+  const rows=(await f.db.query<{source_kind:string;evidence_status:string;payload:{phase:string;providerAcknowledged:boolean;operationalReceiptOnly:boolean}}>(
+   "select source_kind,evidence_status,payload from public.raxi_agent_events where event_type='RUNTIME_DISPATCH_AUTHORIZED' and task_id=$1",[taskId])).rows;
+  assert.equal(rows.length,1);
+  assert.equal(rows[0].source_kind,'AGENT_EXECUTOR');
+  assert.equal(rows[0].evidence_status,'VERIFIED');
+  assert.equal(rows[0].payload.phase,'DISPATCH_AUTHORIZED');
+  assert.equal(rows[0].payload.providerAcknowledged,false);
+  assert.equal(rows[0].payload.operationalReceiptOnly,true);
+  const audit=(await f.db.query("select id from public.raxi_audit_events where action='RUNTIME_DISPATCH_AUTHORIZED' and resource_id=$1",[run.id])).rows;
+  assert.equal(audit.length,1);
+  await assert.rejects(f.repository.step(run.id,run.lease_token,'dispatch'));
+  assert.equal((await f.db.query("select id from public.raxi_agent_events where event_type='RUNTIME_DISPATCH_AUTHORIZED' and task_id=$1",[taskId])).rows.length,1);
+  const persisted=(await f.db.query<{status:string;provider_receipt:string|null}>('select status,provider_receipt from public.raxi_agent_runs where id=$1',[run.id])).rows[0];
+  assert.equal(persisted.status,'CLAIMED');
+  assert.equal(persisted.provider_receipt,null);
+  await f.db.exec('reset role');
+  await f.db.query("select set_config('request.jwt.claims',$1,false)",[JSON.stringify({sub:owner})]);
+  await f.db.exec('set role authenticated');
+  const raw=(await f.db.query<{v:unknown}>('select public.raxi_runtime_office($1) v',[workspace])).rows[0].v;
+  const projected=projectRuntime(raw,owner,workspace);
+  assert.equal(Object.values(projected.hq.agents)[0].status,'WAITING');
+  assert.equal(projected.hq.events[0].type,'TASK_ASSIGNED');
+ }finally{await f.db.close();}
+});
+
+
+test('issue #60 store polling triggers one visible route only after new durable receipt',async()=>{
+ const serverTime='2026-11-04T12:00:00Z';
+ const base={workspaceId:workspace,ownerId:owner,serverTime,
+  tasks:[{id:'task-poll',status:'QUEUED',title:'Dispatch fixture',simulated:false,result:null}],
+  events:[] as unknown[]};
+ const receipt={id:23,workspace_id:workspace,task_id:'task-poll',agent_id:'agent-poll',
+  event_type:'RUNTIME_DISPATCH_AUTHORIZED',source_kind:'AGENT_EXECUTOR',evidence_status:'VERIFIED',
+  occurred_at:serverTime,payload:{simulated:false,stage:'RESEARCHER',leaseUntil:'2026-11-04T12:01:00Z',
+   operationalReceiptOnly:true,providerAcknowledged:false,phase:'DISPATCH_AUTHORIZED'}};
+ let raw=structuredClone(base);
+ const clock=()=>Date.parse(serverTime);
+ const store=new RuntimeOfficeStore(async()=>structuredClone(raw),owner,workspace,clock);
+ try {
+  await store.load();
+  assert.deepEqual(store.getSnapshot().hq.agents,{});
+  raw={...base,events:[receipt]};
+  await store.load();
+  assert.equal(store.getSnapshot().hq.agents['agent-poll'].zone,'WAR_ROOM');
+  assert.equal(store.getSnapshot().hq.agents['agent-poll'].destinationZone,'RESEARCH_LAB');
+  await store.load();
+  assert.equal(store.getSnapshot().hq.agents['agent-poll'].destinationZone,undefined);
+  const replacement=new RuntimeOfficeStore(async()=>structuredClone(raw),owner,workspace,clock);
+  try {
+   await replacement.load();
+   assert.equal(replacement.getSnapshot().hq.agents['agent-poll'].destinationZone,undefined,'reconnecting does not replay receipt');
+  }finally{replacement.dispose();}
+ }finally{store.dispose();}
 });
 
 test('mounted runtime panel in StrictMode stays disabled without service and cleans up reads on account change',async()=>{
