@@ -3,7 +3,7 @@ import type { HQEvent } from '../domain/events';
 /** Read-only, owner/workspace-scoped projection sent to the primary office. */
 export type RuntimeOfficeSink = (scope:{owner:string;workspace:string},hq:HQState|null)=>void;
 interface RuntimeTask {id:string;status:string;title:string;simulated:boolean;result:unknown}
-interface RuntimeEvent {id:number;workspace_id:string;agent_id:string|null;task_id:string;event_type:string;source_kind:string;evidence_status:string;occurred_at:string;payload:{simulated:boolean;stage:string;leaseUntil:string;phase?:string;operationalReceiptOnly?:boolean;providerAcknowledged?:boolean}}
+interface RuntimeEvent {id:number;workspace_id:string;agent_id:string|null;task_id:string;event_type:string;source_kind:string;evidence_status:string;occurred_at:string;payload:{simulated:boolean;stage:string;leaseUntil:string;phase?:string;operationalReceiptOnly?:boolean;providerAcknowledged?:boolean;targetAgentId?:string;artifact?:string}}
 interface RuntimeProfile {id:string;role:string;display_name:string;runtime_status:string}
 interface OfficeSnapshot {workspaceId:string;ownerId:string;serverTime:string;tasks:RuntimeTask[];events:RuntimeEvent[];profiles?:RuntimeProfile[]}
 // Claude-led team (Modo Estudio): each verified stage maps to one of the 7 office rooms.
@@ -33,6 +33,12 @@ export function projectRuntime(raw:unknown,owner:string,workspace:string,elapsed
   const stage=e.payload.stage;if(!isStage(stage)||!e.agent_id)continue;
   // Aria Studio receipts are first-party evidence only for the Production stage.
   if(!(e.source_kind==='AGENT_EXECUTOR'||(e.source_kind==='ARIA_MCP'&&stage==='PRODUCTION')))continue;
+  // A verified handoff of the research report: shown as a delivery, never changes anyone's status.
+  if(e.event_type==='RUNTIME_HANDOFF'){
+   if(stage==='RESEARCHER'&&e.source_kind==='AGENT_EXECUTOR'&&e.payload.artifact==='RESEARCH_REPORT'&&typeof e.payload.targetAgentId==='string'&&e.payload.targetAgentId&&e.payload.targetAgentId!==e.agent_id)
+    hq.events.push({id:'RUNTIME-'+e.id,timestamp:e.occurred_at,type:'HANDOFF_SENT',label:'Entrega del reporte de investigación',actorId:e.agent_id,targetId:e.payload.targetAgentId,taskId:e.task_id,source:'runtime',verified:true});
+   continue;
+  }
   // Dispatch admission is WAITING, never proof of provider execution.
   // ACK/RESULT are separate receipts; UNKNOWN and future types remain unprojected.
   const dispatch=e.event_type==='RUNTIME_DISPATCH_AUTHORIZED' && e.payload.phase==='DISPATCH_AUTHORIZED' &&

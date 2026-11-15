@@ -114,6 +114,21 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
     payload: { simulated: false, stage: meta.stage, leaseUntil: new Date(Date.now() + 10 * 60_000).toISOString(), executor: "claude-api" },
     occurred_at: now(),
   });
+  if (kind === "DESIGN" && profile?.id) {
+    // The Researcher hands the report to the Creative Director: a real, verified step shown as a walk in the office.
+    const { data: researcher } = await db.from("raxi_agent_profiles").select("id")
+      .eq("workspace_id", job.workspace_id).eq("agent_key", "researcher").single();
+    if (researcher?.id) {
+      await db.from("raxi_agent_events").insert({
+        workspace_id: job.workspace_id, agent_id: researcher.id, task_id: taskId, event_type: "RUNTIME_HANDOFF",
+        source_kind: "AGENT_EXECUTOR", evidence_status: "VERIFIED", source_ref: `raxi-agent-runner:${job.id}`,
+        payload: { simulated: false, stage: "RESEARCHER", leaseUntil: new Date(Date.now() + 10 * 60_000).toISOString(),
+          targetAgentId: profile.id, artifact: "RESEARCH_REPORT", executor: "claude-api" },
+        occurred_at: now(),
+      });
+      await new Promise((r) => setTimeout(r, 9000)); // let the office show the delivery before the Creative starts
+    }
+  }
   await event("RUNTIME_ACKNOWLEDGED");
   const heartbeat = setInterval(() => { void db.from("raxi_agent_tasks").update({ updated_at: now() }).eq("id", taskId); }, 30_000);
 

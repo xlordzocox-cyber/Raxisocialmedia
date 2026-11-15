@@ -9,6 +9,7 @@ import { zones } from './zones';
 import type { ZoneId } from '../domain/agents';
 import { officeZoneAtPoint, officeZoneZoomFactor } from './zoneCamera';
 import { HandoffEffect } from './effects/HandoffEffect';
+import { DeliveryEffect, deliveryRoute } from './effects/DeliveryEffect';
 import { MemoryArchiveEffect } from './effects/MemoryArchiveEffect';
 import { PendingMemoryOrigins } from './effects/memoryOrigins';
 import { advanceCameraFocus, clampCamera, zoomAt, type CameraBounds } from './camera';
@@ -25,7 +26,7 @@ export class OfficeScene {
   private sprites = new Map<string, AgentSprite>();
   private motions = new Map<string, AgentMotion>();
   private hoveredAgentId?: string;
-  private effects: (HandoffEffect | MemoryArchiveEffect)[] = [];
+  private effects: (HandoffEffect | MemoryArchiveEffect | DeliveryEffect)[] = [];
   private seen = new Set<string>();
   private memoryOrigins = new PendingMemoryOrigins();
   private state?: HQState;
@@ -193,6 +194,9 @@ export class OfficeScene {
       this.focusTarget=undefined; this.focusAgentId=undefined;
       this.focusCriticalEvents=false; this.onCriticalFocusChange?.(false);
     }
+    // Deliveries play only for events first seen while already watching a connected runtime office (never on cold start).
+    const warmRuntime=this.state?.mode==='LIVE_READ_ONLY' && this.state.sourceHealth.source==='runtime' && this.state.sourceHealth.connection==='CONNECTED' &&
+      state.mode==='LIVE_READ_ONLY' && state.sourceHealth.source==='runtime' && state.sourceHealth.connection==='CONNECTED';
     this.state = state;
     for (const [id,sprite] of this.sprites) {
       if (getOwnAgent(state.agents,id)) continue;
@@ -251,8 +255,21 @@ export class OfficeScene {
           this.highlight(getOwnAgent(state.agents,event.targetId)?.zone ?? 'WAR_ROOM',false);
         }
       }
+      if (warmRuntime && event.type==='HANDOFF_SENT' && event.source==='runtime' && event.verified) this.startDelivery(state,event);
       if(event.type==='AGENT_BLOCKED') this.highlight(getOwnAgent(state.agents,event.actorId)?.zone ?? 'WAR_ROOM',true);
     }
+  }
+
+  private startDelivery(state:HQState,event:HQState['events'][number]):void {
+    if(this.reducedMotion?.matches || !event.actorId || !event.targetId || event.actorId===event.targetId)return;
+    const at=Date.parse(event.timestamp);
+    if(!Number.isFinite(at) || Math.abs(Date.now()-at)>5*60_000)return;
+    const sender=getOwnAgent(state.agents,event.actorId), receiver=getOwnAgent(state.agents,event.targetId);
+    const from=this.motions.get(event.actorId), to=this.motions.get(event.targetId)?.position;
+    if(!sender || !receiver || !from || !to || from.walking)return;
+    if(this.effects.some(effect=>effect instanceof DeliveryEffect && (effect.senderId===sender.id || effect.receiverId===sender.id)))return;
+    this.addEffect(new DeliveryEffect(sender.id,receiver.id,deliveryRoute(from.position,to,sender.zone,receiver.zone),{...to},event.id));
+    this.highlight(receiver.zone,false);
   }
 
   private highlight(zoneId: keyof typeof zones, critical:boolean):void {
@@ -267,7 +284,7 @@ export class OfficeScene {
     }
   }
 
-  private addEffect(effect: HandoffEffect | MemoryArchiveEffect): void {
+  private addEffect(effect: HandoffEffect | MemoryArchiveEffect | DeliveryEffect): void {
     this.effects.push(effect);
     this.effectLayer.addChild(effect);
   }
@@ -320,13 +337,14 @@ export class OfficeScene {
       motion.update(deltaMs);
       const sprite = this.sprites.get(id)!;
       const handoff=this.effects.find((effect):effect is HandoffEffect=>effect instanceof HandoffEffect && (effect.senderId===id || effect.receiverId===id));
-      const offset=handoff ? (handoff.senderId===id ? handoff.frame.senderOffset : handoff.frame.receiverOffset) : {x:0,y:0};
+      const delivery=this.effects.find((effect):effect is DeliveryEffect=>effect instanceof DeliveryEffect && effect.senderId===id)?.frame;
+      const offset=delivery ? delivery.senderOffset : handoff ? (handoff.senderId===id ? handoff.frame.senderOffset : handoff.frame.receiverOffset) : {x:0,y:0};
       sprite.position.set(motion.position.x+offset.x,motion.position.y+offset.y);
       sprite.zIndex=sprite.y;
-      sprite.faceMovement(motion.position.x-previousX);
+      sprite.faceMovement(delivery ? delivery.direction : motion.position.x-previousX);
       const agent = this.state ? getOwnAgent(this.state.agents,id) : undefined;
       if (agent) {
-        applyAgentAnimation(sprite, motion.walking ? 'WALKING' : agent.status === 'WALKING' ? 'IDLE' : agent.status, this.elapsed);
+        applyAgentAnimation(sprite, motion.walking || delivery?.walking ? 'WALKING' : agent.status === 'WALKING' ? 'IDLE' : agent.status, this.elapsed);
         if(['RUNNING','WORKING','RESEARCHING','QA'].includes(agent.status)) {
           const key=stationLightKey(agent,motion,this.state?.mode === 'LIVE_READ_ONLY');
           const light=key ? this.stationLights.get(key) : undefined;
