@@ -59,4 +59,6 @@ La batería nativa `apps/raxi-hq/tests/pg17/issue49_director_staging_review_nega
 
 El postflight exige índice único válido exactamente en `workspace_id` y trigger de fila activo conectado a `raxi_director_real_protect()`, además de denegar cualquier privilegio relevante de la tabla a los roles de navegador. Todos los falsos estados se ensayan en transacciones descartadas; no se cambia la instalación anfitriona. El undo debe conservar TODAS las tareas, políticas y aprobaciones TASK históricas, aunque su provenance no coincida con la del Director.
 
+También debe impedirse un trigger con condición `WHEN (false)` o restringido mediante `UPDATE OF status`: aunque el nombre, función y eventos parezcan correctos, no protege todos los cambios. El postflight exige `pg_trigger.tgqual IS NULL` y `pg_trigger.tgattr` vacío, y el red-team verifica ambas negativas con transacciones descartadas.
+
 **Un resultado de CI sólo se marcará PASS al consultar el run final del SHA exacto**; estas instrucciones no prueban que la migración hospedada esté aprobada.
