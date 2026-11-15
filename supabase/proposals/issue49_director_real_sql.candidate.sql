@@ -63,7 +63,7 @@ begin
     (old.status='WAITING_HUMAN_EXECUTION_AUTH' and new.status not in ('READY_FOR_MANUAL_EXECUTION','REVOKED'))
  then raise exception 'invalid pilot state transition' using errcode='42501'; end if;
  return new;
-end $f$;
+end; $f$;
 create trigger raxi_director_real_protect
  before update on public.raxi_director_real_pilots
  for each row execute function public.raxi_director_real_protect();
@@ -165,7 +165,7 @@ begin
  return jsonb_build_object('kind','DIRECTOR_REAL_PREPARED_NOT_EXECUTABLE',
   'taskId',t.id,'status','WAITING_HUMAN_EXECUTION_AUTH','scopeSha256',v_scope,
   'executionEnabled',false);
-end $f$;
+end; $f$;
 
 create function public.raxi_director_real_approve(
  p_identity jsonb,p_task_id uuid,p_approval_key uuid,p_scope_sha256 text,p_confirmed boolean
@@ -229,7 +229,7 @@ begin
  where id=g.id;
  return jsonb_build_object('kind','DIRECTOR_REAL_APPROVED_NOT_EXECUTABLE',
   'taskId',g.task_id,'approvalId',v_approval,'executionEnabled',false);
-end $f$;
+end; $f$;
 
 create function public.raxi_director_real_revoke(
  p_identity jsonb,p_task_id uuid,p_revoke_key uuid
@@ -263,7 +263,7 @@ begin
  where id=g.id;
  -- NEVER refund reserved_micros here: future paid-call uncertainty must be reconciled.
  return jsonb_build_object('kind','DIRECTOR_REAL_REVOKED','taskId',g.task_id,'executionEnabled',false);
-end $f$;
+end; $f$;
 
 -- Read-only projection for a FUTURE server port, not a dispatch capability.
 create function public.raxi_director_real_read(
@@ -315,7 +315,7 @@ begin
   'perCallMicros',g.reserved_micros,'remainingMicros',g.reserved_micros,
   'maxOutputTokens',p.max_output_tokens,'expiresAt',p.expires_at)
  );
-end $f$;
+end; $f$;
 
 -- Explicit ACL: never expose these objects/functions to browser JWT roles.
 revoke all on function public.raxi_director_real_protect() from public,anon,authenticated;
