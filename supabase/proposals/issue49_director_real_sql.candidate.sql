@@ -76,6 +76,20 @@ begin
  then
   raise exception 'unapproved revocation cannot invent a grant' using errcode='42501';
  end if;
+ -- A gate cannot be revoked by merely pointing revoke_id at an existing
+ -- APPROVED record. The matching, immutable TASK CANCELED audit row must
+ -- already exist in the same transaction, with identical owner/task/scope/key.
+ if old.status<>'REVOKED' and new.status='REVOKED' and not exists(
+   select 1 from public.raxi_approvals a
+   where a.id=new.revoke_id and a.workspace_id=old.workspace_id
+     and a.subject_kind='TASK' and a.subject_id=old.task_id
+     and a.action='CANCELED' and a.actor_user_id=old.actor_user_id
+     and a.idempotency_key='DIRECTOR-REAL-REVOKE:'||new.revoke_key::text
+     and a.context->>'kind'='DIRECTOR_REAL_PERMISSION_REVOKED'
+     and a.context->>'scopeSha256'=old.scope_sha256
+ ) then
+  raise exception 'matching immutable human revocation audit required' using errcode='42501';
+ end if;
  if old.status='REVOKED' or
     (old.status='READY_FOR_MANUAL_EXECUTION' and new.status<>'REVOKED') or
     (old.status='WAITING_HUMAN_EXECUTION_AUTH' and new.status not in ('READY_FOR_MANUAL_EXECUTION','REVOKED'))
