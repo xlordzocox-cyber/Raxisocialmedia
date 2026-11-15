@@ -189,6 +189,47 @@ begin
  exception when sqlstate 'P0199' then
   raise notice 'PASS: missing supervised provenance denied on approval';
  end;
+ -- Forged direct transition with another task's APPROVED audit is denied.
+ declare bad_grant_id uuid;
+ begin
+  insert into public.raxi_approvals(
+   workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+  values(wid,'TASK','66666666-6666-4666-8666-666666666666',
+   'APPROVED',owner_id,'DIRECTOR-REAL-APPROVE:77777777-1111-4111-8111-777777777777',
+   jsonb_build_object('kind','PERSISTED_HUMAN_EXECUTION_APPROVAL','scopeSha256',scope))
+  returning id into bad_grant_id;
+  perform pg_temp.expect_denied('READY cannot cite APPROVED grant for another task',
+   format('update public.raxi_director_real_pilots set status=%L,
+    approval_id=%L::uuid,approval_key=%L::uuid,approved_at=clock_timestamp(),
+    reserved_micros=1 where task_id=%L::uuid',
+    'READY_FOR_MANUAL_EXECUTION',bad_grant_id::text,
+    '77777777-1111-4111-8111-777777777777',task_id::text));
+  raise exception 'ROLLBACK_FORGED_GRANT_FIXTURE' using errcode='P0199';
+ exception when sqlstate 'P0199' then
+  raise notice 'PASS: cross-task direct READY grant rejected';
+ end;
+ -- Even matching TASK APPROVED evidence alone is insufficient without the
+ -- policy reservation/count being atomically updated by approve().
+ declare bad_grant_id uuid;
+ begin
+  insert into public.raxi_approvals(
+   workspace_id,subject_kind,subject_id,action,actor_user_id,idempotency_key,context)
+  values(wid,'TASK',task_id,'APPROVED',owner_id,
+   'DIRECTOR-REAL-APPROVE:88888888-1111-4111-8111-888888888888',
+   jsonb_build_object('kind','PERSISTED_HUMAN_EXECUTION_APPROVAL',
+    'scopeSha256',scope,'sessionId',sid,'policyVersion',1,
+    'provider','openai','model','synthetic-model','maxCostMicros',5000))
+  returning id into bad_grant_id;
+  perform pg_temp.expect_denied('READY cannot bypass durable policy reservation',
+   format('update public.raxi_director_real_pilots set status=%L,
+    approval_id=%L::uuid,approval_key=%L::uuid,approved_at=clock_timestamp(),
+    reserved_micros=4000 where task_id=%L::uuid',
+    'READY_FOR_MANUAL_EXECUTION',bad_grant_id::text,
+    '88888888-1111-4111-8111-888888888888',task_id::text));
+  raise exception 'ROLLBACK_FORGED_GRANT_FIXTURE' using errcode='P0199';
+ exception when sqlstate 'P0199' then
+  raise notice 'PASS: matching grant without policy reservation denied';
+ end;
  select reserved_micros into before_res from public.raxi_runtime_policies where workspace_id=wid;
  select public.raxi_director_real_approve(iden,task_id,approval_key,scope,true) into ret;
  approval:=(ret->>'approvalId')::uuid;
