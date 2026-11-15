@@ -42,3 +42,16 @@ La suite `apps/raxi-hq/tests/firstRealDirectorPilot.test.ts` prueba con datos to
 - Publicar a Pixi únicamente eventos durables y verificables `AGENT_EXECUTOR / VERIFIED / simulated=false` y no confundir el resultado textual de modelo con verdad factual. No retirar DEMO/MOCK todavía.
 
 **GitHub:** ver Issue #49 y la consolidación inerte ya integrada mediante PR #73 `47ad219981c195cbbbf2ef6ac069f76ae43f5c6d`.
+
+## Canonicalización de scope SHA-256 (correctivo P2)
+
+La representación canónica **debe** reordenar los campos del objeto `spec` antes de calcular el hash; no confiar en el orden de las claves de `jsonb` o del SDK. La cadena UTF-8 cuyo SHA-256 se compara se construye con `JSON.stringify` de los siguientes objetos en este orden:
+
+1. Envolvente: `workspaceId, taskId, actorId, stage, spec, policyVersion`, donde `stage` es el literal `DIRECTOR`.
+2. `spec`: `question, externalResearch, provider, model, authorization`.
+3. `authorization`: `confirmed, maxCostMicros, expiresAt`; `confirmed` siempre es `true`.
+4. Sin espacios extra, números enteros JSON sin comillas y texto Unicode conforme a JSON estándar.
+
+La persistencia futura DEBE firmar exactamente los mismos bytes usando una misma rutina canónica probada contra TypeScript y PostgreSQL; **no** asumir que `p_spec::text` genera este orden. El hash cubre los valores; un cambio de pregunta, modelo, presupuesto, vencimiento, actor, tarea o versión invalida el permiso, mientras reordenar claves sin cambiar valores no debe hacerlo. Regresión incluida en `firstRealDirectorPilot.test.ts`.
+
+Este correctivo es solo de código y QA; no escribe en PostgreSQL alojado y no produce un permiso ejecutable.
