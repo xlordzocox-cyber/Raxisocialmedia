@@ -1,0 +1,141 @@
+name: Issue49 Director REAL SQL candidate - isolated native PostgreSQL17
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/proposals/issue49_director_real_sql.candidate.sql'
+      - 'apps/raxi-hq/tests/pg17/issue49_director_real_*.sql'
+      - 'apps/raxi-hq/tests/pg17/issue49_director_real_concurrency.sh'
+      - 'apps/raxi-hq/tests/pg17/issue49_director_staging_catalog_parity.sql'
+      - 'supabase/migrations/**'
+      - 'supabase/tests/pg17-bootstrap.sql'
+      - '.github/workflows/raxi-hq-issue49-director-pg17.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: issue49-pg17-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  isolated-pg17:
+    name: PostgreSQL17 native test (network none, no hosted database)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Read pinned, historical PR59 migration sources only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: e4d617e85875d99d5c06908dad2ef1a46b02cd5d
+          path: issue49-upstream-pr59
+          persist-credentials: false
+      - name: Read pinned, historical Issue60 installed migration source only
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: 4a3099ecad9dc02ec5c4471664bcea7317759bd9
+          path: issue49-upstream-pr67
+          persist-credentials: false
+      - name: Start isolated PostgreSQL 17 in temporary Docker container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name raxi-issue49-pg17 \
+            --network none \
+            --tmpfs /var/lib/postgresql/data:rw,nosuid,size=512m \
+            --env POSTGRES_HOST_AUTH_METHOD=trust postgres:17
+          for i in $(seq 1 60); do
+            if docker exec raxi-issue49-pg17 pg_isready -U postgres -d postgres >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec raxi-issue49-pg17 pg_isready -U postgres -d postgres
+          docker inspect raxi-issue49-pg17 --format 'Network={{.HostConfig.NetworkMode}} Privileged={{.HostConfig.Privileged}} PublishedPorts={{json .HostConfig.PortBindings}}'
+          test "$(docker inspect raxi-issue49-pg17 --format '{{.HostConfig.NetworkMode}}')" = none
+          test "$(docker inspect raxi-issue49-pg17 --format '{{.HostConfig.Privileged}}')" = false
+          docker exec raxi-issue49-pg17 psql -X -U postgres -d postgres -Atc 'show server_version_num;' | grep -E '^17[0-9]{4}$'
+      - name: Execute fixture, REAL Director SQL proposal and denial battery
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker cp apps/raxi-hq/tests/pg17/issue49_director_real_fixture.sql raxi-issue49-pg17:/tmp/fixture.sql
+          docker cp supabase/proposals/issue49_director_real_sql.candidate.sql raxi-issue49-pg17:/tmp/candidate.sql
+          docker cp apps/raxi-hq/tests/pg17/issue49_director_real_qa.sql raxi-issue49-pg17:/tmp/qa.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/fixture.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/candidate.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/qa.sql
+          echo 'PG17_NATIVE_ISOLATED_DIRECTOR_QA_PASS'
+      - name: Verify independent PostgreSQL backends, idempotency and rollback in separate DB
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Roles live at PostgreSQL *cluster* scope. Use a SECOND isolated
+          # cluster so bootstrap can create its roles without collisions.
+          docker run -d --name raxi-issue49-pg17-races \
+            --network none \
+            --tmpfs /var/lib/postgresql/data:rw,nosuid,size=512m \
+            --env POSTGRES_HOST_AUTH_METHOD=trust postgres:17
+          for i in $(seq 1 60); do
+            if docker exec raxi-issue49-pg17-races pg_isready -U postgres -d postgres >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec raxi-issue49-pg17-races pg_isready -U postgres -d postgres
+          test "$(docker inspect raxi-issue49-pg17-races --format '{{.HostConfig.NetworkMode}}')" = none
+          test "$(docker inspect raxi-issue49-pg17-races --format '{{.HostConfig.Privileged}}')" = false
+          docker cp apps/raxi-hq/tests/pg17/issue49_director_real_fixture.sql raxi-issue49-pg17-races:/tmp/concurrency-fixture.sql
+          docker cp supabase/proposals/issue49_director_real_sql.candidate.sql raxi-issue49-pg17-races:/tmp/candidate.sql
+          docker cp apps/raxi-hq/tests/pg17/issue49_director_real_concurrency_seed.sql raxi-issue49-pg17-races:/tmp/concurrency-seed.sql
+          docker exec raxi-issue49-pg17-races psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/concurrency-fixture.sql
+          docker exec raxi-issue49-pg17-races psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/candidate.sql
+          docker exec raxi-issue49-pg17-races psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/concurrency-seed.sql
+          bash apps/raxi-hq/tests/pg17/issue49_director_real_concurrency.sh raxi-issue49-pg17-races postgres
+          echo 'PASS_ISSUE49_NATIVE_TWO_CONNECTION_CONCURRENCY'
+      - name: Reconstruct repository migrations and compare core runtime catalog to staging snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name raxi-issue49-pg17-parity \
+            --network none \
+            --tmpfs /var/lib/postgresql/data:rw,nosuid,size=512m \
+            --env POSTGRES_HOST_AUTH_METHOD=trust postgres:17
+          for i in $(seq 1 60); do
+            if docker exec raxi-issue49-pg17-parity pg_isready -U postgres -d postgres >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec raxi-issue49-pg17-parity pg_isready -U postgres -d postgres
+          test "$(docker inspect raxi-issue49-pg17-parity --format '{{.HostConfig.NetworkMode}}')" = none
+          test "$(docker inspect raxi-issue49-pg17-parity --format '{{.HostConfig.Privileged}}')" = false
+          docker cp supabase/tests/pg17-bootstrap.sql raxi-issue49-pg17-parity:/tmp/pg17-bootstrap.sql
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/pg17-bootstrap.sql
+          count="$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l)"
+          test "$count" -gt 0
+          echo "Repository migrations: $count"
+          while IFS= read -r path; do
+            name="$(basename "$path")"
+            echo "Applying repository migration: $name"
+            docker cp "$path" "raxi-issue49-pg17-parity:/tmp/$name"
+            docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f "/tmp/$name"
+          done < <(find supabase/migrations -maxdepth 1 -name '*.sql' | sort)
+          # Verify *exact bytes* against read-only hashes of migration SQL
+          # recorded in the actual staging supabase_migrations.schema_migrations.
+          echo '046ed2d8ac15ebe65b5b0ef3afd0270acf5a7b8884f9abe6f911ab261a2d188e  issue49-upstream-pr59/supabase/proposals/supervised_campaign_staging_identity.sql' | sha256sum -c -
+          echo 'a45ea5c6ebbd0fbd06c5889b69d89780c2de6b2a76a198220b0f9aaba481b0d2  issue49-upstream-pr59/supabase/proposals/supervised_campaign_requests.sql' | sha256sum -c -
+          echo '50d8f96a133630f636513b2578f477a5a4b516693e44ca00742e312c4595fec8  issue49-upstream-pr67/supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql' | sha256sum -c -
+          docker cp issue49-upstream-pr59/supabase/proposals/supervised_campaign_staging_identity.sql raxi-issue49-pg17-parity:/tmp/host-identity.sql
+          docker cp issue49-upstream-pr59/supabase/proposals/supervised_campaign_requests.sql raxi-issue49-pg17-parity:/tmp/requests.sql
+          docker cp issue49-upstream-pr67/supabase/proposals/issue60_staging_runtime_apply_migration_review_only.sql raxi-issue49-pg17-parity:/tmp/runtime.sql
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/host-identity.sql
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/requests.sql
+          docker exec raxi-issue49-pg17-parity psql -X -1 -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/runtime.sql
+          docker cp apps/raxi-hq/tests/pg17/issue49_director_staging_catalog_parity.sql raxi-issue49-pg17-parity:/tmp/catalog.sql
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/catalog.sql
+          docker cp supabase/proposals/issue49_director_real_sql.candidate.sql raxi-issue49-pg17-parity:/tmp/candidate.sql
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/candidate.sql
+          echo 'PASS_ISSUE49_STAGING_CATALOG_SNAPSHOT_PARITY_AND_SQL_CANDIDATE'
+      - name: Destroy disposable DB on success or failure
+        if: always()
+        shell: bash
+        run: |
+          docker rm -f raxi-issue49-pg17-parity 2>/dev/null || true
+          docker rm -f raxi-issue49-pg17-races 2>/dev/null || true
+          docker rm -f raxi-issue49-pg17 2>/dev/null || true
