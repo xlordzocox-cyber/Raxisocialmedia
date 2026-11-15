@@ -221,7 +221,7 @@ async function loadCampaign(db: SupabaseClient, proposal: Record<string, unknown
     .eq("workspace_id", proposal.workspace_id).eq("external_id", externalId).maybeSingle();
   if (!col) throw new Error("La campaña no existe en la Fototeca.");
   const { data: items } = await db.from("raxi_portfolio_items").select("id, position, caption, alt_text, payload, human_decision, asset_id")
-    .eq("collection_id", col.id).order("position");
+    .eq("collection_id", col.id).neq("human_decision", "REJECTED").order("position"); // photos the owner discarded never reach Copy/QA/final
   const ids = (items ?? []).map((i) => i.asset_id).filter(Boolean);
   const { data: assets } = ids.length ? await db.from("raxi_assets").select("id, object_path").in("id", ids) : { data: [] };
   const paths = new Map((assets ?? []).map((a) => [a.id, a.object_path as string]));
