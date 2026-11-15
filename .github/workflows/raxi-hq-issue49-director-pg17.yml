@@ -54,15 +54,30 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'create database raxi_issue49_concurrency'
-          docker cp apps/raxi-hq/tests/pg17/issue49_director_real_fixture.sql raxi-issue49-pg17:/tmp/concurrency-fixture.sql
-          docker cp apps/raxi-hq/tests/pg17/issue49_director_real_concurrency_seed.sql raxi-issue49-pg17:/tmp/concurrency-seed.sql
-          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_issue49_concurrency -f /tmp/concurrency-fixture.sql
-          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_issue49_concurrency -f /tmp/candidate.sql
-          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_issue49_concurrency -f /tmp/concurrency-seed.sql
-          bash apps/raxi-hq/tests/pg17/issue49_director_real_concurrency.sh raxi-issue49-pg17 raxi_issue49_concurrency
+          # Roles live at PostgreSQL *cluster* scope. Use a SECOND isolated
+          # cluster so bootstrap can create its roles without collisions.
+          docker run -d --name raxi-issue49-pg17-races \
+            --network none \
+            --tmpfs /var/lib/postgresql/data:rw,nosuid,size=512m \
+            --env POSTGRES_HOST_AUTH_METHOD=trust postgres:17
+          for i in $(seq 1 60); do
+            if docker exec raxi-issue49-pg17-races pg_isready -U postgres -d postgres >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec raxi-issue49-pg17-races pg_isready -U postgres -d postgres
+          test "$(docker inspect raxi-issue49-pg17-races --format '{{.HostConfig.NetworkMode}}')" = none
+          test "$(docker inspect raxi-issue49-pg17-races --format '{{.HostConfig.Privileged}}')" = false
+          docker cp apps/raxi-hq/tests/pg17/issue49_director_real_fixture.sql raxi-issue49-pg17-races:/tmp/concurrency-fixture.sql
+          docker cp supabase/proposals/issue49_director_real_sql.candidate.sql raxi-issue49-pg17-races:/tmp/candidate.sql
+          docker cp apps/raxi-hq/tests/pg17/issue49_director_real_concurrency_seed.sql raxi-issue49-pg17-races:/tmp/concurrency-seed.sql
+          docker exec raxi-issue49-pg17-races psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/concurrency-fixture.sql
+          docker exec raxi-issue49-pg17-races psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/candidate.sql
+          docker exec raxi-issue49-pg17-races psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/concurrency-seed.sql
+          bash apps/raxi-hq/tests/pg17/issue49_director_real_concurrency.sh raxi-issue49-pg17-races postgres
           echo 'PASS_ISSUE49_NATIVE_TWO_CONNECTION_CONCURRENCY'
       - name: Destroy disposable DB on success or failure
         if: always()
         shell: bash
-        run: docker rm -f raxi-issue49-pg17 2>/dev/null || true
+        run: |
+          docker rm -f raxi-issue49-pg17-races 2>/dev/null || true
+          docker rm -f raxi-issue49-pg17 2>/dev/null || true
