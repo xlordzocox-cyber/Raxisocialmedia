@@ -6,6 +6,9 @@ on:
       - 'supabase/proposals/issue49_director_real_sql.candidate.sql'
       - 'apps/raxi-hq/tests/pg17/issue49_director_real_*.sql'
       - 'apps/raxi-hq/tests/pg17/issue49_director_real_concurrency.sh'
+      - 'apps/raxi-hq/tests/pg17/issue49_director_staging_catalog_parity.sql'
+      - 'supabase/migrations/**'
+      - 'supabase/tests/pg17-bootstrap.sql'
       - '.github/workflows/raxi-hq-issue49-director-pg17.yml'
   workflow_dispatch:
 permissions:
@@ -75,9 +78,41 @@ jobs:
           docker exec raxi-issue49-pg17-races psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/concurrency-seed.sql
           bash apps/raxi-hq/tests/pg17/issue49_director_real_concurrency.sh raxi-issue49-pg17-races postgres
           echo 'PASS_ISSUE49_NATIVE_TWO_CONNECTION_CONCURRENCY'
+      - name: Reconstruct repository migrations and compare core runtime catalog to staging snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name raxi-issue49-pg17-parity \
+            --network none \
+            --tmpfs /var/lib/postgresql/data:rw,nosuid,size=512m \
+            --env POSTGRES_HOST_AUTH_METHOD=trust postgres:17
+          for i in $(seq 1 60); do
+            if docker exec raxi-issue49-pg17-parity pg_isready -U postgres -d postgres >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          docker exec raxi-issue49-pg17-parity pg_isready -U postgres -d postgres
+          test "$(docker inspect raxi-issue49-pg17-parity --format '{{.HostConfig.NetworkMode}}')" = none
+          test "$(docker inspect raxi-issue49-pg17-parity --format '{{.HostConfig.Privileged}}')" = false
+          docker cp supabase/tests/pg17-bootstrap.sql raxi-issue49-pg17-parity:/tmp/pg17-bootstrap.sql
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/pg17-bootstrap.sql
+          count="$(find supabase/migrations -maxdepth 1 -name '*.sql' | wc -l)"
+          test "$count" -gt 0
+          echo "Repository migrations: $count"
+          while IFS= read -r path; do
+            name="$(basename "$path")"
+            echo "Applying repository migration: $name"
+            docker cp "$path" "raxi-issue49-pg17-parity:/tmp/$name"
+            docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f "/tmp/$name"
+          done < <(find supabase/migrations -maxdepth 1 -name '*.sql' | sort)
+          docker cp apps/raxi-hq/tests/pg17/issue49_director_staging_catalog_parity.sql raxi-issue49-pg17-parity:/tmp/catalog.sql
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/catalog.sql
+          docker cp supabase/proposals/issue49_director_real_sql.candidate.sql raxi-issue49-pg17-parity:/tmp/candidate.sql
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/candidate.sql
+          echo 'PASS_ISSUE49_STAGING_CATALOG_SNAPSHOT_PARITY_AND_SQL_CANDIDATE'
       - name: Destroy disposable DB on success or failure
         if: always()
         shell: bash
         run: |
+          docker rm -f raxi-issue49-pg17-parity 2>/dev/null || true
           docker rm -f raxi-issue49-pg17-races 2>/dev/null || true
           docker rm -f raxi-issue49-pg17 2>/dev/null || true
