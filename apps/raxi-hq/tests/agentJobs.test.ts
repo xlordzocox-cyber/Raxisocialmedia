@@ -8,7 +8,7 @@ const job = (id: string, kind: string, status: string, extra: Record<string, unk
 });
 
 test('agent jobs: parsed safely, unknown kinds and unsafe sources dropped, newest first', () => {
-  const jobs = parseJobs([job('1', 'RESEARCH', 'SUCCEEDED'), job('2', 'GENERATE', 'PENDING'), job('3', 'DESIGN', 'BOGUS'), { id: 9 }]);
+  const jobs = parseJobs([job('1', 'RESEARCH', 'SUCCEEDED'), job('2', 'PUBLISH_NOW', 'PENDING'), job('3', 'DESIGN', 'BOGUS'), { id: 9 }]);
   assert.equal(jobs.length, 1);
   assert.deepEqual(jobs[0].sources, [{ url: 'https://ok.example/a', title: 'A' }]);
   assert.deepEqual(parseJobs('nope'), []);
@@ -57,6 +57,7 @@ test('campaign pipeline: rows validated; route shows done/current/te toca/failed
   assert.equal(stepState(toPublish, 'PUBLISH'), 'waiting'); assert.equal(needsOwner(toPublish), true);
   const published = { ...running, status: 'PUBLISHED' as const, stage: 'DONE' as const };
   assert.equal(stepState(published, 'DONE'), 'done'); assert.equal(needsOwner(published), false);
+  assert.equal(stepState(published, 'ARCHIVE'), 'current'); assert.equal(stepState(published, 'ARCHIVE', true), 'done');
   assert.equal(parsePipelines([{ proposal_id: 'p', status: 'WAITING_APPROVAL', stage: 'FINAL', gate: 'PUBLISH_APPROVAL' }])[0].gate, 'PUBLISH_APPROVAL');
 });
 
@@ -76,5 +77,8 @@ test('campaign pipeline: current step label for every status', async () => {
   assert.equal(currentStep({ ...base, status: 'RUNNING', stage: 'QA' }), 'QA');
   assert.equal(currentStep({ ...base, status: 'WAITING_APPROVAL', stage: 'STRATEGY', gate: 'STRATEGY_APPROVAL' }), 'GATE');
   assert.equal(currentStep({ ...base, status: 'READY_FOR_PRODUCTION', stage: 'DONE' }), 'PRODUCTION');
-  assert.equal(currentStep({ ...base, status: 'PUBLISHED', stage: 'DONE' }), 'DONE');
+  assert.equal(currentStep({ ...base, status: 'PUBLISHED', stage: 'DONE' }), 'ARCHIVE');
+  assert.equal(currentStep({ ...base, status: 'WAITING_APPROVAL', stage: 'PRODUCTION', gate: 'PRODUCTION_COST' }), 'COST_GATE');
+  assert.equal(currentStep({ ...base, status: 'RUNNING', stage: 'GENERATE' }), 'GENERATE');
+  assert.equal(parsePipelines([{ proposal_id: 'p', status: 'WAITING_APPROVAL', stage: 'PRODUCTION', gate: 'PRODUCTION_COST', note: null, updated_at: 'x' }])[0]?.gate, 'PRODUCTION_COST');
 });

@@ -8,7 +8,7 @@ import {
 } from './agentJobs';
 
 const ICON = { done: '✓', current: '●', waiting: '!', failed: '✕', todo: '○' } as const;
-const SHOWN: JobKind[] = ['BRIEF', 'RESEARCH', 'STRATEGY', 'DESIGN', 'REVIEW', 'COPY', 'QA', 'FINAL'];
+const SHOWN: JobKind[] = ['BRIEF', 'RESEARCH', 'STRATEGY', 'DESIGN', 'REVIEW', 'PRODUCTION', 'GENERATE', 'COPY', 'QA', 'FINAL', 'ARCHIVE'];
 
 /** "Iniciar campaña": the Director chains the departments; the owner only acts at gates. Calls audited RPCs only. */
 export function CampaignSteps({ client, proposalId, jobs, pipeline, onChange }: {
@@ -32,6 +32,10 @@ export function CampaignSteps({ client, proposalId, jobs, pipeline, onChange }: 
   const spent = campaignCost(jobs, proposalId);
   const wasted = failedCost(jobs, proposalId);
   const review = latest(jobs, proposalId, 'REVIEW');
+  const order = latest(jobs, proposalId, 'PRODUCTION');
+  const plan = (order?.status === 'SUCCEEDED' && order.data && typeof order.data === 'object' ? order.data : null) as
+    { modelo_key?: string; modelo_nombre?: string; precio_unitario_usd?: number; calidad?: string; formato?: string; total_usd?: number; fotos?: unknown[]; nota?: string } | null;
+  const archive = latest(jobs, proposalId, 'ARCHIVE');
   const results = SHOWN.map((k) => latest(jobs, proposalId, k)).filter((j): j is AgentJob => !!j);
 
   if (!pipeline) return <div className="campaign-steps">
@@ -44,7 +48,7 @@ export function CampaignSteps({ client, proposalId, jobs, pipeline, onChange }: 
 
   return <div className="campaign-steps">
     <ol className="campaign-route" aria-label="Avance de la campaña">
-      {PIPELINE_STEPS.map((s) => { const st = stepState(pipeline, s.key); return <li key={s.key} className={`route-${st}`}>
+      {PIPELINE_STEPS.map((s) => { const st = stepState(pipeline, s.key, archive?.status === 'SUCCEEDED'); return <li key={s.key} className={`route-${st}`}>
         <span aria-hidden="true">{ICON[st]}</span> {s.label}{st === 'current' ? ' · trabajando…' : st === 'waiting' ? ' · te toca' : ''}
       </li>; })}
     </ol>
@@ -53,17 +57,28 @@ export function CampaignSteps({ client, proposalId, jobs, pipeline, onChange }: 
     {pipeline.status === 'WAITING_APPROVAL' && pipeline.gate && <div className="campaign-gate" role="region" aria-label="Te toca">
       {pipeline.gate === 'STRATEGY_APPROVAL'
         ? <p><b>TE TOCA · Aprobar la estrategia.</b> El Director la propone abajo. El equipo creativo no empieza hasta que la apruebes.</p>
+        : pipeline.gate === 'PRODUCTION_COST'
+        ? <div><p><b>TE TOCA · Aprobar el costo de producción.</b> Precios reales consultados en Aria. Nada se genera ni se cobra sin tu aprobación, y nunca se gasta más de este total.</p>
+            {plan ? <ul className="production-plan">
+              <li><b>Fotos:</b> {plan.fotos?.length ?? 0}</li>
+              <li><b>Modelo:</b> {plan.modelo_nombre} ({plan.modelo_key}) · {plan.calidad} · formato {plan.formato}</li>
+              <li><b>Precio por foto:</b> ${Number(plan.precio_unitario_usd).toFixed(4)}</li>
+              <li><b>Total máximo:</b> ${Number(plan.total_usd).toFixed(2)} USD</li>
+              {plan.nota && <li className="team-proposal-meta">{plan.nota}</li>}
+            </ul> : <p role="status">Cargando la orden…</p>}</div>
         : <p><b>TE TOCA · Autorizar la publicación.</b> Revisa el paquete final y el reporte de QA abajo, y las fotos en la <Link to="/fototeca">Fototeca</Link>. Nada se publica sin ti.</p>}
       {!changes ? <div className="team-proposal-actions">
         <button type="button" disabled={busy} onClick={() => void call('raxi_campaign_decide', { p_proposal: proposalId, p_decision: 'APPROVE' },
-          pipeline.gate === 'STRATEGY_APPROVAL' ? 'Estrategia aprobada. El Director se la entrega al Creativo.' : 'Publicación autorizada. Arma el video en la Fototeca y publícalo en Instagram.')}>
-          {pipeline.gate === 'STRATEGY_APPROVAL' ? 'Aprobar estrategia' : 'Autorizar publicación'}</button>
+          pipeline.gate === 'STRATEGY_APPROVAL' ? 'Estrategia aprobada. El Director se la entrega al Creativo.'
+            : pipeline.gate === 'PRODUCTION_COST' ? 'Costo aprobado. Producción está generando en Aria; las fotos aparecerán solas en la Fototeca.'
+            : 'Publicación autorizada. Descarga el carrusel en la Fototeca y publícalo en Instagram.')}>
+          {pipeline.gate === 'STRATEGY_APPROVAL' ? 'Aprobar estrategia' : pipeline.gate === 'PRODUCTION_COST' ? `Aprobar y generar ($${Number(plan?.total_usd ?? 0).toFixed(2)})` : 'Autorizar publicación'}</button>
         <button type="button" disabled={busy} onClick={() => setChanges(true)}>Pedir cambios</button>
       </div> : <div className="campaign-changes-form">
-        <label>{pipeline.gate === 'STRATEGY_APPROVAL' ? '¿Qué debe cambiar el Director?' : '¿Qué debe cambiar Copy en el texto?'}<textarea value={note} maxLength={1000} rows={3} onChange={(e) => setNote(e.target.value)} /></label>
+        <label>{pipeline.gate === 'STRATEGY_APPROVAL' ? '¿Qué debe cambiar el Director?' : pipeline.gate === 'PRODUCTION_COST' ? '¿Qué cambio en la orden? (ej. "usa seedflash", "más barato")' : '¿Qué debe cambiar Copy en el texto?'}<textarea value={note} maxLength={1000} rows={3} onChange={(e) => setNote(e.target.value)} /></label>
         <div className="team-proposal-actions">
           <button type="button" disabled={busy || !note.trim()} onClick={() => void call('raxi_campaign_decide', { p_proposal: proposalId, p_decision: 'CHANGES', p_note: note },
-            pipeline.gate === 'STRATEGY_APPROVAL' ? 'Enviado. El Director rehace la estrategia con tus notas.' : 'Enviado. Copy rehace el texto y QA lo vuelve a revisar.')}>Enviar cambios</button>
+            pipeline.gate === 'STRATEGY_APPROVAL' ? 'Enviado. El Director rehace la estrategia con tus notas.' : pipeline.gate === 'PRODUCTION_COST' ? 'Enviado. Producción rehace la orden.' : 'Enviado. Copy rehace el texto y QA lo vuelve a revisar.')}>Enviar cambios</button>
           <button type="button" disabled={busy} onClick={() => setChanges(false)}>Cancelar</button>
         </div>
       </div>}
@@ -81,7 +96,9 @@ export function CampaignSteps({ client, proposalId, jobs, pipeline, onChange }: 
         ? <><p className="team-proposal-meta">Este Reel usa fotos que ya existen: no hace falta producir. Sigue Copy y QA.</p>
           <button type="button" disabled={busy} onClick={() => void call('raxi_campaign_decide', { p_proposal: proposalId, p_decision: 'CONTINUE' },
             'En marcha: el Director le entrega la campaña a Copy.')}>Continuar: Copy y QA</button></>
-        : <p className="team-proposal-meta">Siguiente: Producción en Aria con tu aprobación del costo (en construcción).</p>}
+        : <><p className="team-proposal-meta">Esta campaña necesita fotos nuevas: Producción prepara la orden en Aria y te muestra el costo antes de generar.</p>
+          <button type="button" disabled={busy} onClick={() => void call('raxi_campaign_decide', { p_proposal: proposalId, p_decision: 'CONTINUE' },
+            'En marcha: el Director le entrega la orden a Producción (Aria Link).')}>Continuar: Producción en Aria</button></>}
     </div>}
 
     {pipeline.status === 'APPROVED_TO_PUBLISH' && <div className="campaign-gate" role="region" aria-label="Te toca: publicar">
@@ -95,7 +112,13 @@ export function CampaignSteps({ client, proposalId, jobs, pipeline, onChange }: 
       <button type="button" disabled={busy || !url.trim()} onClick={() => void call('raxi_campaign_mark_published', { p_proposal: proposalId, p_url: url.trim() },
         '🎉 Registrada como publicada. Queda en la Fototeca con su enlace.')}>Marcar como publicada</button>
     </div>}
-    {pipeline.status === 'PUBLISHED' && <p className="campaign-created" role="status">🎉 Campaña publicada. <Link to="/fototeca">Ver en la Fototeca</Link></p>}
+    {pipeline.status === 'PUBLISHED' && <div className="campaign-created" role="status">
+      <p>🎉 Campaña publicada. <Link to="/fototeca">Ver en la Fototeca</Link></p>
+      {archive?.status === 'SUCCEEDED' ? <p className="team-proposal-meta">📚 El Archivista guardó la campaña; el equipo no la repetirá.</p>
+        : archive && isActive(archive) ? <p className="team-proposal-meta">📚 El Archivista está guardando la campaña…</p>
+        : <button type="button" disabled={busy} onClick={() => void call('raxi_campaign_decide', { p_proposal: proposalId, p_decision: 'ARCHIVE' },
+          'El Archivista está guardando la campaña.')}>Archivar campaña ahora</button>}
+    </div>}
     {notice && <p role="status">{notice}</p>}
 
     {results.map((j) => <details key={j.id} className="campaign-step-result"

@@ -1,11 +1,11 @@
-export type JobKind = 'BRIEF' | 'RESEARCH' | 'STRATEGY' | 'DESIGN' | 'REVIEW' | 'COPY' | 'QA' | 'FINAL';
+export type JobKind = 'BRIEF' | 'RESEARCH' | 'STRATEGY' | 'DESIGN' | 'REVIEW' | 'PRODUCTION' | 'GENERATE' | 'COPY' | 'QA' | 'FINAL' | 'ARCHIVE';
 export type JobStatus = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED';
 export type AgentJob = {
   id: string; proposalId: string; kind: JobKind; status: JobStatus; costUsd: number;
   markdown: string; data: unknown; reused: boolean; rescued: boolean; verdict: 'APROBADA' | 'CAMBIOS' | null; decision: 'SUFICIENTE' | 'MAS_INVESTIGACION' | null; campaign: { externalId: string; items: number; kept: boolean; format: string } | null; sources: { url: string; title: string }[]; error: string | null; createdAt: string;
 };
 
-const KINDS = new Set(['BRIEF', 'RESEARCH', 'STRATEGY', 'DESIGN', 'REVIEW', 'COPY', 'QA', 'FINAL']);
+const KINDS = new Set(['BRIEF', 'RESEARCH', 'STRATEGY', 'DESIGN', 'REVIEW', 'PRODUCTION', 'GENERATE', 'COPY', 'QA', 'FINAL', 'ARCHIVE']);
 const STATUSES = new Set(['PENDING', 'RUNNING', 'SUCCEEDED', 'FAILED', 'CANCELED']);
 
 /** Validates rows from raxi_agent_jobs. Unknown kinds/statuses and non-https sources are dropped. */
@@ -79,17 +79,18 @@ export function friendlyError(message: string | undefined): string {
 export const JOB_LABEL: Record<JobKind, string> = {
   BRIEF: 'Brief del Director', RESEARCH: 'Investigación', STRATEGY: 'Análisis y estrategia del Director', DESIGN: 'Diseño de campaña', REVIEW: 'Revisión del Director',
   COPY: 'Copy de la publicación', QA: 'Control de calidad (QA)', FINAL: 'Paquete final del Director',
+  PRODUCTION: 'Orden de producción (Aria)', GENERATE: 'Generación de fotos en Aria', ARCHIVE: 'Archivista: memoria de la campaña',
 };
 export const JOB_STATUS: Record<JobStatus, string> = {
   PENDING: 'En cola', RUNNING: 'Trabajando…', SUCCEEDED: 'Listo', FAILED: 'Falló', CANCELED: 'Cancelado',
 };
 
 export type PipelineStatus = 'RUNNING' | 'WAITING_APPROVAL' | 'PAUSED' | 'FAILED' | 'READY_FOR_PRODUCTION' | 'APPROVED_TO_PUBLISH' | 'PUBLISHED';
-export type PipelineStage = 'BRIEF' | 'RESEARCH' | 'STRATEGY' | 'DESIGN' | 'REVIEW' | 'COPY' | 'QA' | 'FINAL' | 'DONE';
-export type Gate = 'STRATEGY_APPROVAL' | 'PUBLISH_APPROVAL';
+export type PipelineStage = 'BRIEF' | 'RESEARCH' | 'STRATEGY' | 'DESIGN' | 'REVIEW' | 'PRODUCTION' | 'GENERATE' | 'COPY' | 'QA' | 'FINAL' | 'DONE';
+export type Gate = 'STRATEGY_APPROVAL' | 'PRODUCTION_COST' | 'PUBLISH_APPROVAL';
 export type Pipeline = { proposalId: string; status: PipelineStatus; stage: PipelineStage; gate: Gate | null; note: string | null };
 const P_STATUS = new Set(['RUNNING', 'WAITING_APPROVAL', 'PAUSED', 'FAILED', 'READY_FOR_PRODUCTION', 'APPROVED_TO_PUBLISH', 'PUBLISHED']);
-const P_STAGE = new Set(['BRIEF', 'RESEARCH', 'STRATEGY', 'DESIGN', 'REVIEW', 'COPY', 'QA', 'FINAL', 'DONE']);
+const P_STAGE = new Set(['BRIEF', 'RESEARCH', 'STRATEGY', 'DESIGN', 'REVIEW', 'PRODUCTION', 'GENERATE', 'COPY', 'QA', 'FINAL', 'DONE']);
 
 /** Validates rows from raxi_campaign_pipelines (owner-read). Malformed rows are dropped. */
 export function parsePipelines(rows: unknown): Pipeline[] {
@@ -97,7 +98,7 @@ export function parsePipelines(rows: unknown): Pipeline[] {
   return (rows as Record<string, unknown>[]).flatMap((r) => {
     if (!r || typeof r.proposal_id !== 'string' || !P_STATUS.has(String(r.status)) || !P_STAGE.has(String(r.stage))) return [];
     return [{ proposalId: r.proposal_id, status: r.status as PipelineStatus, stage: r.stage as PipelineStage,
-      gate: r.gate === 'STRATEGY_APPROVAL' || r.gate === 'PUBLISH_APPROVAL' ? r.gate : null, note: typeof r.note === 'string' ? r.note.slice(0, 1000) : null }];
+      gate: r.gate === 'STRATEGY_APPROVAL' || r.gate === 'PRODUCTION_COST' || r.gate === 'PUBLISH_APPROVAL' ? r.gate : null, note: typeof r.note === 'string' ? r.note.slice(0, 1000) : null }];
   });
 }
 
@@ -109,28 +110,31 @@ export const PIPELINE_STEPS: { key: string; label: string }[] = [
   { key: 'GATE', label: 'Tú: apruebas la estrategia' },
   { key: 'DESIGN', label: 'Dirección creativa' },
   { key: 'REVIEW', label: 'Director: revisa y crea la campaña (Fototeca)' },
-  { key: 'PRODUCTION', label: 'Producción en Aria (solo si hay fotos nuevas)' },
+  { key: 'PRODUCTION', label: 'Producción: orden con precios reales de Aria (si hay fotos nuevas)' },
+  { key: 'COST_GATE', label: 'Tú: apruebas el costo' },
+  { key: 'GENERATE', label: 'Aria genera y se archivan en la Fototeca' },
   { key: 'COPY', label: 'Copy: texto de la publicación' },
   { key: 'QA', label: 'QA: revisa fotos y texto' },
   { key: 'FINAL', label: 'Director: paquete final' },
   { key: 'PUBLISH_GATE', label: 'Tú: autorizas la publicación' },
   { key: 'PUBLISH', label: 'Tú: publicas en Instagram' },
   { key: 'DONE', label: 'Publicada' },
+  { key: 'ARCHIVE', label: 'Archivista: guarda la campaña para no repetirla' },
 ];
 const ORDER = PIPELINE_STEPS.map((s) => s.key);
 
 /** Where the campaign is right now on the route above. */
 export function currentStep(p: Pipeline): string {
-  if (p.status === 'WAITING_APPROVAL') return p.gate === 'PUBLISH_APPROVAL' ? 'PUBLISH_GATE' : 'GATE';
+  if (p.status === 'WAITING_APPROVAL') return p.gate === 'PUBLISH_APPROVAL' ? 'PUBLISH_GATE' : p.gate === 'PRODUCTION_COST' ? 'COST_GATE' : 'GATE';
   if (p.status === 'READY_FOR_PRODUCTION') return 'PRODUCTION';
   if (p.status === 'APPROVED_TO_PUBLISH') return 'PUBLISH';
-  if (p.status === 'PUBLISHED') return 'DONE';
+  if (p.status === 'PUBLISHED') return 'ARCHIVE';
   return p.stage;
 }
 
 export type StepState = 'done' | 'current' | 'waiting' | 'failed' | 'todo';
-export function stepState(pipeline: Pipeline, step: string): StepState {
-  if (pipeline.status === 'PUBLISHED') return 'done';
+export function stepState(pipeline: Pipeline, step: string, archived = false): StepState {
+  if (pipeline.status === 'PUBLISHED' && archived) return 'done';
   const i = ORDER.indexOf(step), j = ORDER.indexOf(currentStep(pipeline));
   if (i < j) return 'done';
   if (i > j) return 'todo';

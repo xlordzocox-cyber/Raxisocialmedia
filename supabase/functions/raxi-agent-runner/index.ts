@@ -24,6 +24,9 @@ const STAGE: Record<string, { stage: string; agent: string }> = {
   COPY: { stage: "COPY", agent: "copy" },
   QA: { stage: "QA", agent: "qa" },
   FINAL: { stage: "DIRECTOR", agent: "director" },
+  PRODUCTION: { stage: "PRODUCTION", agent: "production" },
+  GENERATE: { stage: "PRODUCTION", agent: "production" },
+  ARCHIVE: { stage: "ARCHIVIST", agent: "archivist" },
 };
 // Who hands what to whom before a step starts (shown as a walk in the office).
 const HANDOFF: Record<string, { from: string; fromStage: string; artifact: string; after: string }> = {
@@ -34,6 +37,8 @@ const HANDOFF: Record<string, { from: string; fromStage: string; artifact: strin
   COPY: { from: "director", fromStage: "DIRECTOR", artifact: "CAMPAIGN_PACKAGE", after: "REVIEW" },
   QA: { from: "copy", fromStage: "COPY", artifact: "SOCIAL_COPY", after: "COPY" },
   FINAL: { from: "qa", fromStage: "QA", artifact: "QA_REPORT", after: "QA" },
+  PRODUCTION: { from: "director", fromStage: "DIRECTOR", artifact: "PRODUCTION_ORDER", after: "REVIEW" },
+  ARCHIVE: { from: "copy", fromStage: "COPY", artifact: "PUBLISHED_PACKAGE", after: "PUBLISH" },
 };
 
 type Usage = { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number; server_tool_use?: { web_search_requests?: number } };
@@ -123,7 +128,8 @@ Escribe en español de México. Nunca inventes datos, cifras, cuentas ni fuentes
 No generes imágenes ni gastes créditos de Aria Studio. Distingue hechos verificados, inferencias e hipótesis.`;
 
 const TITLES: Record<string, string> = { BRIEF: "Brief del Director", RESEARCH: "Investigar", STRATEGY: "Análisis y estrategia del Director",
-  DESIGN: "Diseñar", REVIEW: "Revisión del Director", COPY: "Copy de la publicación", QA: "Control de calidad", FINAL: "Paquete final del Director" };
+  DESIGN: "Diseñar", REVIEW: "Revisión del Director", COPY: "Copy de la publicación", QA: "Control de calidad", FINAL: "Paquete final del Director",
+  PRODUCTION: "Orden de producción en Aria", GENERATE: "Generar fotos en Aria", ARCHIVE: "Archivar campaña" };
 const CHANNELS = new Set(["INSTAGRAM", "INSTAGRAM_STORY", "TEASER", "FANVUE_FEED", "FANVUE_CHAT"]);
 const txt = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
@@ -214,13 +220,65 @@ function applyCorrections(design: Record<string, unknown>, corrections: unknown)
   return out;
 }
 
+// ---- Aria Studio, called directly over MCP (JSON-RPC). Deterministic: no model decides what to spend. ----
+let ariaSession: string | null = null;
+async function ariaRpc(method: string, params: Record<string, unknown>, id: number | null): Promise<unknown> {
+  const headers: Record<string, string> = { "content-type": "application/json", accept: "application/json, text/event-stream",
+    authorization: `Bearer ${Deno.env.get("ARIA_MCP_TOKEN")}` };
+  if (ariaSession) headers["mcp-session-id"] = ariaSession;
+  const res = await fetch(Deno.env.get("ARIA_MCP_URL")!, { method: "POST", headers,
+    body: JSON.stringify(id === null ? { jsonrpc: "2.0", method, params } : { jsonrpc: "2.0", id, method, params }) });
+  const sid = res.headers.get("mcp-session-id"); if (sid) ariaSession = sid;
+  if (id === null) return null;
+  const raw = await res.text();
+  if (!res.ok) throw new Error(`Aria ${res.status}: ${raw.slice(0, 200)}`);
+  const body = raw.trim().startsWith("{") ? raw : raw.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).filter(Boolean).pop() ?? "{}";
+  const json = JSON.parse(body);
+  if (json.error) throw new Error(`Aria: ${String(json.error.message ?? "error").slice(0, 200)}`);
+  return json.result;
+}
+async function aria(tool: string, args: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+  if (!ariaSession) {
+    await ariaRpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "raxi-hq", version: "1.0" } }, 1);
+    await ariaRpc("notifications/initialized", {}, null);
+  }
+  const result = await ariaRpc("tools/call", { name: tool, arguments: args }, Date.now()) as { content?: { type: string; text?: string }[]; isError?: boolean };
+  const text = (result?.content ?? []).filter((c) => c.type === "text").map((c) => c.text ?? "").join("\n");
+  if (result?.isError) throw new Error(`Aria ${tool}: ${text.slice(0, 200)}`);
+  try { return JSON.parse(text); } catch { return { text }; }
+}
+const ARIA_IMG = /https:\/\/studio\.ariacruz\.com\/mcp\/img\?[^\s"']+/;
+/** Finds the 24 h link and file name in whatever shape estado_imagen returns. */
+function readyImage(r: Record<string, unknown>): { url: string; file: string } | null {
+  const text = JSON.stringify(r);
+  const url = text.match(ARIA_IMG)?.[0]?.replace(/\\u0026/g, "&");
+  const file = text.match(/assets\/live\/([A-Za-z0-9._-]+\.(?:jpg|jpeg|png|webp))/)?.[1];
+  return url ? { url, file: file ?? `aria-${crypto.randomUUID().slice(0, 8)}.jpg` } : null;
+}
+const priceOf = (r: Record<string, unknown>): number | null => {
+  const m = JSON.stringify(r).match(/"(?:precio|precio_usd|usd|coste|costo|cost)"\s*:\s*"?\$?([0-9.]+)/i);
+  return m ? Number(m[1]) : null;
+};
+const ariaIdOf = (r: Record<string, unknown>): string | null => {
+  const v = r.id ?? r.imagen_id ?? r.job_id ?? (JSON.stringify(r).match(/"id"\s*:\s*"([^"]+)"/)?.[1]);
+  return typeof v === "string" || typeof v === "number" ? String(v) : null;
+};
+
+/** Short memory of campaigns already published for this character, so nobody repeats them. */
+async function campaignMemory(db: SupabaseClient, ws: string, character: unknown): Promise<string> {
+  const { data } = await db.from("raxi_campaign_archive").select("title, summary, facets, published_url").eq("workspace_id", ws)
+    .eq("character_id", String(character ?? "")).order("created_at", { ascending: false }).limit(15);
+  if (!data?.length) return "(aún no hay campañas archivadas)";
+  return data.map((c) => `- ${c.title}: ${txt(c.summary, 300)} | ${JSON.stringify(c.facets).slice(0, 400)}`).join("\n");
+}
+
 /** The campaign's Fototeca collection with its items and archived photo paths (service role, server only). */
 async function loadCampaign(db: SupabaseClient, proposal: Record<string, unknown>) {
   const externalId = `CAMP-${String(proposal.external_id).replace(/^PROP-/, "")}`;
   const { data: col } = await db.from("raxi_portfolio_collections").select("id, title, channel, concept, payload")
     .eq("workspace_id", proposal.workspace_id).eq("external_id", externalId).maybeSingle();
   if (!col) throw new Error("La campaña no existe en la Fototeca.");
-  const { data: items } = await db.from("raxi_portfolio_items").select("id, position, caption, alt_text, payload, human_decision, asset_id")
+  const { data: items } = await db.from("raxi_portfolio_items").select("id, position, caption, alt_text, payload, human_decision, asset_id, aria_file, crop")
     .eq("collection_id", col.id).neq("human_decision", "REJECTED").order("position"); // photos the owner discarded never reach Copy/QA/final
   const ids = (items ?? []).map((i) => i.asset_id).filter(Boolean);
   const { data: assets } = ids.length ? await db.from("raxi_assets").select("id, object_path").in("id", ids) : { data: [] };
@@ -286,6 +344,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       RESEARCH: `{"modelos":[{"nombre":"","plataforma":"","por_que":"","patrones":["máx. 3"],"fuentes":["URL, máx. 2"]}],"patrones_adaptables":["máx. 4"],"no_copiar":["máx. 3"],"hipotesis":["máx. 3"],"limitaciones":""}`,
       STRATEGY: `{"decision":"SUFICIENTE|MAS_INVESTIGACION","evaluacion_investigacion":"","preguntas_extra":[],"estrategia":{"objetivo":"","audiencia":"","plataformas":[{"plataforma":"","rol":""}],"funnel":"","mensajes_clave":["máx. 3"],"formatos":["máx. 4"],"duracion":"","metrica_principal":"","metricas_secundarias":["máx. 3"],"hipotesis":["máx. 3"],"riesgos":[{"riesgo":"","mitigacion":""}]}}`,
       DESIGN: `{"concepto":"","microhistoria":"","publicaciones":[{"posicion":1,"escena":"","plano":"","prompt":"","texto":"","alt":""}],"coleccion_existente":null,"montaje":[{"posicion":1,"segundos":1,"texto_pantalla":""}],"modelo_aria":"","costo_estimado_usd":0,"checklist_qa":["máx. 6"]}`,
+      ARCHIVE: `{"resumen":"","facetas":{},"aprendizajes":[],"evitar_repetir":[]}`,
       COPY: `{"gancho":"","caption":"","hashtags":[],"primer_comentario":"","cta":"","alt_reel":"","audio_sugerido":""}`,
       QA: `{"estado":"APPROVED|APPROVED_WITH_CAUTION|REWRITE|REJECT","resumen":"","items":[{"posicion":1,"estado":"PASS|CAUTION|FAIL","nota":""}],"copy":{"estado":"OK|REWRITE","nota":""},"defectos":[]}`,
       REVIEW: `{"veredicto":"APROBADA|CAMBIOS","revision":[{"punto":"","estado":"OK|FALLA","nota":""}],"cambios_requeridos":[],"correcciones":[{"tipo":"publicacion|montaje","posicion":1,"campo":"texto|alt|prompt|escena|plano|texto_pantalla|segundos","valor":""}],"campana":{"objetivo":"","audiencia":"","metrica_principal":"","cta":"","calendario":[{"dia":"","publicacion":""}],"hashtags":["máx. 8"]}}`,
@@ -298,6 +357,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       model = "sonnet";
       result = await callClaude({ model, maxTokens: 6000, system: `${COMMON}\nEres el Director IA de Raxi HQ. Recibes una idea aceptada por el dueño y defines el trabajo antes de delegar. No investigas tú: encargas.\nReglas del dueño:\n${rulesOf(profile)}`,
         prompt: `Idea aceptada: ${proposal?.title} (${proposal?.channel}, personaje ${proposal?.character_id}).\nResumen: ${proposal?.summary}\nPor qué: ${proposal?.rationale ?? "—"}\n\n` +
+          `Campañas ya publicadas de este personaje (no repitas concepto, locación ni gancho):\n${await campaignMemory(db, String(job.workspace_id), proposal?.character_id)}\n\n` +
           `Evalúa viabilidad y define el encargo para el Investigador.\n${COMPACT}\nForma: ${SCHEMAS.BRIEF}` });
     } else if (kind === "STRATEGY") {
       model = "sonnet";
@@ -323,6 +383,117 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
         // Safety net: if the cheap model is ever refused for search, fall back once to Sonnet.
         if (!/web_search|not supported|unsupported/i.test(String(e))) throw e;
         model = "sonnet"; result = await call("sonnet");
+      }
+    } else if (kind === "PRODUCTION") {
+      // Production order with REAL prices from Aria. No model call and no spending here.
+      model = "haiku";
+      const { col, items } = await loadCampaign(db, proposal!);
+      const todo = items.filter((i) => !i.asset_id && (i.payload as Record<string, unknown>)?.kind === "PHOTO_TO_GENERATE");
+      if (!todo.length) throw new Error("No hay fotos pendientes por producir en esta campaña.");
+      const catalog = ((await aria("modelos")).modelos as Record<string, unknown>[] | undefined ?? []).filter((m) => Number(m.usd_std) > 0);
+      if (!catalog.length) throw new Error("Aria no devolvió modelos disponibles.");
+      const keys = new Set(catalog.map((m) => String(m.key)));
+      const wanted = [String(input.owner_note ?? ""), String((col.payload as Record<string, unknown>)?.model ?? "")].join(" ").toLowerCase();
+      const fromText = [...wanted.matchAll(/[a-z0-9]+/g)].map((m) => m[0]).find((w) => keys.has(w));
+      const key = fromText ?? (keys.has("gptimg") ? "gptimg" : String(catalog[0].key));
+      const m = catalog.find((x) => String(x.key) === key)!;
+      const pr = await aria("mis_personajes");
+      const people = (pr.personajes ?? pr.characters ?? pr) as unknown;
+      const character = String(proposal?.character_id ?? "");
+      const plist = Array.isArray(people) ? people as Record<string, unknown>[] : [];
+      const person = plist.find((p) => [p.id, p.slug, p.nombre, p.name].some((v) => String(v ?? "").toLowerCase().replace(/\s+/g, "-") === character.toLowerCase())) ?? plist.find((p) => JSON.stringify(p).toLowerCase().includes(character.toLowerCase()));
+      const personaje = String(person?.id ?? character);
+      const formato = items.some((i) => i.crop === "9:16") ? "9:16" : "3:4";
+      const unit = Number(m.usd_std);
+      const fotos = todo.map((i) => ({ item_id: i.id, posicion: i.position, prompt: String((i.payload as Record<string, unknown>).prompt ?? "").slice(0, 4000) }));
+      const plan = { modelo_key: key, modelo_nombre: m.nombre, precio_unitario_usd: unit, calidad: "std", formato, personaje, fotos,
+        total_usd: Number((unit * fotos.length).toFixed(4)),
+        nota: fromText ? `Modelo indicado en el diseño${input.owner_note ? " / por ti" : ""}.` : "El diseño no indicó un modelo disponible; se usa el modelo general por defecto para Instagram." };
+      result = { text: JSON.stringify(plan), usage: {}, stopReason: "end_turn", cost: 0, sources: [] };
+    } else if (kind === "GENERATE") {
+      // Generates only what Luis approved, never above the approved amount, and never pays twice for the same photo.
+      model = "haiku";
+      const plan = input.plan as Record<string, unknown> | undefined;
+      const approved = Number(input.approved_usd);
+      if (!plan || !Number.isFinite(approved)) throw new Error("Falta la orden aprobada.");
+      const { items } = await loadCampaign(db, proposal!);
+      const byId = new Map(items.map((i) => [String(i.id), i]));
+      const { data: prev } = await db.from("raxi_agent_jobs").select("cost_usd").eq("proposal_id", job.proposal_id).eq("kind", "GENERATE").neq("id", job.id);
+      let spent = (prev ?? []).reduce((t, r) => t + Number(r.cost_usd), 0), costNow = 0;
+      const unit = Number(plan.precio_unitario_usd);
+      try {
+      for (const f of (plan.fotos as Record<string, unknown>[]) ?? []) {
+        const it = byId.get(String(f.item_id));
+        const pl = (it?.payload ?? {}) as Record<string, unknown>;
+        if (!it || it.asset_id || pl.aria_request_id || it.aria_file) continue;
+        if (spent + unit > approved + 1e-6) break; // never above what was approved
+        const r = await aria("generar_imagen", { personaje: plan.personaje, escena: f.prompt, modelo: plan.modelo_key, calidad: plan.calidad, formato: plan.formato });
+        const rid = ariaIdOf(r);
+        if (!rid) throw new Error(`Aria no devolvió un id: ${JSON.stringify(r).slice(0, 200)}`);
+        const price = priceOf(r) ?? unit;
+        spent += price; costNow += price;
+        await db.from("raxi_portfolio_items").update({ payload: { ...pl, aria_request_id: rid, aria_model: plan.modelo_key, aria_price_usd: price, generated_job: job.id }, updated_at: now() }).eq("id", it.id);
+        it.payload = { ...pl, aria_request_id: rid };
+      }
+      } catch (e) {
+        // Anything Aria already charged is recorded even if a later photo fails; a retry never pays twice.
+        throw Object.assign(e instanceof Error ? e : new Error(String(e)), { partial: { output: { data: { gastado_usd: costNow } }, usage: {}, cost: costNow } });
+      }
+      // Poll pending generations (about 75 s per run; the Director re-queues this step while photos are still cooking).
+      let ready = 0;
+      for (let round = 0; round < 6; round++) {
+        const pending = items.filter((i) => !i.asset_id && !i.aria_file && (i.payload as Record<string, unknown>)?.aria_request_id);
+        if (!pending.length) break;
+        if (round > 0) await new Promise((r) => setTimeout(r, 15000));
+        for (const it of pending) {
+          const st = await aria("estado_imagen", { id: String((it.payload as Record<string, unknown>).aria_request_id) }).catch(() => null);
+          const img = st ? readyImage(st) : null;
+          if (!img) continue;
+          it.aria_file = img.file; ready += 1;
+          await db.from("raxi_portfolio_items").update({ aria_file: img.file, updated_at: now() }).eq("id", it.id);
+          await db.from("raxi_archive_requests").insert({ workspace_id: job.workspace_id, source_url: img.url, aria_file: img.file, character_id: String(proposal?.character_id ?? ""), status: "PENDING" });
+        }
+      }
+      // Archive into the Fototeca (download, hash, private storage) and give it a moment to finish.
+      const supa = Deno.env.get("SUPABASE_URL")!;
+      await fetch(`${supa}/functions/v1/raxi-archive-aria`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => null);
+      const { data: after } = await db.from("raxi_portfolio_items").select("id, asset_id, aria_file, payload, human_decision").in("id", items.map((i) => i.id));
+      const missing = (after ?? []).filter((i) => i.human_decision !== "REJECTED" && !i.asset_id).length;
+      const data = { generadas_ahora: Math.round(costNow / (unit || 1)), listas_en_esta_vuelta: ready, pendientes: missing, gastado_usd: Number(costNow.toFixed(4)), aprobado_usd: approved };
+      result = { text: JSON.stringify(data), usage: {}, stopReason: "end_turn", cost: Number(costNow.toFixed(4)), sources: [] };
+    } else if (kind === "ARCHIVE") {
+      model = "haiku";
+      const { col, items } = await loadCampaign(db, proposal!);
+      const strategy = (await lastOutput(db, job.proposal_id, "STRATEGY"))?.data as Record<string, unknown> | undefined;
+      const qa = (await lastOutput(db, job.proposal_id, "QA"))?.data as Record<string, unknown> | undefined;
+      const { data: rejected } = await db.from("raxi_portfolio_items").select("position, qa_notes").eq("collection_id", col.id).eq("human_decision", "REJECTED");
+      const { data: spentRows } = await db.from("raxi_agent_jobs").select("cost_usd").eq("proposal_id", job.proposal_id);
+      const spentTotal = (spentRows ?? []).reduce((t, r) => t + Number(r.cost_usd), 0);
+      const p = col.payload as Record<string, unknown>;
+      result = await callClaude({ model, maxTokens: 4000, system: `${COMMON}\nEres el Archivista de Raxi HQ. Conviertes una campaña publicada en memoria útil para que el equipo no repita y aprenda.`,
+        prompt: `Campaña publicada: ${col.title} (${p.format ?? "POSTS"}, personaje ${proposal?.character_id}). Enlace: ${p.published_url ?? "—"}\n` +
+          `Concepto: ${String(col.concept ?? "").slice(0, 1500)}\nEstrategia (JSON): ${JSON.stringify(strategy?.estrategia ?? {}).slice(0, 2500)}\n` +
+          `Fotos publicadas (descripción): ${items.map((i) => `${i.position}: ${String(i.alt_text ?? "").slice(0, 140)}`).join(" | ").slice(0, 3000)}\n` +
+          `Fotos descartadas y por qué: ${JSON.stringify(rejected ?? []).slice(0, 800)}\nQA: ${JSON.stringify(qa ?? {}).slice(0, 1500)}\n` +
+          `Texto publicado: ${JSON.stringify((p.copy as Record<string, unknown>)?.caption ?? "").slice(0, 800)}\nCosto total de agentes: $${spentTotal.toFixed(2)}\n` +
+          `Resume la campaña y extrae facetas concretas para no repetir (locaciones, vestuario, poses/encuadres, ganchos, temas, formato) y aprendizajes verificados (solo lo que consta arriba; no inventes métricas).\n${COMPACT}\n` +
+          `Forma: {"resumen":"","facetas":{"locaciones":[],"vestuario":[],"encuadres":[],"ganchos":[],"temas":[],"formato":""},"aprendizajes":[],"evitar_repetir":[]}` });
+      const d = lastJson(result.text) as Record<string, unknown> | null;
+      if (d) {
+        const facets = { ...(d.facetas as Record<string, unknown> ?? {}), evitar_repetir: d.evitar_repetir ?? [] };
+        let smId: string | null = null;
+        const smKey = Deno.env.get("SUPERMEMORY_API_KEY");
+        if (smKey) {
+          const content = `Raxi HQ · campaña archivada: ${col.title} (${proposal?.character_id}). ${p.published_url ?? ""}\n${txt(d.resumen, 2000)}\nFacetas: ${JSON.stringify(facets)}\nAprendizajes: ${JSON.stringify(d.aprendizajes ?? [])}`;
+          const sm = await fetch("https://api.supermemory.ai/v3/documents", { method: "POST", headers: { authorization: `Bearer ${smKey}`, "content-type": "application/json" },
+            body: JSON.stringify({ content, customId: `raxi-campaign-${String(proposal?.external_id ?? job.proposal_id)}`, containerTags: [Deno.env.get("SUPERMEMORY_CONTAINER") ?? "raxi-hq"], metadata: { source: "raxi-hq-archivist", character: String(proposal?.character_id ?? "") } }) }).catch(() => null);
+          if (sm?.ok) smId = String((await sm.json().catch(() => ({})))?.id ?? "") || null;
+        }
+        await db.from("raxi_campaign_archive").upsert({ proposal_id: job.proposal_id, workspace_id: job.workspace_id, character_id: String(proposal?.character_id ?? ""),
+          title: txt(col.title, 200), published_url: typeof p.published_url === "string" && /^https:\/\/(www\.)?instagram\.com\//.test(p.published_url) ? p.published_url : null,
+          summary: txt(d.resumen, 4000) || txt(col.title, 200), facets, learnings: Array.isArray(d.aprendizajes) ? d.aprendizajes.slice(0, 20) : [], supermemory_id: smId, updated_at: now() });
+        (d as Record<string, unknown>).guardado_en = smKey ? (smId ? "Base de datos + Supermemory" : "Base de datos (Supermemory falló)") : "Base de datos (Supermemory sin clave)";
+        result = { ...result, text: "```json\n" + JSON.stringify(d) + "\n```" };
       }
     } else if (kind === "FINAL") {
       // Deterministic integration by the Director: no model call, no cost.
@@ -399,13 +570,14 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
           `Investigación (JSON): ${JSON.stringify(research?.output?.data ?? {}).slice(0, 6000)}\n\n` +
           (strategy?.estrategia ? `Estrategia aprobada por el dueño (JSON, obligatoria): ${JSON.stringify(strategy.estrategia).slice(0, 5000)}\n\n` : "") +
           (notes ? `El Director pidió estos cambios a tu diseño anterior; atiéndelos todos: ${notes}\n\n` : "") +
+          `Campañas ya publicadas de este personaje (no repitas locaciones, vestuario, encuadres ni ganchos):\n${await campaignMemory(db, String(job.workspace_id), proposal?.character_id)}\n\n` +
           `Fotos que ya existen en la Fototeca (colección → posición: descripción):\n${archive}\n\n` +
           `Usa mis_personajes de Aria para respetar la identidad exacta del personaje y modelos para el precio real por imagen. ` +
           `Diseña concepto, microhistoria y publicaciones. Si es un Reel con fotos ya existentes: kit de montaje sin generar nada, "coleccion_existente" = id de la colección y "posicion" = número de foto en ella; "publicaciones" vacío. ` +
           `Si requiere fotos nuevas: un prompt autónomo en inglés por foto (identidad, escena, vestuario, cámara/POV, luz, realismo, salida única; máx. 120 palabras), texto ES/EN breve y alt. ` +
           `Modelo de Aria recomendado y costo estimado con precios reales.\n${COMPACT} (Los prompts pueden superar las 25 palabras.)\nForma: ${SCHEMAS.DESIGN}` });
     }
-    const output: Record<string, unknown> = { markdown: result.text.slice(0, 60000), data: kind === "FINAL" ? JSON.parse(result.text) : lastJson(result.text), sources: result.sources, model: MODELS[model].id };
+    const output: Record<string, unknown> = { markdown: result.text.slice(0, 60000), data: ["FINAL", "PRODUCTION", "GENERATE"].includes(kind) ? JSON.parse(result.text) : lastJson(result.text), sources: result.sources, model: MODELS[model].id };
     // Rescue instead of discarding paid work: a cut or malformed answer is converted to JSON by a cheap pass.
     if (SCHEMAS[kind] && (!output.data || result.stopReason === "max_tokens")) {
       const rescued = await rescueJson(result.text, SCHEMAS[kind]);
