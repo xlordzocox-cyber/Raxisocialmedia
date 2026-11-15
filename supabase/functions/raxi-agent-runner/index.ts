@@ -418,7 +418,9 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       if (!plan || !Number.isFinite(approved)) throw new Error("Falta la orden aprobada.");
       const { items } = await loadCampaign(db, proposal!);
       const byId = new Map(items.map((i) => [String(i.id), i]));
-      const { data: prev } = await db.from("raxi_agent_jobs").select("cost_usd").eq("proposal_id", job.proposal_id).eq("kind", "GENERATE").neq("id", job.id);
+      // Spending limit per approval: only rounds of THIS approved order count (a redo gets its own approval).
+      const { data: prev } = await db.from("raxi_agent_jobs").select("cost_usd").eq("proposal_id", job.proposal_id).eq("kind", "GENERATE").neq("id", job.id)
+        .eq("input->>approved_at", String(input.approved_at ?? ""));
       let spent = (prev ?? []).reduce((t, r) => t + Number(r.cost_usd), 0), costNow = 0;
       const unit = Number(plan.precio_unitario_usd);
       try {

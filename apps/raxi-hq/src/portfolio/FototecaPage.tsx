@@ -74,6 +74,8 @@ export function FototecaPage({ client, ownerId }: { client: SupabaseClient; owne
   const [busy, setBusy] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [publishUrl, setPublishUrl] = useState('');
+  const [redoOpen, setRedoOpen] = useState(false);
+  const [redoNote, setRedoNote] = useState('');
   const [framing, setFraming] = useState<Record<string, Framing>>({});
   const frameOf = (id: string): Framing => framing[id] ?? 'top';
   const setFrame = (id: string, f: Framing) => setFraming((prev) => {
@@ -133,6 +135,16 @@ export function FototecaPage({ client, ownerId }: { client: SupabaseClient; owne
     } catch (e) {
       setVideo({ phase: 'idle' }); setNotice(e instanceof Error ? e.message : 'No se pudo armar el video.');
     }
+  }
+
+  async function redo(target: PortfolioItem) {
+    setBusy(target.id); setNotice(undefined);
+    const { error } = await client.rpc('raxi_photo_redo', { p_item: target.id, p_note: redoNote.trim() || null });
+    setBusy(undefined);
+    if (error) { setNotice(redoError(error.message)); return; }
+    setRedoOpen(false); setRedoNote('');
+    setNotice('Marcada para rehacer. Producción prepara la orden: aprueba el costo en Campañas (no se gasta nada antes). Puedes marcar más fotos mientras tanto.');
+    await reload();
   }
 
   async function decide(target: PortfolioItem, decision: 'APPROVED' | 'REJECTED' | 'PENDING' | 'PUBLISHED') {
@@ -249,6 +261,15 @@ export function FototecaPage({ client, ownerId }: { client: SupabaseClient; owne
             <button type="button" disabled={!!busy || item.status === 'PUBLISHED' || item.decision === 'REJECTED'} onClick={() => void decide(item, 'REJECTED')}>Descartar</button>
             {item.decision !== 'PENDING' && item.status !== 'PUBLISHED' && <button type="button" disabled={!!busy} onClick={() => void decide(item, 'PENDING')}>Volver a pendiente</button>}
           </div>
+          {item.status !== 'PUBLISHED' && (redoOpen
+            ? <div className="foto-redo">
+                <label htmlFor="redo-note">¿Qué hay que corregir? (opcional; QA ya anotó lo suyo)</label>
+                <textarea id="redo-note" maxLength={1000} value={redoNote} onChange={(e) => setRedoNote(e.target.value)} placeholder="Ej.: la mano izquierda se ve rara; que se vean los pies" />
+                <button type="button" disabled={!!busy} onClick={() => void redo(item)}>Marcar para rehacer</button>
+                <button type="button" disabled={!!busy} onClick={() => setRedoOpen(false)}>Cancelar</button>
+                <p className="foto-meta">No gasta nada: Producción te mostrará el costo exacto y tú lo apruebas en Campañas.</p>
+              </div>
+            : <button type="button" disabled={!!busy} onClick={() => setRedoOpen(true)}>🔁 Rehacer esta foto</button>)}
           {item.decision === 'APPROVED' && item.status !== 'PUBLISHED' && <div className="foto-publish">
             <label htmlFor="pub-url">Ya la publiqué — enlace de Instagram</label>
             <input id="pub-url" type="url" inputMode="url" placeholder="https://www.instagram.com/p/…" value={publishUrl} onChange={(e) => setPublishUrl(e.target.value)} />
@@ -267,4 +288,12 @@ function Header() {
     <div className="hq-brand"><h1>Raxi HQ <span>Fototeca</span></h1><p>Campañas, fotos y textos listos para publicar</p></div>
     <div className="hq-session-controls"><Link to="/">Volver a la oficina</Link></div>
   </header>;
+}
+
+function redoError(message: string): string {
+  if (/already running/.test(message)) return 'El equipo está trabajando en esta campaña; espera a que termine el paso actual y vuelve a intentarlo.';
+  if (/budget/.test(message)) return 'Se alcanzó el tope de gasto de la campaña.';
+  if (/no campaign|nothing to decide/.test(message)) return 'Esta foto no pertenece a una campaña activa del equipo.';
+  if (/already published/.test(message)) return 'Esta foto ya está publicada.';
+  return 'No se pudo marcar: ' + (message || 'error');
 }

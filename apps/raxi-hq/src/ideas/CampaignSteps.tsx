@@ -85,6 +85,7 @@ export function CampaignSteps({ client, proposalId, jobs, pipeline, onChange }: 
     </div>}
 
     {(pipeline.status === 'FAILED' || pipeline.status === 'PAUSED') && <div className="campaign-changes" role="alert">
+      {pipeline.stage === 'QA' && <p>Si QA marcó fotos con problemas, ábrelas en la <Link to="/fototeca">Fototeca</Link> y usa <b>🔁 Rehacer esta foto</b>; Producción te mostrará el costo antes de generar.</p>}
       <p>{pipeline.status === 'FAILED' ? 'Un paso falló' : 'La campaña está en pausa'}: {pipeline.note ?? 'sin detalle.'}</p>
       <button type="button" disabled={busy} onClick={() => void call('raxi_campaign_decide', { p_proposal: proposalId, p_decision: 'RESUME' },
         'Reanudado: el equipo vuelve a intentar ese paso.')}>Reintentar este paso</button>
