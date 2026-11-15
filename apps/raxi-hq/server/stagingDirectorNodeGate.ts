@@ -6,6 +6,7 @@ import {createClient} from '@supabase/supabase-js';
 import {supabaseSupervisedAuth} from '../../../server/agent-runtime/supabaseSupervisedAuth';
 import {createUnpublishedDirectorRealReadiness} from '../../../server/agent-runtime/stagingDirectorReadiness';
 import {SERVER_AUTH_OPTIONS} from '../../../server/agent-runtime/stagingAuthHostComposition';
+import {createDirectorSqlPreauthAdmission} from './stagingDirectorSqlPreauth';
 import {
  createUnpublishedStagingNodeIngress,STAGING_DIRECTOR_READINESS_PATH,exactStagingOrigin,
  type IngressAdmissionPort,
@@ -86,4 +87,51 @@ export function createUnpublishedDirectorNodeGate(
  return createUnpublishedStagingNodeIngress({
   ...gateConfig,authenticationHandler:readiness,
  });
+}
+
+/** Concrete path for a FUTURE authorized Node mount. Unlike the lower-level
+ * injectable factory, this never accepts a fake/in-memory admission port:
+ * every shaped bearer must pass an HMAC-keyed, shared PostgreSQL RPC first.
+ * No route or listener is registered by constructing this handler.
+ */
+export interface DirectorSqlPreauthNodeConfig extends
+ Omit<UnpublishedDirectorNodeConfig,'admission'> {
+ preauthHmacSecret:string;
+}
+export function createUnpublishedDirectorNodeGateWithSqlPreauth(
+ config:DirectorSqlPreauthNodeConfig,
+ sdkCreate:typeof createClient=createClient,
+) {
+ if(typeof window!=='undefined'||!process.versions?.node)
+  throw Error('Node-only unmounted SQL preauth');
+ if(!config||config.projectUrl!==URL_STAGING||
+    !exactStagingOrigin(config.approvedOrigin)||
+    typeof config.publishableKey!=='string'||!config.publishableKey.startsWith('sb_publishable_')||
+    typeof config.privilegedKey!=='string'||!config.privilegedKey.startsWith('sb_secret_')||
+    config.privilegedKey===config.publishableKey||
+    typeof config.preauthHmacSecret!=='string'||config.preauthHmacSecret.length<32||
+    config.preauthHmacSecret.length>256||
+    config.preauthHmacSecret.startsWith('sb_')||
+    config.preauthHmacSecret===config.privilegedKey||
+    config.preauthHmacSecret===config.publishableKey||
+    Object.hasOwn(config,'admission'))
+  throw Error('Distinct approved server-only preauth configuration required');
+ const {preauthHmacSecret,...base}=config;
+ // Dedicated restricted privileged client: no session, no browser bearer,
+ // only the PREAUTH RPC. The existing auth/read composition remains separate.
+ const sdk=sdkCreate(URL_STAGING,config.privilegedKey,{auth:{...SERVER_AUTH_OPTIONS}});
+ const admission=createDirectorSqlPreauthAdmission({
+  hmacSecret:preauthHmacSecret,
+  server:{
+   async rpc(name,args) {
+    if(name!=='raxi_director_preauth_admit'||Object.keys(args).length!==1||
+      !Object.hasOwn(args,'p_client_digest')||
+      typeof args.p_client_digest!=='string'||!/^[a-f0-9]{64}$/.test(args.p_client_digest))
+      throw Error('Closed preauth RPC required');
+    const r=await sdk.rpc('raxi_director_preauth_admit',args);
+    return {data:r.data,error:r.error};
+   },
+  },
+ });
+ return createUnpublishedDirectorNodeGate({...base,admission},sdkCreate);
 }
