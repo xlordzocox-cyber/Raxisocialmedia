@@ -8,6 +8,8 @@ declare
  v_trigger_enabled text;
  v_trigger_fn oid;
  v_trigger_type integer;
+ v_trigger_unconditional boolean;
+ v_trigger_columns text;
 begin
  if v_oid is null then
   raise exception 'ISSUE49_POSTFLIGHT_NO_GO: candidate table missing';
@@ -39,8 +41,10 @@ begin
  ) then
   raise exception 'ISSUE49_POSTFLIGHT_NO_GO: one-lifetime unique constraint missing';
  end if;
- select pg_get_triggerdef(t.oid),t.tgenabled::text,t.tgfoid,t.tgtype::int
- into v_def,v_trigger_enabled,v_trigger_fn,v_trigger_type
+ select pg_get_triggerdef(t.oid),t.tgenabled::text,t.tgfoid,t.tgtype::int,
+        (t.tgqual is null),t.tgattr::text
+ into v_def,v_trigger_enabled,v_trigger_fn,v_trigger_type,
+      v_trigger_unconditional,v_trigger_columns
  from pg_trigger t where t.tgrelid=v_oid and not t.tgisinternal
    and t.tgname='raxi_director_real_protect';
  if v_def is null or position('BEFORE INSERT OR UPDATE' in v_def)=0 or
@@ -48,7 +52,9 @@ begin
     v_trigger_enabled not in ('O','A') or
     v_trigger_fn is distinct from
       to_regprocedure('public.raxi_director_real_protect()')::oid or
-    v_trigger_type is distinct from 23 then
+    v_trigger_type is distinct from 23 or
+    v_trigger_unconditional is distinct from true or
+    v_trigger_columns is distinct from '' then
   raise exception 'ISSUE49_POSTFLIGHT_NO_GO: enabled per-row INSERT/UPDATE protection missing or wrong';
  end if;
  if to_regprocedure('public.raxi_director_real_scope(uuid,uuid,uuid,jsonb,bigint)') is null or
