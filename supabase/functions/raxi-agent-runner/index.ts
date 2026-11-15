@@ -393,8 +393,10 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       const catalog = ((await aria("modelos")).modelos as Record<string, unknown>[] | undefined ?? []).filter((m) => Number(m.usd_std) > 0);
       if (!catalog.length) throw new Error("Aria no devolvió modelos disponibles.");
       const keys = new Set(catalog.map((m) => String(m.key)));
-      const wanted = [String(input.owner_note ?? ""), String((col.payload as Record<string, unknown>)?.model ?? "")].join(" ").toLowerCase();
-      const fromText = [...wanted.matchAll(/[a-z0-9]+/g)].map((m) => m[0]).find((w) => keys.has(w));
+      const pick = (t: unknown) => [...String(t ?? "").toLowerCase().matchAll(/[a-z0-9]+/g)].map((m) => m[0]).find((w) => keys.has(w));
+      const preferred = (profile?.capability_config as { preferred_model?: string } | undefined)?.preferred_model;
+      const fromNote = pick(input.owner_note), fromPref = preferred && keys.has(preferred) ? preferred : undefined;
+      const fromText = fromNote ?? fromPref ?? pick((col.payload as Record<string, unknown>)?.model);
       const key = fromText ?? (keys.has("gptimg") ? "gptimg" : String(catalog[0].key));
       const m = catalog.find((x) => String(x.key) === key)!;
       const pr = await aria("mis_personajes");
@@ -408,7 +410,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       const fotos = todo.map((i) => ({ item_id: i.id, posicion: i.position, prompt: String((i.payload as Record<string, unknown>).prompt ?? "").slice(0, 4000) }));
       const plan = { modelo_key: key, modelo_nombre: m.nombre, precio_unitario_usd: unit, calidad: "std", formato, personaje, fotos,
         total_usd: Number((unit * fotos.length).toFixed(4)),
-        nota: fromText ? `Modelo indicado en el diseño${input.owner_note ? " / por ti" : ""}.` : "El diseño no indicó un modelo disponible; se usa el modelo general por defecto para Instagram." };
+        nota: fromNote ? "Modelo que pediste en tu nota." : fromPref ? "Tu modelo preferido (conserva mejor la cara)." : fromText ? "Modelo indicado en el diseño." : "Se usa el modelo general por defecto." };
       result = { text: JSON.stringify(plan), usage: {}, stopReason: "end_turn", cost: 0, sources: [] };
     } else if (kind === "GENERATE") {
       // Generates only what Luis approved, never above the approved amount, and never pays twice for the same photo.
@@ -533,6 +535,17 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       const { col, items } = await loadCampaign(db, proposal!);
       const copy = (await lastOutput(db, job.proposal_id, "COPY"))?.data as Record<string, unknown> | undefined;
       const images: { label: string; url: string }[] = [];
+      // Identity reference: photos of this character that Luis approved in OTHER campaigns (his judgment of her real face).
+      const { data: refCols } = await db.from("raxi_portfolio_collections").select("id").eq("workspace_id", job.workspace_id)
+        .eq("character_id", String(proposal?.character_id ?? "")).neq("id", col.id);
+      const { data: refItems } = (refCols ?? []).length ? await db.from("raxi_portfolio_items").select("asset_id")
+        .in("collection_id", (refCols ?? []).map((c) => c.id)).eq("human_decision", "APPROVED").not("asset_id", "is", null).order("position").limit(2) : { data: [] };
+      const { data: refAssets } = (refItems ?? []).length ? await db.from("raxi_assets").select("object_path").in("id", (refItems ?? []).map((r) => r.asset_id)) : { data: [] };
+      for (const [n, a] of (refAssets ?? []).entries()) {
+        const { data: signed } = await db.storage.from("raxi-hq-private").createSignedUrl(a.object_path, 900);
+        if (signed?.signedUrl) images.push({ label: `REFERENCIA DE IDENTIDAD ${n + 1} (foto ya aprobada por Luis; así es su cara real, NO se evalúa)`, url: signed.signedUrl });
+      }
+      const refs = images.length;
       for (const i of items) {
         const path = i.object_path as string | null;
         if (!path) continue;
@@ -542,6 +555,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       result = await callClaude({ model, maxTokens: 8000, aria: true, images, system: `${COMMON}\nEres QA Visual de Raxi HQ, independiente del equipo creativo. Eres estricto: solo apruebas lo que ves bien.\nReglas del dueño:\n${rulesOf(profile)}`,
         prompt: `Campaña: ${col.title} (${(col.payload as Record<string, unknown>)?.format ?? "POSTS"} para Instagram, personaje ${proposal?.character_id}). Arriba están las fotos en el orden del montaje.\n` +
           `Texto de la publicación propuesto (JSON): ${JSON.stringify(copy ?? {}).slice(0, 4000)}\n\n` +
+          (refs ? `Las primeras ${refs} imágenes son REFERENCIAS de su cara real: compara rostro (forma de cara, ojos, nariz, labios, edad aparente) de cada foto contra ellas. Si una foto no parece la misma persona, esa foto es FAIL aunque todo lo demás esté bien. ` : `No tienes foto de referencia de su cara: dilo y marca la identidad como no verificada (CAUTION como mínimo). `) +
           `Usa mis_personajes de Aria para conocer la identidad oficial del personaje. Revisa en cada foto: identidad consistente, anatomía y manos, reflejos y luz coherentes, vestuario, texto o marcas extrañas, apariencia artificial, edad adulta evidente. ` +
           `Revisa el montaje: duración total (ideal 7–10 s), que cada texto en pantalla sea legible en su tiempo y coincida con la foto. Revisa el copy: gancho, claridad, tono, hashtags, cumplimiento de Instagram (nada explícito). ` +
           `Estados: APPROVED, APPROVED_WITH_CAUTION (detalles menores que no bloquean), REWRITE (solo el texto debe corregirse), REJECT (problema visual que exige cambiar fotos). Lista defectos concretos. Solo puedes juzgar lo que realmente ves.\n${COMPACT}\n` +
