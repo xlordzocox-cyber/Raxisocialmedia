@@ -43,7 +43,12 @@ begin
     has_table_privilege('authenticated','public.raxi_director_real_pilots','INSERT') or
     has_function_privilege('anon','public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint)','EXECUTE') or
     has_function_privilege('authenticated','public.raxi_director_real_approve(jsonb,uuid,uuid,text,boolean)','EXECUTE') or
-    has_function_privilege('authenticated','public.raxi_director_real_read(jsonb,uuid)','EXECUTE')
+    has_function_privilege('authenticated','public.raxi_director_real_read(jsonb,uuid)','EXECUTE') or
+    has_table_privilege('service_role','public.raxi_director_real_pilots','DELETE') or
+    has_table_privilege('service_role','public.raxi_director_real_pilots','TRUNCATE') or
+    not has_table_privilege('service_role','public.raxi_director_real_pilots','SELECT') or
+    not has_table_privilege('service_role','public.raxi_director_real_pilots','INSERT') or
+    not has_table_privilege('service_role','public.raxi_director_real_pilots','UPDATE')
  then raise exception 'FAILED: public/client ACL permits real pilot actions'; end if;
  if not (select relrowsecurity from pg_class where oid='public.raxi_director_real_pilots'::regclass)
  then raise exception 'FAILED: pilot RLS disabled';end if;
@@ -51,6 +56,12 @@ begin
 end; $acl$;
 
 set role service_role;
+-- Verify privilege denials under the real service_role despite the bootstrap's
+-- initial ALTER DEFAULT PRIVILEGES ... GRANT ALL ON TABLES.
+select pg_temp.expect_denied('service DELETE blocked by explicit revoke',
+ 'delete from public.raxi_director_real_pilots where false');
+select pg_temp.expect_denied('service TRUNCATE blocked by explicit revoke',
+ 'truncate table public.raxi_director_real_pilots');
 
 do $qa$
 declare
