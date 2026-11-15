@@ -16,6 +16,15 @@ export async function campaignDatabase(includeCampaignProposal = true, dataDir?:
     alter default privileges in schema public grant all on tables to service_role;
     alter default privileges in schema public grant all on sequences to service_role;
   `);
-  for (const file of readdirSync('../../supabase/migrations').filter(f => f.endsWith('.sql') && (includeCampaignProposal || !f.includes('campaign_strategy_pending_review'))).sort()) await db.exec(readFileSync(`../../supabase/migrations/${file}`, 'utf8'));
+  // This PGlite campaign fixture does not install the separately hosted
+  // PR59/Issue60 runtime dependencies. The Director REAL gate migration was
+  // applied AFTER those dependencies on staging and must be replayed only by
+  // the native isolated PG17 workflow that reconstructs them in proper order.
+  // Do NOT silently exclude any other versioned migrations here.
+  const stagedRuntimeOnly = '20261115040235_raxi_hq_issue49_director_real_gate_schema_only.sql';
+  for (const file of readdirSync('../../supabase/migrations').filter(f =>
+    f.endsWith('.sql') && f !== stagedRuntimeOnly &&
+    (includeCampaignProposal || !f.includes('campaign_strategy_pending_review'))
+  ).sort()) await db.exec(readFileSync(`../../supabase/migrations/${file}`, 'utf8'));
   return db;
 }
