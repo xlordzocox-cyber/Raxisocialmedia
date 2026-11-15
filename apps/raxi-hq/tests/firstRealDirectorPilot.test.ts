@@ -196,6 +196,19 @@ test('Missing or expired/unknown price quote cannot authorize paid Director',asy
   await assert.rejects(inspectFirstRealDirectorPilot(args,h.ports),mode);
  }
 });
+test('Canonical scope SHA is invariant to reordering spec and nested authorization keys',async()=>{
+ const h=await fixture();
+ const s=h.canonical.spec,a=s.authorization;
+ h.canonical.spec={
+  model:s.model,provider:s.provider,
+  authorization:{expiresAt:a.expiresAt,maxCostMicros:a.maxCostMicros,confirmed:true},
+  externalResearch:s.externalResearch,question:s.question,
+ };
+ const r=await inspectFirstRealDirectorPilot(args,h.ports);
+ assert.equal(r.kind,'DIRECTOR_REAL_PREFLIGHT_ONLY');
+ assert.equal(r.scopeSha256,h.canonical.scopeSha256);
+ assert.equal(r.executionEnabled,false);
+});
 test('Digest ties persisted approval to canonical question, provider, model, task, actor and version',async()=>{
  const h=await fixture();
  h.canonical.spec.question='Different question with a valid duration';
