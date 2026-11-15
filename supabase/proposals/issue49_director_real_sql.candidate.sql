@@ -138,7 +138,7 @@ begin
  return new;
 end; $f$;
 create trigger raxi_director_real_protect
- before update on public.raxi_director_real_pilots
+ before insert or update on public.raxi_director_real_pilots
  for each row execute function public.raxi_director_real_protect();
 
 -- Exact counterpart of firstRealDirectorPilot.ts scopeDigest canonical field order.
