@@ -52,3 +52,11 @@ El workflow de GitHub usa PostgreSQL 17 nativo en contenedores desechables aisla
 - Cualquier fallo de un paso bloquea el PR y no convierte el laboratorio en producción/staging.
 
 **Frontera:** este paquete no contiene credenciales, conexión al proyecto alojado, despliegue, modelo IA activo ni operaciones SQL fuera de contenedores efímeros. No se retirará DEMO/MOCK de la UI por haberlo integrado.
+
+## Auditoría negativa del contrato de revisión (P2)
+
+La batería nativa `apps/raxi-hq/tests/pg17/issue49_director_staging_review_negative.sh` reproduce, en transacciones PostgreSQL17 desechadas, los ataques que el PR #76 debe detectar. Con tabla piloto todavía vacía, se intenta ejecutar `empty_undo` mientras hay **una tarea de otra provenance**, **una aprobación TASK de otro contexto** o **una política de runtime histórica**; todos deben retornar `ISSUE49_ROLLBACK_NO_GO` y restaurar la base. Tras instalar el esquema candidato, el `postflight` debe rechazar **un índice UNIQUE con nombre correcto pero columna errónea**, **un trigger deshabilitado**, **otro trigger con el mismo nombre y función incorrecta**, **un trigger FOR EACH STATEMENT**, **TRUNCATE para authenticated** y **DELETE para anon**.
+
+El postflight exige índice único válido exactamente en `workspace_id` y trigger de fila activo conectado a `raxi_director_real_protect()`, además de denegar cualquier privilegio relevante de la tabla a los roles de navegador. Todos los falsos estados se ensayan en transacciones descartadas; no se cambia la instalación anfitriona. El undo debe conservar TODAS las tareas, políticas y aprobaciones TASK históricas, aunque su provenance no coincida con la del Director.
+
+**Un resultado de CI sólo se marcará PASS al consultar el run final del SHA exacto**; estas instrucciones no prueban que la migración hospedada esté aprobada.
