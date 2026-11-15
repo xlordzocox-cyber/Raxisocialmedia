@@ -201,7 +201,7 @@ begin
  select * into t from public.raxi_agent_tasks where id=g.task_id and workspace_id=g.workspace_id for update;
  if not found or t.status<>'WAITING_APPROVAL' or
     t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
-    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+    g.scope_sha256 is distinct from public.raxi_director_real_scope(v_workspace,t.id,v_actor,
       t.input_snapshot->'spec',g.policy_version)
  then raise exception 'task snapshot changed' using errcode='42501'; end if;
  select * into p from public.raxi_runtime_policies where workspace_id=v_workspace for update;
@@ -298,7 +298,7 @@ begin
     a.context->>'scopeSha256' is distinct from g.scope_sha256 or
     a.context->>'sessionId' is distinct from v_session::text or
     a.context->>'policyVersion' is distinct from g.policy_version::text or
-    g.scope_sha256<>public.raxi_director_real_scope(v_workspace,t.id,v_actor,
+    g.scope_sha256 is distinct from public.raxi_director_real_scope(v_workspace,t.id,v_actor,
       t.input_snapshot->'spec',g.policy_version)
  then return null; end if;
  return jsonb_build_object(
