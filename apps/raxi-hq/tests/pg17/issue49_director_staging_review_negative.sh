@@ -84,6 +84,22 @@ create trigger raxi_director_real_protect before insert or update on public.raxi
  for each statement execute function public.raxi_director_real_protect();
 \i /tmp/postflight.sql
 SQL
+ must_reject conditional_trigger 'ISSUE49_POSTFLIGHT_NO_GO: enabled per-row INSERT/UPDATE protection missing or wrong' <<'SQL'
+begin;
+drop trigger raxi_director_real_protect on public.raxi_director_real_pilots;
+create trigger raxi_director_real_protect
+ before insert or update on public.raxi_director_real_pilots
+ for each row when (false) execute function public.raxi_director_real_protect();
+\i /tmp/postflight.sql
+SQL
+ must_reject update_of_trigger 'ISSUE49_POSTFLIGHT_NO_GO: enabled per-row INSERT/UPDATE protection missing or wrong' <<'SQL'
+begin;
+drop trigger raxi_director_real_protect on public.raxi_director_real_pilots;
+create trigger raxi_director_real_protect
+ before insert or update of status on public.raxi_director_real_pilots
+ for each row execute function public.raxi_director_real_protect();
+\i /tmp/postflight.sql
+SQL
  must_reject browser_truncate 'ISSUE49_POSTFLIGHT_NO_GO: incorrect table ACL' <<'SQL'
 begin;
 grant truncate on public.raxi_director_real_pilots to authenticated;
