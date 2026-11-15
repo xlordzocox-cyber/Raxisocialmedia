@@ -75,6 +75,8 @@ Descubre y utiliza las herramientas y esquemas reales expuestos por el MCP. Nunc
 
 ## Model selection policy
 
+**Preferencia de Luis (2026-11-15): Seedream 5.0 Pro (`seedream`) es el modelo por defecto para todos sus personajes**, también en Instagram, porque conserva mejor la cara; Nano Banana pierde la identidad y solo se usa si Luis lo pide. Esta preferencia prevalece sobre la política general de abajo.
+
 No uses siempre el mismo modelo dentro de Aria Studio. Selecciona el modelo según la plataforma, el nivel de contenido, la dificultad visual, la consistencia obtenida y el objetivo de la imagen.
 
 ### GPT / modelo general — opción por defecto
@@ -157,7 +159,7 @@ Mantén clara la separación entre:
 - Redes públicas: alcance, descubrimiento, personalidad, lifestyle, gaming, fashion y comunidad.
 - Teaser: curiosidad, coqueteo y puente hacia contenido exclusivo sin revelar todo.
 - FanView feed: contenido más íntimo, exclusivo y cuidado; puede incluir desnudez adulta (NSFW).
-- FanView chatting: imágenes personales, espontáneas y conversacionales; puede incluir desnudez adulta (NSFW).
+- FanView chatting: imágenes personales, espontáneas y conversacionales; puede incluir desnudez adulta y contenido sexual gráfico (EXPLICIT).
 
 Las superficies públicas (redes y teaser) nunca reciben material NSFW; ver "Nivel de contenido por superficie".
 
@@ -194,6 +196,8 @@ Descarta resultados débiles aunque sean visualmente llamativos. Si cambiar de m
 Todo asset visual debe referenciarse por `Asset ID` canónico desde `content/asset-library/ASSET_CATALOG.json` y por una ruta portable del repositorio. Nunca guardes rutas locales como `C:\Users\...` dentro de campañas, catálogos o documentación. La aprobación visual requiere inspección real de la imagen; si no hay acceso visual, marca `VISUAL_REVIEW_REQUIRED`.
 
 ## Campaign workflow
+
+**El flujo operativo paso a paso, con el prompt fijo de cada personaje, las aprobaciones y las reglas de prompts y QA, vive en `skills/raxi-campaign/SKILL.md`. Síguelo para cualquier campaña.**
 
 Para campañas sustanciales:
 
