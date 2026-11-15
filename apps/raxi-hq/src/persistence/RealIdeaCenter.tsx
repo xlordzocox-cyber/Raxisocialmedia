@@ -7,6 +7,7 @@ import { RealCampaignCenter } from './RealCampaignCenter';
 import { RuntimeOfficePanel } from '../runtime/RuntimeOfficePanel';
 import type { RuntimeOfficeSink } from '../runtime/runtimeOfficeStore';
 import { supabase } from '../auth/client';
+import { TeamProposalsPanel } from '../ideas/TeamProposalsPanel';
 const noSubscription = () => () => {};
 const noCampaign = () => null;
 
@@ -54,6 +55,7 @@ export function RealIdeaCenter({ store, campaigns, onRuntimeSnapshot, view = 'al
     {state.workspace && <>
       <div hidden={view === 'campaigns' || view === 'runtime'}>
       <div className="campus-buildings real-campus-buildings"><button type="button" className="campus-building campus-building--ideas" aria-expanded={open} aria-controls="real-idea-center-panel" disabled={state.phase === 'saving'} onClick={() => setOpen(value => !value)}><span className="campus-art"><IdeasBuilding /></span><span className="campus-building-copy"><span className="campus-building-kicker">CENTRO DE IDEAS · REAL</span><strong>Centro de<br />Ideas</strong><span className="campus-building-description">Tus propuestas, guardadas para lo que sigue</span><span className="campus-telemetry"><span><b>{state.ideas.length}</b> {state.ideas.length === 1 ? 'idea persistida' : 'ideas persistidas'}</span><span>Workspace {state.workspace.name}</span></span><span className="campus-building-footer">{open ? 'Cerrar panel' : 'Explorar ideas'} <span aria-hidden="true">{open ? '↑' : '↗'}</span></span></span></button><div className="real-campus-note"><span className="campus-eyebrow">PERSISTENCIA VERIFICABLE</span><h3>Del primer apunte a la próxima propuesta.</h3><p>Captura manual, procedencia clara y memoria persistente. La evaluación y las decisiones de producción se habilitarán cuando exista un servicio real.</p><p>Sin agentes autónomos conectados. DEMO no se importa en este workspace.</p></div></div>
+      {supabase && <TeamProposalsPanel key={`team:${state.workspace.id}`} client={supabase} workspace={state.workspace.id} />}
       <IdeaCenterPanel id="real-idea-center-panel" ideas={state.ideas.map(item => item.idea)} open={open} error={state.error ?? undefined} persistence={{
         traces: Object.fromEntries(state.ideas.map(item => [item.idea.id, item])),
         saving: state.phase === 'saving' || state.phase === 'loading', savedId: state.savedId, selectedId, onSelect: select,
