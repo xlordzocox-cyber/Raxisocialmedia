@@ -37,7 +37,7 @@ export interface UnpublishedIngressConfig {
 function response(status:number,code:string,extra?:Record<string,string>):Response {
  return new Response(JSON.stringify({error:code}),{status,headers:{...BASE_HEADERS,...extra}});
 }
-function exactStagingOrigin(value:string):boolean {
+export function exactStagingOrigin(value:string):boolean {
  if(typeof value!=='string'||value.length>200||!value.startsWith('https://'))return false;
  try {
   const url=new URL(value);
