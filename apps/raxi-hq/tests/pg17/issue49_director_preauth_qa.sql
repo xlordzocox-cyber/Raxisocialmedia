@@ -12,7 +12,7 @@ begin
     has_table_privilege('authenticated','public.raxi_director_preauth_counters','DELETE') or
     has_function_privilege('anon','public.raxi_director_preauth_admit(text)','EXECUTE') or
     has_function_privilege('authenticated','public.raxi_director_preauth_admit(text)','EXECUTE') or
-    has_function_privilege('service_role','public.raxi_director_preauth_counters','TRUNCATE') or
+    has_table_privilege('service_role','public.raxi_director_preauth_counters','TRUNCATE') or
     not has_function_privilege('service_role','public.raxi_director_preauth_admit(text)','EXECUTE')
  then raise exception 'PREAUTH_ACL_OR_RLS_NO_GO';end if;
  raise notice 'PASS_PREAUTH_SQL_SERVICE_ONLY_RLS_ACL';
