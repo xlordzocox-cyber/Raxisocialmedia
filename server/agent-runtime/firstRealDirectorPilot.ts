@@ -72,7 +72,18 @@ function validQuote(value:DirectorOfficialQuote|null,provider:string,model:strin
   date(q.verifiedAt)>now-86_400_000&&date(q.expiresAt)>now+60_000;
 }
 async function scopeDigest(workspaceId:string,taskId:string,actorId:string,spec:TaskSpec,policyVersion:number):Promise<string> {
- const canonical=JSON.stringify({workspaceId,taskId,actorId,stage:'DIRECTOR',spec,policyVersion});
+ // Fixed field ordering independent of PostgreSQL jsonb/object insertion order.
+ // The future SQL signer MUST reproduce these exact UTF-8 JSON bytes.
+ const normalizedSpec={
+  question:spec.question,externalResearch:spec.externalResearch,
+  provider:spec.provider,model:spec.model,
+  authorization:{
+   confirmed:true,maxCostMicros:spec.authorization.maxCostMicros,
+   expiresAt:spec.authorization.expiresAt,
+  },
+ };
+ const canonical=JSON.stringify({workspaceId,taskId,actorId,stage:'DIRECTOR',
+  spec:normalizedSpec,policyVersion});
  return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(canonical))),
   b=>b.toString(16).padStart(2,'0')).join('');
 }
