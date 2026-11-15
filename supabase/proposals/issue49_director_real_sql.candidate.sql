@@ -221,7 +221,7 @@ begin
   raise exception 'cannot reapprove a used or revoked grant' using errcode='42501'; end if;
  select * into t from public.raxi_agent_tasks where id=g.task_id and workspace_id=g.workspace_id for update;
  if not found or t.status<>'WAITING_APPROVAL' or
-    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    t.input_snapshot#>>'{supervised,provenance}' is distinct from 'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
     g.scope_sha256 is distinct from public.raxi_director_real_scope(v_workspace,t.id,v_actor,
       t.input_snapshot->'spec',g.policy_version)
  then raise exception 'task snapshot changed' using errcode='42501'; end if;
@@ -310,7 +310,7 @@ begin
  select * into p from public.raxi_runtime_policies where workspace_id=v_workspace;
  select * into a from public.raxi_approvals where id=g.approval_id and workspace_id=v_workspace;
  if t.id is null or t.status<>'WAITING_APPROVAL' or
-    t.input_snapshot#>>'{supervised,provenance}'<>'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
+    t.input_snapshot#>>'{supervised,provenance}' is distinct from 'DIRECTOR_REAL_PILOT_NOT_EXECUTABLE' or
     p.workspace_id is null or not p.enabled or p.simulated or
     p.authorization_version<>g.policy_version or p.provider<>g.provider or p.model<>g.model or
     p.expires_at<=clock_timestamp()+interval '60 seconds' or
