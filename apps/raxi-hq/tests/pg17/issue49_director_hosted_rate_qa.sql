@@ -6,7 +6,7 @@ create function pg_temp.expect_rate_denied(p_label text,p_statement text) return
 begin
  begin
   execute p_statement;
- exception when sqlstate '42501' then
+ exception when sqlstate '42501' or sqlstate '22023' then
   raise notice 'PASS_EXPECTED_RATE_DENIAL: %',p_label;
   return;
  end;
@@ -27,27 +27,27 @@ begin
  then raise exception 'RATE_RPC_ACL_NO_GO';end if;
  raise notice 'PASS_RATE_RPC_RLS_AND_SERVICE_ONLY_ACL';
 end; $acl$;
--- The SQL is cloned from read-only pg_get_functiondef on current staging.
-select case when encode(sha256(convert_to(
-  pg_get_functiondef('public.raxi_supervised_request_rate_admit(jsonb,text)'::regprocedure),
-  'UTF8')),'hex')=
-  '57b94e50e622acb3c6dee7e41707993b1f0d0a2087d358627e2a455d817e67b7'
- then 'PASS_RATE_HOSTED_FUNCTION_SHA_PARITY'
- else 'FAIL_RATE_HOSTED_FUNCTION_SHA_PARITY' end as rate_sha_gate \gset
-\if :{?rate_sha_gate}
- \echo :rate_sha_gate
-\endif
+-- The function's actual PostgreSQL catalog serialization MUST match staging.
+do $sha$
+begin
+ if encode(sha256(convert_to(
+    pg_get_functiondef('public.raxi_supervised_request_rate_admit(jsonb,text)'::regprocedure),
+    'UTF8')),'hex') is distinct from
+    '57b94e50e622acb3c6dee7e41707993b1f0d0a2087d358627e2a455d817e67b7'
+ then raise exception 'RATE_HOSTED_FUNCTION_SHA_PARITY_NO_GO';end if;
+ raise notice 'PASS_RATE_HOSTED_FUNCTION_SHA_PARITY';
+end; $sha$;
 do $fixture$
 declare
  wid uuid:='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
- oid uuid:='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+ owner_id uuid:='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
  sid uuid:='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 begin
- insert into auth.users(id) values(oid);
+ insert into auth.users(id) values(owner_id);
  insert into auth.sessions(id,user_id,not_after)
-  values(sid,oid,clock_timestamp()+interval '2 hours');
+  values(sid,owner_id,clock_timestamp()+interval '2 hours');
  insert into public.raxi_workspaces(id,owner_user_id,slug,name)
-  values(wid,oid,'rate-lab','Rate lab only');
+  values(wid,owner_id,'rate-lab','Rate lab only');
 end; $fixture$;
 
 set role service_role;
