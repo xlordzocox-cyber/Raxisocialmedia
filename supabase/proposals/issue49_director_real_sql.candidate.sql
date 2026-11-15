@@ -60,6 +60,22 @@ begin
   is distinct from
     (to_jsonb(old)-array['status','approval_id','approval_key','revoke_id','revoke_key','approved_at','revoked_at','reserved_micros'])
  then raise exception 'pilot identity and scope are immutable' using errcode='42501'; end if;
+ -- A legitimate revocation MUST preserve the historical approval reference,
+ -- approval timestamp and conservative budget reservation. UPDATE is available
+ -- to service_role, so the state CHECK alone is not sufficient.
+ if old.status='READY_FOR_MANUAL_EXECUTION' and
+   row(new.approval_id,new.approval_key,new.approved_at,new.reserved_micros)
+     is distinct from
+   row(old.approval_id,old.approval_key,old.approved_at,old.reserved_micros)
+ then
+  raise exception 'approved pilot grant and reservation are immutable' using errcode='42501';
+ end if;
+ if old.status='WAITING_HUMAN_EXECUTION_AUTH' and new.status='REVOKED' and
+  (new.approval_id is not null or new.approval_key is not null or
+   new.approved_at is not null or new.reserved_micros<>0)
+ then
+  raise exception 'unapproved revocation cannot invent a grant' using errcode='42501';
+ end if;
  if old.status='REVOKED' or
     (old.status='READY_FOR_MANUAL_EXECUTION' and new.status<>'REVOKED') or
     (old.status='WAITING_HUMAN_EXECUTION_AUTH' and new.status not in ('READY_FOR_MANUAL_EXECUTION','REVOKED'))
