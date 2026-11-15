@@ -148,6 +148,25 @@ begin
  exception when sqlstate 'P0199' then
   raise notice 'PASS: null digest denied on approval';
  end;
+ -- Also reject actual persisted boolean mutations (not just missing fields).
+ begin
+  update public.raxi_agent_tasks set
+    input_snapshot=jsonb_set(input_snapshot,'{spec,externalResearch}','true'::jsonb)
+  where id=task_id;
+  perform pg_temp.expect_denied('altered externalResearch TRUE cannot approve',
+   format('select public.raxi_director_real_approve(%L::jsonb,%L::uuid,%L::uuid,%L,true)',
+     iden::text,task_id::text,approval_key::text,scope));
+  raise exception 'ROLLBACK_BOOLEAN_FIXTURE' using errcode='P0199';
+ exception when sqlstate 'P0199' then raise notice 'PASS: altered externalResearch denied on approval';end;
+ begin
+  update public.raxi_agent_tasks set
+    input_snapshot=jsonb_set(input_snapshot,'{spec,authorization,confirmed}','false'::jsonb)
+  where id=task_id;
+  perform pg_temp.expect_denied('altered human confirmed FALSE cannot approve',
+   format('select public.raxi_director_real_approve(%L::jsonb,%L::uuid,%L::uuid,%L,true)',
+     iden::text,task_id::text,approval_key::text,scope));
+  raise exception 'ROLLBACK_BOOLEAN_FIXTURE' using errcode='P0199';
+ exception when sqlstate 'P0199' then raise notice 'PASS: altered confirmed denied on approval';end;
  select reserved_micros into before_res from public.raxi_runtime_policies where workspace_id=wid;
  select public.raxi_director_real_approve(iden,task_id,approval_key,scope,true) into ret;
  approval:=(ret->>'approvalId')::uuid;
@@ -187,6 +206,22 @@ begin
  exception when sqlstate 'P0199' then
   raise notice 'PASS: null digest denied on snapshot read';
  end;
+ begin
+  update public.raxi_agent_tasks set
+   input_snapshot=jsonb_set(input_snapshot,'{spec,externalResearch}','true'::jsonb)
+  where id=task_id;
+  if public.raxi_director_real_read(iden,task_id) is not null then
+   raise exception 'FAILED: altered research flag admitted on read';end if;
+  raise exception 'ROLLBACK_BOOLEAN_FIXTURE' using errcode='P0199';
+ exception when sqlstate 'P0199' then raise notice 'PASS: altered externalResearch denied on read';end;
+ begin
+  update public.raxi_agent_tasks set
+   input_snapshot=jsonb_set(input_snapshot,'{spec,authorization,confirmed}','false'::jsonb)
+  where id=task_id;
+  if public.raxi_director_real_read(iden,task_id) is not null then
+   raise exception 'FAILED: altered confirmed flag admitted on read';end if;
+  raise exception 'ROLLBACK_BOOLEAN_FIXTURE' using errcode='P0199';
+ exception when sqlstate 'P0199' then raise notice 'PASS: altered confirmed denied on read';end;
  if public.raxi_director_real_read(other_session,task_id) is not null then
   raise exception 'FAILED: other real session can access bound approval';end if;
  raise notice 'PASS: server-only canonical projection; session-bound, no executable transport';
