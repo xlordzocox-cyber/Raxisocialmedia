@@ -407,3 +407,28 @@ test('expired runtime lease is unconfirmed, never manufactured as task BLOCKED b
  assert.deepEqual(completed.hq.events.map(item=>item.type),['TASK_COMPLETED']);
  assert.equal(completed.hq.tasks.task.status,'COMPLETED');
 });
+
+test('claude-led team: every verified stage lands in its own office room; unknown stages stay hidden',()=>{
+ const rooms:Record<string,string>={DIRECTOR:'WAR_ROOM',RESEARCHER:'RESEARCH_LAB',CREATIVE:'WAR_ROOM',PRODUCTION:'ARIA_LINK',QA:'QA_LAB',COPY:'PUBLISHING',ARCHIVIST:'SUPERMEMORY_CORE'};
+ const stages=[...Object.keys(rooms),'INTRUDER'];
+ const tasks=stages.map(s=>({id:'task-'+s,status:'RUNNING',title:'Team fixture '+s,simulated:false,result:null}));
+ const events=stages.map((s,i)=>({id:i+1,workspace_id:workspace,agent_id:'agent-'+s,task_id:'task-'+s,event_type:'RUNTIME_ACKNOWLEDGED',
+  source_kind:'AGENT_EXECUTOR',evidence_status:'VERIFIED',occurred_at:'2026-11-15T06:00:00Z',
+  payload:{simulated:false,stage:s,leaseUntil:'2026-11-15T06:30:00Z'}}));
+ const {hq}=projectRuntime({workspaceId:workspace,ownerId:owner,serverTime:'2026-11-15T06:00:05Z',tasks,events},owner,workspace);
+ for(const [stage,zone] of Object.entries(rooms)){
+  assert.equal(hq.agents['agent-'+stage]?.zone,zone,stage+' must be placed in '+zone);
+  assert.equal(hq.agents['agent-'+stage]?.status,'RUNNING');
+ }
+ assert.equal(hq.agents['agent-INTRUDER'],undefined,'Unknown stages never render as agents');
+ assert.equal(hq.sourceHealth.agentsLoaded,7);
+});
+
+test('Aria MCP receipts animate only the Production agent',()=>{
+ const tasks=[{id:'p',status:'COMPLETED',title:'Prod',simulated:false,result:null},{id:'q',status:'COMPLETED',title:'QA',simulated:false,result:null}];
+ const ev=(id:number,task:string,stage:string)=>({id,workspace_id:workspace,agent_id:'agent-'+stage,task_id:task,event_type:'RUNTIME_RESULT_COMMITTED',
+  source_kind:'ARIA_MCP',evidence_status:'VERIFIED',occurred_at:'2026-11-15T06:00:00Z',payload:{simulated:false,stage,leaseUntil:'2026-11-15T06:30:00Z'}});
+ const {hq}=projectRuntime({workspaceId:workspace,ownerId:owner,serverTime:'2026-11-15T06:00:05Z',tasks,events:[ev(1,'p','PRODUCTION'),ev(2,'q','QA')]},owner,workspace);
+ assert.equal(hq.agents['agent-PRODUCTION']?.zone,'ARIA_LINK');
+ assert.equal(hq.agents['agent-QA'],undefined,'An Aria receipt cannot impersonate another stage');
+});
