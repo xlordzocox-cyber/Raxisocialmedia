@@ -178,6 +178,17 @@ begin
      iden::text,task_id::text,approval_key::text,scope));
   raise exception 'ROLLBACK_BOOLEAN_FIXTURE' using errcode='P0199';
  exception when sqlstate 'P0199' then raise notice 'PASS: altered confirmed denied on approval';end;
+ -- Missing supervised provenance MUST deny approval, even when spec SHA matches.
+ begin
+  update public.raxi_agent_tasks set input_snapshot=input_snapshot-'supervised'
+   where id=task_id;
+  perform pg_temp.expect_denied('missing supervised provenance cannot approve',
+   format('select public.raxi_director_real_approve(%L::jsonb,%L::uuid,%L::uuid,%L,true)',
+    iden::text,task_id::text,approval_key::text,scope));
+  raise exception 'ROLLBACK_PROVENANCE_FIXTURE' using errcode='P0199';
+ exception when sqlstate 'P0199' then
+  raise notice 'PASS: missing supervised provenance denied on approval';
+ end;
  select reserved_micros into before_res from public.raxi_runtime_policies where workspace_id=wid;
  select public.raxi_director_real_approve(iden,task_id,approval_key,scope,true) into ret;
  approval:=(ret->>'approvalId')::uuid;
@@ -233,6 +244,16 @@ begin
    raise exception 'FAILED: altered confirmed flag admitted on read';end if;
   raise exception 'ROLLBACK_BOOLEAN_FIXTURE' using errcode='P0199';
  exception when sqlstate 'P0199' then raise notice 'PASS: altered confirmed denied on read';end;
+ -- Approved task tamper: removing supervised provenance must fail canonical read.
+ begin
+  update public.raxi_agent_tasks set input_snapshot=input_snapshot-'supervised'
+   where id=task_id;
+  if public.raxi_director_real_read(iden,task_id) is not null then
+   raise exception 'FAILED: absent provenance admitted to canonical read';end if;
+  raise exception 'ROLLBACK_PROVENANCE_FIXTURE' using errcode='P0199';
+ exception when sqlstate 'P0199' then
+  raise notice 'PASS: missing supervised provenance denied on canonical read';
+ end;
  if public.raxi_director_real_read(other_session,task_id) is not null then
   raise exception 'FAILED: other real session can access bound approval';end if;
  raise notice 'PASS: server-only canonical projection; session-bound, no executable transport';
