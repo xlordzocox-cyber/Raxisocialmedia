@@ -4,6 +4,8 @@
 create role anon nologin;
 create role authenticated nologin;
 create role service_role nologin bypassrls;
+-- Replicate supabase/tests/pg17-bootstrap.sql privilege defaults for newly created tables.
+alter default privileges in schema public grant all on tables to service_role;
 create schema auth;
 create table auth.users (id uuid primary key,is_anonymous boolean not null default false);
 create table auth.sessions (
