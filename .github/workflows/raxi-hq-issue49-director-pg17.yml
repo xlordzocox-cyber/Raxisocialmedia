@@ -5,6 +5,7 @@ on:
     paths:
       - 'supabase/proposals/issue49_director_real_sql.candidate.sql'
       - 'supabase/proposals/issue49_director_staging_*.review.sql'
+      - 'apps/raxi-hq/tests/pg17/issue49_director_staging_review_negative.sh'
       - 'apps/raxi-hq/tests/pg17/issue49_director_real_*.sql'
       - 'apps/raxi-hq/tests/pg17/issue49_director_real_concurrency.sh'
       - 'apps/raxi-hq/tests/pg17/issue49_director_staging_catalog_parity.sql'
@@ -64,10 +65,11 @@ jobs:
           docker cp apps/raxi-hq/tests/pg17/issue49_director_real_qa.sql raxi-issue49-pg17:/tmp/qa.sql
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/fixture.sql
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/candidate.sql
+          docker cp supabase/proposals/issue49_director_staging_empty_undo.review.sql raxi-issue49-pg17:/tmp/empty-undo.sql
+          bash apps/raxi-hq/tests/pg17/issue49_director_staging_review_negative.sh raxi-issue49-pg17 history
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/qa.sql
           # Destructive undo is explicitly forbidden if the test ledger
           # contains a prepared/revoked gate or TASK approval evidence.
-          docker cp supabase/proposals/issue49_director_staging_empty_undo.review.sql raxi-issue49-pg17:/tmp/empty-undo.sql
           if docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/empty-undo.sql > /tmp/issue49-undo-denied.log 2>&1; then
             echo 'FAIL: undo erased a nonempty Director ledger'
             exit 1
@@ -149,6 +151,7 @@ jobs:
           docker cp supabase/proposals/issue49_director_real_sql.candidate.sql raxi-issue49-pg17-parity:/tmp/candidate.sql
           docker exec raxi-issue49-pg17-parity psql -X -1 -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/candidate.sql
           docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/postflight.sql
+          bash apps/raxi-hq/tests/pg17/issue49_director_staging_review_negative.sh raxi-issue49-pg17-parity attest
           # Undo is permitted solely when no task, pilot or approval exists.
           docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/empty-undo.sql
           docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -Atc "select to_regclass('public.raxi_director_real_pilots') is null and to_regprocedure('public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint)') is null" | grep -qx t
