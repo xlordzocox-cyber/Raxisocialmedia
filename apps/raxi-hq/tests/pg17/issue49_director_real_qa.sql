@@ -11,7 +11,7 @@ begin
   return;
  end;
  raise exception 'FAILED: expected denial for %',p_label;
-end $f$;
+end; $f$;
 
 insert into auth.users(id) values
  ('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
@@ -44,7 +44,7 @@ begin
  if not (select relrowsecurity from pg_class where oid='public.raxi_director_real_pilots'::regclass)
  then raise exception 'FAILED: pilot RLS disabled';end if;
  raise notice 'PASS: new table RLS and all browser roles denied';
-end $acl$;
+end; $acl$;
 
 set role service_role;
 
@@ -203,5 +203,5 @@ begin
  then raise exception 'FAILED: unexpected task duplication';end if;
  raise notice 'PASS: second same-owner session revoked future grant; budget and audit retained';
  raise notice 'PASS: PG17 Issue49 real Director approval contract checks complete (NO RUNS)';
-end $qa$;
+end; $qa$;
 reset role;
