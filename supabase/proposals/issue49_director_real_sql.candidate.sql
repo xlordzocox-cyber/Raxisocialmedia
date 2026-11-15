@@ -56,6 +56,19 @@ grant select,insert,update on public.raxi_director_real_pilots to service_role;
 create function public.raxi_director_real_protect() returns trigger
  language plpgsql security invoker set search_path='' as $f$
 begin
+ -- Never permit direct insertion of an already-approved or revoked gate.
+ -- Every grant must originate in WAITING and traverse the audited transition.
+ if tg_op='INSERT' then
+  if new.status is distinct from 'WAITING_HUMAN_EXECUTION_AUTH' or
+     new.approval_id is not null or new.approval_key is not null or
+     new.approved_at is not null or new.reserved_micros<>0 or
+     new.revoke_id is not null or new.revoke_key is not null or
+     new.revoked_at is not null then
+   raise exception 'pilot insert must start pending without grant or reservation'
+    using errcode='42501';
+  end if;
+  return new;
+ end if;
  if (to_jsonb(new)-array['status','approval_id','approval_key','revoke_id','revoke_key','approved_at','revoked_at','reserved_micros'])
   is distinct from
     (to_jsonb(old)-array['status','approval_id','approval_key','revoke_id','revoke_key','approved_at','revoked_at','reserved_micros'])
