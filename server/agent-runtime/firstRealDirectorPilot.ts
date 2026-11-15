@@ -117,7 +117,7 @@ export async function inspectFirstRealDirectorPilot(
   a.maxCostMicros!==spec.authorization.maxCostMicros||
   !Number.isSafeInteger(a.policyVersion)||a.policyVersion<1||
   !Number.isFinite(date(a.issuedAt))||date(a.issuedAt)>now||
-  date(a.expiresAt)<=now+60_000)throw Error('Specific human execution approval required');
+  !Number.isFinite(date(a.expiresAt))||date(a.expiresAt)<=now+60_000)throw Error('Specific human execution approval required');
  if(s.workspaceId!==workspaceId||s.enabled!==true||s.simulated!==false||
   !Number.isSafeInteger(s.version)||s.version!==a.policyVersion||
   s.provider!==spec.provider||s.model!==spec.model||
@@ -125,7 +125,8 @@ export async function inspectFirstRealDirectorPilot(
   !Number.isSafeInteger(s.remainingMicros)||s.remainingMicros<s.perCallMicros||
   s.perCallMicros>spec.authorization.maxCostMicros||
   !Number.isSafeInteger(s.maxOutputTokens)||s.maxOutputTokens<1||s.maxOutputTokens>256||
-  date(s.expiresAt)<=now+60_000||
+  !Number.isFinite(date(s.expiresAt))||date(s.expiresAt)<=now+60_000||
+  !Number.isFinite(date(spec.authorization.expiresAt))||
   date(spec.authorization.expiresAt)<=now+60_000)throw Error('Live policy or cost reservation unavailable');
  if(!validQuote(quote,spec.provider,spec.model,now)||
   quote.maxEstimatedMicros>s.perCallMicros)throw Error('Fresh provider price verification required');
