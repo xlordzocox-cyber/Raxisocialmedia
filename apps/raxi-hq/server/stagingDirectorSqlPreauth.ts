@@ -25,6 +25,7 @@ export function createDirectorSqlPreauthAdmission(config:DirectorPreauthConfig):
  if(typeof window!=='undefined')throw Error('Server-only preauth limiter');
  if(!config||typeof config.hmacSecret!=='string'||
   config.hmacSecret.length<32||config.hmacSecret.length>256||
+  config.hmacSecret.startsWith('sb_')||
   !config.server||typeof config.server.rpc!=='function')
   throw Error('Explicit server HMAC secret and SQL port required');
  if(!crypto?.subtle)throw Error('Cryptographic HMAC required');
