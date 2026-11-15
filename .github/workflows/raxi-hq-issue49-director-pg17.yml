@@ -86,9 +86,18 @@ jobs:
           set -euo pipefail
           # Synthetic DB in same --network none temporary container; never hosted.
           docker exec raxi-issue49-pg17 createdb -U postgres raxi_rate_qa
+          # PostgreSQL roles are CLUSTER-scoped, whereas schemas/tables are
+          # database-scoped. The first fixture already created these three roles.
+          # Reuse the same fixture minus ONLY those cluster role declarations.
+          sed -e '/^create role anon nologin;/d' \
+              -e '/^create role authenticated nologin;/d' \
+              -e '/^create role service_role nologin bypassrls;/d' \
+              apps/raxi-hq/tests/pg17/issue49_director_real_fixture.sql > /tmp/issue49-rate-fixture.sql
+          docker cp /tmp/issue49-rate-fixture.sql raxi-issue49-pg17:/tmp/rate-fixture.sql
+          rm -f /tmp/issue49-rate-fixture.sql
           docker cp supabase/proposals/issue49_supervised_rate_hosted_snapshot.offline.sql raxi-issue49-pg17:/tmp/hosted-rate.sql
           docker cp apps/raxi-hq/tests/pg17/issue49_director_hosted_rate_qa.sql raxi-issue49-pg17:/tmp/rate-qa.sql
-          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -f /tmp/fixture.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -f /tmp/rate-fixture.sql
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -f /tmp/hosted-rate.sql
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_rate_qa -f /tmp/rate-qa.sql
           echo 'PASS_ISSUE49_HOSTED_RATE_PG17_REAL_SQL_OFFLINE'
