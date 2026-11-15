@@ -4,6 +4,8 @@ on:
     branches: [main]
     paths:
       - 'supabase/proposals/issue49_director_real_sql.candidate.sql'
+      - 'supabase/proposals/issue49_director_staging_*.review.sql'
+      - 'apps/raxi-hq/tests/pg17/issue49_director_staging_review_negative.sh'
       - 'apps/raxi-hq/tests/pg17/issue49_director_real_*.sql'
       - 'apps/raxi-hq/tests/pg17/issue49_director_real_concurrency.sh'
       - 'apps/raxi-hq/tests/pg17/issue49_director_staging_catalog_parity.sql'
@@ -63,7 +65,18 @@ jobs:
           docker cp apps/raxi-hq/tests/pg17/issue49_director_real_qa.sql raxi-issue49-pg17:/tmp/qa.sql
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/fixture.sql
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/candidate.sql
+          docker cp supabase/proposals/issue49_director_staging_empty_undo.review.sql raxi-issue49-pg17:/tmp/empty-undo.sql
+          bash apps/raxi-hq/tests/pg17/issue49_director_staging_review_negative.sh raxi-issue49-pg17 history
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/qa.sql
+          # Destructive undo is explicitly forbidden if the test ledger
+          # contains a prepared/revoked gate or TASK approval evidence.
+          if docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/empty-undo.sql > /tmp/issue49-undo-denied.log 2>&1; then
+            echo 'FAIL: undo erased a nonempty Director ledger'
+            exit 1
+          fi
+          grep -q 'ISSUE49_ROLLBACK_NO_GO' /tmp/issue49-undo-denied.log
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -Atc "select to_regclass('public.raxi_director_real_pilots') is not null" | grep -qx t
+          echo 'PASS_ISSUE49_ROLLBACK_DENIED_ON_PERSISTED_PILOT_EVIDENCE'
           echo 'PG17_NATIVE_ISOLATED_DIRECTOR_QA_PASS'
       - name: Verify independent PostgreSQL backends, idempotency and rollback in separate DB
         shell: bash
@@ -129,9 +142,21 @@ jobs:
           docker exec raxi-issue49-pg17-parity psql -X -1 -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/runtime.sql
           docker cp apps/raxi-hq/tests/pg17/issue49_director_staging_catalog_parity.sql raxi-issue49-pg17-parity:/tmp/catalog.sql
           docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/catalog.sql
+          # All migration readiness checks run ONLY in this disposable PG17
+          # parity cluster. No hosted Supabase project is connected.
+          docker cp supabase/proposals/issue49_director_staging_preflight.review.sql raxi-issue49-pg17-parity:/tmp/preflight.sql
+          docker cp supabase/proposals/issue49_director_staging_postflight.review.sql raxi-issue49-pg17-parity:/tmp/postflight.sql
+          docker cp supabase/proposals/issue49_director_staging_empty_undo.review.sql raxi-issue49-pg17-parity:/tmp/empty-undo.sql
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/preflight.sql
           docker cp supabase/proposals/issue49_director_real_sql.candidate.sql raxi-issue49-pg17-parity:/tmp/candidate.sql
-          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/candidate.sql
-          echo 'PASS_ISSUE49_STAGING_CATALOG_SNAPSHOT_PARITY_AND_SQL_CANDIDATE'
+          docker exec raxi-issue49-pg17-parity psql -X -1 -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/candidate.sql
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/postflight.sql
+          bash apps/raxi-hq/tests/pg17/issue49_director_staging_review_negative.sh raxi-issue49-pg17-parity attest
+          # Undo is permitted solely when no task, pilot or approval exists.
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/empty-undo.sql
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -Atc "select to_regclass('public.raxi_director_real_pilots') is null and to_regprocedure('public.raxi_director_real_prepare(jsonb,uuid,jsonb,bigint)') is null" | grep -qx t
+          docker exec raxi-issue49-pg17-parity psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/preflight.sql
+          echo 'PASS_ISSUE49_STAGING_CATALOG_SNAPSHOT_PARITY_AND_SQL_CANDIDATE_EMPTY_UNDO'
       - name: Destroy disposable DB on success or failure
         if: always()
         shell: bash
