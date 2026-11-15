@@ -37,3 +37,5 @@
 .foto-pack { margin: 12px 0; padding: 12px; border-radius: 12px; border: 1px solid rgba(127,227,255,.35); background: rgba(127,227,255,.06); display: grid; gap: 8px; }
 .foto-pack h3 { margin: 0; }
 .foto-reel-preview { width: 100%; max-width: 320px; aspect-ratio: 9 / 16; background: #000; border-radius: 10px; }
+.foto-carousel { padding: 8px 10px; border-radius: 10px; background: rgba(255,255,255,.04); }
+.foto-carousel p { margin: 0 0 6px; }

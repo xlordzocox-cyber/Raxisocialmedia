@@ -86,6 +86,22 @@ export function FototecaPage({ client, ownerId }: { client: SupabaseClient; owne
   useEffect(() => { setPublishUrl(''); }, [focus]);
   useEffect(() => { setVideo({ phase: 'idle' }); }, [selected]);
 
+  /** Carousel: every photo the owner did not discard, in order, cropped to 4:5 (what Instagram shows best). */
+  async function downloadCarousel() {
+    if (!collection) return;
+    const photos = collection.items.filter((i) => i.decision !== 'REJECTED' && i.asset && urls[i.asset.objectPath]);
+    if (!photos.length) { setNotice('No hay fotos listas.'); return; }
+    setNotice(`Descargando ${photos.length} fotos 4:5… si el navegador pregunta, permite varias descargas.`);
+    let n = 0;
+    for (const it of photos) {
+      n += 1;
+      try { await downloadCropped(urls[it.asset!.objectPath], '4:5', `${collection.externalId}-carrusel-${String(n).padStart(2, '0')}.jpg`); }
+      catch { setNotice(`No se pudo descargar la foto ${n}; usa «Abrir original» en esa foto.`); return; }
+      await new Promise((r) => setTimeout(r, 700));
+    }
+    setNotice(`Listo: ${photos.length} fotos 4:5 en orden (01 → ${String(photos.length).padStart(2, '0')}). Súbelas en ese orden como carrusel.`);
+  }
+
   async function makeReel() {
     if (!collection) return;
     const frames = collection.items.filter((i) => i.decision !== 'REJECTED' && i.asset && urls[i.asset.objectPath])
@@ -139,6 +155,10 @@ export function FototecaPage({ client, ownerId }: { client: SupabaseClient; owne
             {video.ext !== 'mp4' && <p className="foto-meta">Tu navegador solo pudo grabar WebM. Si Instagram no lo acepta, ábrelo en Chrome actualizado o conviértelo a MP4.</p>}
             <button type="button" onClick={() => setVideo({ phase: 'idle' })}>Volver a armar</button>
           </>}
+          <div className="foto-carousel">
+            <p><b>¿Mejor como carrusel?</b> Descarga las fotos aprobadas, recortadas a 4:5 y numeradas en el orden de la historia.</p>
+            <button type="button" onClick={() => void downloadCarousel()}>📥 Descargar carrusel ({collection.items.filter((i) => i.decision !== 'REJECTED' && i.asset).length} fotos 4:5)</button>
+          </div>
           {collection.pack.audio && <p className="foto-meta"><b>Audio sugerido:</b> {collection.pack.audio} (elígelo en Instagram al publicar).</p>}
         </>}
         {collection.pack.caption && <>
