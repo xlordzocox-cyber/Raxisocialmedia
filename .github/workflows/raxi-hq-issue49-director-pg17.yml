@@ -5,6 +5,7 @@ on:
     paths:
       - 'supabase/proposals/issue49_director_real_sql.candidate.sql'
       - 'apps/raxi-hq/tests/pg17/issue49_director_real_*.sql'
+      - 'apps/raxi-hq/tests/pg17/issue49_director_real_concurrency.sh'
       - '.github/workflows/raxi-hq-issue49-director-pg17.yml'
   workflow_dispatch:
 permissions:
@@ -49,6 +50,18 @@ jobs:
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/candidate.sql
           docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -f /tmp/qa.sql
           echo 'PG17_NATIVE_ISOLATED_DIRECTOR_QA_PASS'
+      - name: Verify independent PostgreSQL backends, idempotency and rollback in separate DB
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -c 'create database raxi_issue49_concurrency'
+          docker cp apps/raxi-hq/tests/pg17/issue49_director_real_fixture.sql raxi-issue49-pg17:/tmp/concurrency-fixture.sql
+          docker cp apps/raxi-hq/tests/pg17/issue49_director_real_concurrency_seed.sql raxi-issue49-pg17:/tmp/concurrency-seed.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_issue49_concurrency -f /tmp/concurrency-fixture.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_issue49_concurrency -f /tmp/candidate.sql
+          docker exec raxi-issue49-pg17 psql -X -v ON_ERROR_STOP=1 -U postgres -d raxi_issue49_concurrency -f /tmp/concurrency-seed.sql
+          bash apps/raxi-hq/tests/pg17/issue49_director_real_concurrency.sh raxi-issue49-pg17 raxi_issue49_concurrency
+          echo 'PASS_ISSUE49_NATIVE_TWO_CONNECTION_CONCURRENCY'
       - name: Destroy disposable DB on success or failure
         if: always()
         shell: bash
