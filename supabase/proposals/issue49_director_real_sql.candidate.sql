@@ -76,6 +76,34 @@ begin
  then
   raise exception 'unapproved revocation cannot invent a grant' using errcode='42501';
  end if;
+ -- The pending->ready transition is equally restricted: an unrelated
+ -- APPROVED row plus arbitrary metadata must never invent a manual grant.
+ -- The policy reservation is written in the SAME transaction immediately
+ -- before the legitimate pilot UPDATE in raxi_director_real_approve().
+ if old.status='WAITING_HUMAN_EXECUTION_AUTH' and
+    new.status='READY_FOR_MANUAL_EXECUTION' and not exists(
+   select 1 from public.raxi_approvals a
+   join public.raxi_runtime_policies p on p.workspace_id=old.workspace_id
+   where a.id=new.approval_id and a.workspace_id=old.workspace_id
+     and a.subject_kind='TASK' and a.subject_id=old.task_id
+     and a.action='APPROVED' and a.actor_user_id=old.actor_user_id
+     and a.idempotency_key='DIRECTOR-REAL-APPROVE:'||new.approval_key::text
+     and a.context->>'kind'='PERSISTED_HUMAN_EXECUTION_APPROVAL'
+     and a.context->>'scopeSha256'=old.scope_sha256
+     and a.context->>'sessionId'=old.session_id::text
+     and a.context->>'policyVersion'=old.policy_version::text
+     and a.context->>'provider'=old.provider
+     and a.context->>'model'=old.model
+     and a.context->>'maxCostMicros'=old.max_cost_micros::text
+     and p.enabled=true and p.simulated=false
+     and p.authorization_version=old.policy_version
+     and p.provider=old.provider and p.model=old.model
+     and p.per_call_micros>0 and p.per_call_micros=new.reserved_micros
+     and p.reserved_micros>=new.reserved_micros
+     and p.task_count>=1
+ ) then
+  raise exception 'matching human grant and budget reservation required' using errcode='42501';
+ end if;
  -- A gate cannot be revoked by merely pointing revoke_id at an existing
  -- APPROVED record. The matching, immutable TASK CANCELED audit row must
  -- already exist in the same transaction, with identical owner/task/scope/key.
