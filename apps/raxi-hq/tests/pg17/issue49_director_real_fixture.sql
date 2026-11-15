@@ -43,7 +43,7 @@ begin
     (to_jsonb(old)-array['authorization_version','reserved_micros','task_count']) then
   new.authorization_version:=old.authorization_version+1; end if;
  return new;
-end $f$;
+end; $f$;
 create trigger raxi_runtime_policy_version
  before update on public.raxi_runtime_policies for each row
  execute function public.raxi_runtime_policy_version();
@@ -63,7 +63,7 @@ begin
  if old.subject_kind='TASK' then raise exception 'immutable task human approval';end if;
  if tg_op='DELETE' then return old;end if;
  return new;
-end $f$;
+end; $f$;
 create trigger raxi_runtime_approval_history
  before update or delete on public.raxi_approvals for each row
  execute function public.raxi_runtime_protect_approval();
@@ -94,7 +94,7 @@ begin
         not u.is_anonymous and (s.not_after is null or s.not_after>clock_timestamp())
  ) then raise exception 'session denied' using errcode='42501';end if;
  return true;
-end $f$;
+end; $f$;
 
 grant usage on schema public,auth to service_role,anon,authenticated;
 grant all on all tables in schema public,auth to service_role;
