@@ -136,6 +136,18 @@ begin
  perform pg_temp.expect_denied('different session cannot approve request',
   format('select public.raxi_director_real_approve(%L::jsonb,%L::uuid,%L::uuid,%L,true)',
     other_session::text,task_id::text,approval_key::text,scope));
+ -- Missing a spec field yields NULL scope SHA; it MUST fail closed.
+ begin
+  update public.raxi_agent_tasks set
+   input_snapshot=jsonb_set(input_snapshot,'{spec}',(input_snapshot->'spec')-'question')
+   where id=task_id;
+  perform pg_temp.expect_denied('NULL recomputed scope must deny approval',
+   format('select public.raxi_director_real_approve(%L::jsonb,%L::uuid,%L::uuid,%L,true)',
+     iden::text,task_id::text,approval_key::text,scope));
+  raise exception 'ROLLBACK_TAMPER_FIXTURE' using errcode='P0199';
+ exception when sqlstate 'P0199' then
+  raise notice 'PASS: null digest denied on approval';
+ end;
  select reserved_micros into before_res from public.raxi_runtime_policies where workspace_id=wid;
  select public.raxi_director_real_approve(iden,task_id,approval_key,scope,true) into ret;
  approval:=(ret->>'approvalId')::uuid;
@@ -163,6 +175,18 @@ begin
    projection#>>'{policy,remainingMicros}'<>'4000' or
    projection->>'scopeSha256'<>scope
  then raise exception 'FAILED: canonical future server read mismatch';end if;
+ -- Projection must also fail closed if an already-approved snapshot loses a
+ -- required digest field; any mutation remains local to this subtransaction.
+ begin
+  update public.raxi_agent_tasks set
+   input_snapshot=jsonb_set(input_snapshot,'{spec}',(input_snapshot->'spec')-'question')
+   where id=task_id;
+  if public.raxi_director_real_read(iden,task_id) is not null then
+   raise exception 'FAILED: NULL digest admitted to canonical read';end if;
+  raise exception 'ROLLBACK_TAMPER_FIXTURE' using errcode='P0199';
+ exception when sqlstate 'P0199' then
+  raise notice 'PASS: null digest denied on snapshot read';
+ end;
  if public.raxi_director_real_read(other_session,task_id) is not null then
   raise exception 'FAILED: other real session can access bound approval';end if;
  raise notice 'PASS: server-only canonical projection; session-bound, no executable transport';
