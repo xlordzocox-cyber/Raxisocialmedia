@@ -1,6 +1,17 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { CampaignSteps } from './CampaignSteps';
+import { isActive, parseJobs, type AgentJob } from './agentJobs';
 import { agentLabel, canDecide, canUndo, parseProposals, STATUS_LABEL, visibleProposals, type TeamProposal } from './teamProposals';
+
+/** Agent jobs are optional: any failure leaves the proposals usable with no step history. */
+async function readJobs(client: SupabaseClient, workspace: string): Promise<AgentJob[]> {
+  try {
+    const { data, error } = await client.from('raxi_agent_jobs').select('id, proposal_id, kind, status, output, cost_usd, error, created_at')
+      .eq('workspace_id', workspace).order('created_at', { ascending: false }).limit(100);
+    return error ? [] : parseJobs(data);
+  } catch { return []; }
+}
 
 type Load = { phase: 'loading' } | { phase: 'unavailable' } | { phase: 'error' } | { phase: 'ready'; items: TeamProposal[] };
 
@@ -10,15 +21,23 @@ export function TeamProposalsPanel({ client, workspace }: { client: SupabaseClie
   const [showDismissed, setShowDismissed] = useState(false);
   const [busy, setBusy] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  const [jobs, setJobs] = useState<AgentJob[]>([]);
 
   const load = useCallback(async () => {
     try {
       const { data, error } = await client.from('raxi_team_proposals').select('*').eq('workspace_id', workspace);
       if (error) { setState({ phase: error.code === '42P01' ? 'unavailable' : 'error' }); return; }
       setState({ phase: 'ready', items: parseProposals(workspace, data) });
+      setJobs(await readJobs(client, workspace));
     } catch { setState({ phase: 'error' }); }
   }, [client, workspace]);
   useEffect(() => { void load(); }, [load]);
+  const working = jobs.some((j) => isActive(j));
+  useEffect(() => {
+    if (!working) return;
+    const t = setInterval(() => { void load(); }, 5000);
+    return () => clearInterval(t);
+  }, [working, load]);
 
   async function decide(p: TeamProposal, decision: 'ACCEPTED' | 'DISMISSED' | 'PROPOSED') {
     setBusy(p.id); setNotice(undefined);
@@ -54,6 +73,7 @@ export function TeamProposalsPanel({ client, workspace }: { client: SupabaseClie
         {canDecide(p) && <button type="button" disabled={!!busy} onClick={() => void decide(p, 'DISMISSED')}>Descartar</button>}
         {canUndo(p) && <button type="button" disabled={!!busy} onClick={() => void decide(p, 'PROPOSED')}>Deshacer</button>}
       </div>
+      {(p.status === 'ACCEPTED' || p.status === 'IN_PROGRESS') && <CampaignSteps client={client} proposalId={p.id} jobs={jobs} onChange={() => void load()} />}
     </article>)}
     {dismissed > 0 && <button type="button" className="team-proposals-toggle" onClick={() => setShowDismissed((v) => !v)}>{showDismissed ? 'Ocultar descartadas' : `Ver descartadas (${dismissed})`}</button>}
     {notice && <p role="status">{notice}</p>}

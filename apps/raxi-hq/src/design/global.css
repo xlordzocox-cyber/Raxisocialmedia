@@ -250,3 +250,9 @@ dl { font-size: 12px; } dt { color: var(--muted); margin-top: 10px; } dd { margi
 .team-proposal-evidence a{color:var(--accent);}
 .team-proposal-actions{display:flex;gap:8px;flex-wrap:wrap;}
 .team-proposal-actions button,.team-proposals-toggle{min-height:44px;padding:8px 12px;border-radius:10px;font-size:14px;}
+
+.campaign-steps { margin-top: 10px; border-top: 1px solid rgba(255,255,255,.08); padding-top: 10px; }
+.campaign-steps button:disabled { opacity: .45; cursor: not-allowed; }
+.campaign-step-result { margin-top: 8px; }
+.campaign-step-result summary { cursor: pointer; font-weight: 600; }
+.campaign-step-text { white-space: pre-wrap; word-break: break-word; font: inherit; font-size: .85rem; max-height: 480px; overflow: auto; background: rgba(0,0,0,.25); padding: 10px; border-radius: 8px; }
