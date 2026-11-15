@@ -20,7 +20,7 @@ end; $acl$;
 
 set role service_role;
 do $qa$
-declare v jsonb; i integer; slot text; code text;
+declare v jsonb; i integer; v_digest text;
 begin
  -- Without a signed JWT, the trusted host uses an HMAC digest; the DB
  -- consumes only a 64-hex digest, never a raw IP or caller header.
@@ -43,8 +43,8 @@ begin
 
  -- Distinct host-minted client identities share one atomic global quota.
  for i in 1..52 loop
-  slot:=lpad(to_hex(i),64,'0');
-  v:=public.raxi_director_preauth_admit(slot);
+  v_digest:=lpad(to_hex(i),64,'0');
+  v:=public.raxi_director_preauth_admit(v_digest);
   if v is distinct from '{"status":"ALLOWED"}'::jsonb then
    raise exception 'PREAUTH_GLOBAL_ALLOWED_%',i;end if;
  end loop;
