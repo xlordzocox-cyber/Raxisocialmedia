@@ -33,7 +33,9 @@ const HANDOFF: Record<string, { from: string; fromStage: string; artifact: strin
 type Usage = { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number; server_tool_use?: { web_search_requests?: number } };
 
 function cost(model: keyof typeof MODELS, u: Usage): number {
-  const m = MODELS[model];
+  // Haiku 5.5 is billed at a higher tier for prompts over 100k tokens; apply it conservatively to the whole call.
+  const long = model === "haiku" && (u.input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) > 100_000;
+  const m = long ? { inPerM: 0.5, outPerM: 2.5 } : MODELS[model];
   const input = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) * 1.25 + (u.cache_read_input_tokens ?? 0) * 0.1;
   return (input * m.inPerM + (u.output_tokens ?? 0) * m.outPerM) / 1e6 + (u.server_tool_use?.web_search_requests ?? 0) * WEB_SEARCH_USD;
 }
@@ -92,6 +94,15 @@ function lastJson(text: string): unknown {
   const raw = fences.length ? fences[fences.length - 1][1] : text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
   try { return JSON.parse(raw); } catch { return null; }
 }
+
+/** If an answer was cut, a cheap Haiku pass turns what was written into the required JSON instead of throwing it away. */
+async function rescueJson(partial: string, schema: string): Promise<{ data: unknown; usage: Usage; cost: number }> {
+  const r = await callClaude({ model: "haiku", maxTokens: 8000, system: "Conviertes texto incompleto en JSON válido. No inventes nada: usa solo lo que está en el texto; si un campo falta, déjalo vacío.",
+    prompt: `Texto (puede estar cortado):\n${partial.slice(0, 60000)}\n\nDevuelve SOLO un bloque \`\`\`json con esta forma:\n${schema}` });
+  return { data: lastJson(r.text), usage: r.usage, cost: r.cost };
+}
+
+const COMPACT = "Formato obligatorio: responde SOLO con un bloque ```json (sin texto antes ni después). Frases cortas (máx. 25 palabras por campo de texto). Sin relleno.";
 
 function rulesOf(profile: Record<string, unknown> | null): string {
   const rules = (profile?.capability_config as { owner_rules?: string[] } | undefined)?.owner_rules ?? [];
@@ -181,6 +192,19 @@ async function materializeCampaign(db: SupabaseClient, job: Record<string, unkno
   return { externalId, collectionId, items: rows.length, kept: false, format: payload.format };
 }
 
+/** The Director approves with small corrections instead of rewriting the whole design (saves most of the review cost). */
+function applyCorrections(design: Record<string, unknown>, corrections: unknown): Record<string, unknown> {
+  const out = structuredClone(design) as Record<string, unknown>;
+  const fields = new Set(["texto", "alt", "prompt", "escena", "plano", "texto_pantalla", "segundos"]);
+  for (const c of (Array.isArray(corrections) ? corrections : []).slice(0, 60) as Record<string, unknown>[]) {
+    const list = c?.tipo === "montaje" ? out.montaje : out.publicaciones;
+    if (!Array.isArray(list) || !fields.has(String(c.campo))) continue;
+    const item = (list as Record<string, unknown>[]).find((x) => Number(x.posicion) === Number(c.posicion));
+    if (item) item[String(c.campo)] = c.campo === "segundos" ? Number(c.valor) || item.segundos : txt(c.valor, 6000);
+  }
+  return out;
+}
+
 async function lastOutput(db: SupabaseClient, proposalId: unknown, kind: string): Promise<Record<string, unknown> | null> {
   const { data } = await db.from("raxi_agent_jobs").select("output").eq("proposal_id", proposalId).eq("kind", kind)
     .in("status", ["SUCCEEDED"]).order("finished_at", { ascending: false }).limit(1).maybeSingle();
@@ -234,81 +258,96 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
   try {
     let result: { text: string; usage: Usage; stopReason: string; cost: number; sources: { url: string; title: string }[] };
     let model: keyof typeof MODELS;
+    const SCHEMAS: Record<string, string> = {
+      BRIEF: `{"viable":true,"objetivo_trabajo":"","preguntas_investigacion":["máx. 4"],"criterios_exito":["máx. 3"],"riesgos":["máx. 3"]}`,
+      RESEARCH: `{"modelos":[{"nombre":"","plataforma":"","por_que":"","patrones":["máx. 3"],"fuentes":["URL, máx. 2"]}],"patrones_adaptables":["máx. 4"],"no_copiar":["máx. 3"],"hipotesis":["máx. 3"],"limitaciones":""}`,
+      STRATEGY: `{"decision":"SUFICIENTE|MAS_INVESTIGACION","evaluacion_investigacion":"","preguntas_extra":[],"estrategia":{"objetivo":"","audiencia":"","plataformas":[{"plataforma":"","rol":""}],"funnel":"","mensajes_clave":["máx. 3"],"formatos":["máx. 4"],"duracion":"","metrica_principal":"","metricas_secundarias":["máx. 3"],"hipotesis":["máx. 3"],"riesgos":[{"riesgo":"","mitigacion":""}]}}`,
+      DESIGN: `{"concepto":"","microhistoria":"","publicaciones":[{"posicion":1,"escena":"","plano":"","prompt":"","texto":"","alt":""}],"coleccion_existente":null,"montaje":[{"posicion":1,"segundos":1,"texto_pantalla":""}],"modelo_aria":"","costo_estimado_usd":0,"checklist_qa":["máx. 6"]}`,
+      REVIEW: `{"veredicto":"APROBADA|CAMBIOS","revision":[{"punto":"","estado":"OK|FALLA","nota":""}],"cambios_requeridos":[],"correcciones":[{"tipo":"publicacion|montaje","posicion":1,"campo":"texto|alt|prompt|escena|plano|texto_pantalla|segundos","valor":""}],"campana":{"objetivo":"","audiencia":"","metrica_principal":"","cta":"","calendario":[{"dia":"","publicacion":""}],"hashtags":["máx. 8"]}}`,
+    };
     if (kind === "SMOKE") {
       model = "haiku";
       result = await callClaude({ model, maxTokens: 600, aria: true, system: COMMON,
         prompt: "Prueba de conexión. Usa las herramientas de Aria Studio mis_personajes y modelos. Responde SOLO un bloque ```json con {\"personajes\": [ids], \"modelos_disponibles\": número, \"ok\": true}." });
     } else if (kind === "BRIEF") {
       model = "sonnet";
-      result = await callClaude({ model, maxTokens: 2500, system: `${COMMON}\nEres el Director IA de Raxi HQ. Recibes una idea aceptada por el dueño y defines el trabajo antes de delegar. No investigas tú: encargas.\nReglas del dueño:\n${rulesOf(profile)}`,
+      result = await callClaude({ model, maxTokens: 6000, system: `${COMMON}\nEres el Director IA de Raxi HQ. Recibes una idea aceptada por el dueño y defines el trabajo antes de delegar. No investigas tú: encargas.\nReglas del dueño:\n${rulesOf(profile)}`,
         prompt: `Idea aceptada: ${proposal?.title} (${proposal?.channel}, personaje ${proposal?.character_id}).\nResumen: ${proposal?.summary}\nPor qué: ${proposal?.rationale ?? "—"}\n\n` +
-          `Evalúa viabilidad y define el encargo para el Investigador. Termina con un bloque \`\`\`json {"viable":true,"objetivo_trabajo","preguntas_investigacion":[],"criterios_exito":[],"riesgos":[],"notas_para_el_equipo"}\`\`\`. Breve y concreto.` });
+          `Evalúa viabilidad y define el encargo para el Investigador.\n${COMPACT}\nForma: ${SCHEMAS.BRIEF}` });
     } else if (kind === "STRATEGY") {
       model = "sonnet";
       const research = await lastOutput(db, job.proposal_id, "RESEARCH");
       const brief = await lastOutput(db, job.proposal_id, "BRIEF");
       const prev = input.owner_note ? await lastOutput(db, job.proposal_id, "STRATEGY") : null;
-      result = await callClaude({ model, maxTokens: 6000, system: `${COMMON}\nEres el Director IA de Raxi HQ. Evalúas la investigación con criterio y conviertes los hallazgos en una estrategia de campaña. El dueño debe aprobarla antes de que el equipo creativo empiece.\nReglas del dueño:\n${rulesOf(profile)}`,
+      result = await callClaude({ model, maxTokens: 12000, system: `${COMMON}\nEres el Director IA de Raxi HQ. Evalúas la investigación con criterio y la conviertes en estrategia. El dueño la aprueba antes de que el equipo creativo empiece.\nReglas del dueño:\n${rulesOf(profile)}`,
         prompt: `Campaña: ${proposal?.title} (${proposal?.channel}, personaje ${proposal?.character_id}).\nResumen: ${proposal?.summary}\n\n` +
-          `Tu encargo inicial (JSON):\n${JSON.stringify(brief?.data ?? {}).slice(0, 4000)}\n\nInvestigación entregada (JSON):\n${JSON.stringify(research?.data ?? {}).slice(0, 12000)}\n\n` +
-          (input.owner_note ? `El dueño revisó tu estrategia anterior y pidió estos cambios (obligatorios):\n${String(input.owner_note).slice(0, 1000)}\n\nEstrategia anterior (JSON):\n${JSON.stringify(prev?.data ?? {}).slice(0, 6000)}\n\n` : "") +
-          `1) Evalúa la investigación: ¿responde el encargo, cumple las reglas (≥2-3 modelos digitales además de cualquier referencia), separa hechos de hipótesis? Si falta algo esencial, decide "MAS_INVESTIGACION" con preguntas concretas (solo si de verdad es necesario). ` +
-          `2) Si es suficiente, redacta la estrategia: objetivo, audiencia, plataformas y rol de cada una (Instagram/Stories/Reels/Fanvue), etapa del funnel, mensajes clave, formatos, duración, métrica principal y secundarias, hipótesis a medir, riesgos y cómo mitigarlos. ` +
-          `Termina con un bloque \`\`\`json {"decision":"SUFICIENTE|MAS_INVESTIGACION","evaluacion_investigacion","preguntas_extra":[],"estrategia":{"objetivo","audiencia","plataformas":[{"plataforma","rol"}],"funnel","mensajes_clave":[],"formatos":[],"duracion","metrica_principal","metricas_secundarias":[],"hipotesis":[],"riesgos":[{"riesgo","mitigacion"}]}}\`\`\`. Si la decisión es MAS_INVESTIGACION, "estrategia" va en null.` });
+          `Tu encargo (JSON): ${JSON.stringify(brief?.data ?? {}).slice(0, 3000)}\n\nInvestigación (JSON): ${JSON.stringify(research?.data ?? {}).slice(0, 9000)}\n\n` +
+          (input.owner_note ? `El dueño pidió estos cambios a tu estrategia anterior (obligatorios): ${String(input.owner_note).slice(0, 1000)}\nEstrategia anterior (JSON): ${JSON.stringify(prev?.data ?? {}).slice(0, 5000)}\n\n` : "") +
+          `1) ¿La investigación responde el encargo, cumple las reglas (≥2-3 modelos digitales) y separa hechos de hipótesis? Pide "MAS_INVESTIGACION" solo si falta algo esencial, con preguntas concretas. ` +
+          `2) Si basta, redacta la estrategia. Si la decisión es MAS_INVESTIGACION, "estrategia" va en null.\n${COMPACT}\nForma: ${SCHEMAS.STRATEGY}` });
     } else if (kind === "RESEARCH") {
-      model = "sonnet";
-      result = await callClaude({ model, maxTokens: 8000, webSearch: 8, system: `${COMMON}\nEres el Investigador.\nReglas del dueño:\n${rulesOf(profile)}`,
-        prompt: `Campaña aceptada por el dueño:\n- Título: ${proposal?.title}\n- Personaje: ${proposal?.character_id}\n- Canal: ${proposal?.channel}\n- Resumen: ${proposal?.summary}\n\n` +
-          (input.brief ? `Encargo del Director (JSON):\n${JSON.stringify(input.brief).slice(0, 4000)}\n\n` : "") +
-          (input.follow_up ? `El Director revisó tu investigación anterior y pide responder específicamente:\n${JSON.stringify(input.follow_up).slice(0, 3000)}\n\n` : "") +
-          `Investiga en la web al menos 3 modelos o creadoras digitales/virtuales (cuentas de IA o personajes virtuales) con estética o propuesta parecida a este personaje. ` +
-          `Para cada una: nombre o usuario, plataforma, por qué es comparable y qué patrones de contenido usa (formatos, escenarios, encuadres, textos, ritmo de publicación). ` +
-          `Incluye cifras solo si aparecen en una fuente, con su fecha. Luego sintetiza patrones adaptables a esta campaña, qué NO copiar y 2-3 hipótesis medibles.\n` +
-          `Termina con un bloque \`\`\`json {"modelos":[{"nombre","plataforma","por_que","patrones":[],"fuentes":[]}],"patrones_adaptables":[],"no_copiar":[],"hipotesis":[],"limitaciones":""}\`\`\`.` });
+      model = "haiku";
+      const call = (m: keyof typeof MODELS) => callClaude({ model: m, maxTokens: 16000, webSearch: 4, system: `${COMMON}\nEres el Investigador. Eres eficiente: máximo 4 búsquedas, bien elegidas.\nReglas del dueño:\n${rulesOf(profile)}`,
+        prompt: `Campaña aceptada:\n- Título: ${proposal?.title}\n- Personaje: ${proposal?.character_id}\n- Canal: ${proposal?.channel}\n- Resumen: ${proposal?.summary}\n\n` +
+          (input.brief ? `Encargo del Director (JSON): ${JSON.stringify(input.brief).slice(0, 3000)}\n\n` : "") +
+          (input.follow_up ? `El Director pide responder específicamente: ${JSON.stringify(input.follow_up).slice(0, 2000)}\n\n` : "") +
+          `Encuentra exactamente 3 modelos o creadoras digitales/virtuales (IA o personajes virtuales) comparables a este personaje y sus patrones de contenido (formatos, escenarios, encuadres, textos, ritmo). ` +
+          `Cifras solo si aparecen en una fuente, con fecha. Sintetiza patrones adaptables, qué NO copiar e hipótesis medibles.\n${COMPACT}\nForma: ${SCHEMAS.RESEARCH}` });
+      try { result = await call("haiku"); }
+      catch (e) {
+        // Safety net: if the cheap model is ever refused for search, fall back once to Sonnet.
+        if (!/web_search|not supported|unsupported/i.test(String(e))) throw e;
+        model = "sonnet"; result = await call("sonnet");
+      }
     } else if (kind === "REVIEW") {
       model = "sonnet";
       const research = await lastOutput(db, job.proposal_id, "RESEARCH");
       const design = await lastOutput(db, job.proposal_id, "DESIGN");
       const strategy = (await lastOutput(db, job.proposal_id, "STRATEGY"))?.data as Record<string, unknown> | undefined;
       const archive = await archiveSummary(db, String(job.workspace_id));
-      result = await callClaude({ model, maxTokens: 16000, aria: true, system: `${COMMON}\nEres el Director IA de Raxi HQ: revisas el trabajo del equipo antes de que exista una campaña. Eres exigente y honesto: si algo no cumple, lo regresas.\nReglas del dueño:\n${rulesOf(profile)}`,
+      result = await callClaude({ model, maxTokens: 12000, aria: true, system: `${COMMON}\nEres el Director IA de Raxi HQ: revisas el trabajo del equipo antes de que exista una campaña. Eres exigente y honesto: si algo no cumple, lo regresas.\nReglas del dueño:\n${rulesOf(profile)}`,
         prompt: `Campaña: ${proposal?.title} (${proposal?.channel}, personaje ${proposal?.character_id}).\nResumen: ${proposal?.summary}\n\n` +
-          (strategy?.estrategia ? `Estrategia aprobada por el dueño (JSON):\n${JSON.stringify(strategy.estrategia).slice(0, 6000)}\n\n` : "") +
-          `Investigación (JSON):\n${JSON.stringify(research?.data ?? {}).slice(0, 8000)}\n\nDiseño del Director Creativo (JSON):\n${JSON.stringify(design?.data ?? {}).slice(0, 20000)}\n\n` +
+          (strategy?.estrategia ? `Estrategia aprobada por el dueño (JSON): ${JSON.stringify(strategy.estrategia).slice(0, 5000)}\n\n` : "") +
+          `Investigación (JSON): ${JSON.stringify(research?.data ?? {}).slice(0, 5000)}\n\nDiseño del Director Creativo (JSON): ${JSON.stringify(design?.data ?? {}).slice(0, 20000)}\n\n` +
           `Fotos que ya existen en la Fototeca:\n${archive}\n\n` +
-          `Usa mis_personajes de Aria para comprobar que el diseño respeta la identidad exacta del personaje, y modelos/saldo para comprobar costo y saldo reales. ` +
-          `Revisa: que el diseño cumpla la estrategia aprobada, coherencia con la investigación, identidad y edad adulta, que los prompts sean autónomos y sin contradicciones (POV, luz, vestuario), que las fotos citadas existan, textos, riesgos de plataforma (etiqueta de IA, nada explícito en Instagram), costo vs. tope de $2 por campaña. ` +
-          `Si todo cumple, aprueba y entrega el paquete final de campaña (puedes corregir textos menores). Si hay problemas de fondo, pide cambios concretos y no entregues paquete.\n` +
-          `Termina con un bloque \`\`\`json {"veredicto":"APROBADA|CAMBIOS","revision":[{"punto","estado":"OK|FALLA","nota"}],"cambios_requeridos":[],` +
-          `"campana":{"objetivo","audiencia","metrica_principal","cta","calendario":[{"dia","publicacion"}],"hashtags":[]},` +
-          `"paquete":{"concepto","microhistoria","publicaciones":[{"posicion","escena","plano","prompt","texto","alt"}],"coleccion_existente":null,"montaje":[{"posicion","segundos","texto_pantalla"}],"modelo_aria","costo_estimado_usd","checklist_qa":[]}}\`\`\`. Si el veredicto es CAMBIOS, "campana" y "paquete" van en null.` });
+          `Usa mis_personajes de Aria para comprobar la identidad exacta del personaje, y modelos/saldo para costo y saldo reales. ` +
+          `Revisa: cumplimiento de la estrategia, identidad y edad adulta, prompts autónomos y sin contradicciones (POV, luz, vestuario), que las fotos citadas existan, textos, riesgos de plataforma (etiqueta de IA, nada explícito en Instagram), costo vs. tope de $2. ` +
+          `NO reescribas el diseño: si apruebas, lista solo las correcciones menores en "correcciones" (campo y valor nuevo) y define "campana". Si hay problemas de fondo, veredicto CAMBIOS con "cambios_requeridos" concretos y "campana" en null. "revision": máx. 8 puntos.\n${COMPACT}\nForma: ${SCHEMAS.REVIEW}` });
     } else {
       model = "sonnet";
       const archive = await archiveSummary(db, String(job.workspace_id));
       const research = { output: await lastOutput(db, job.proposal_id, "RESEARCH") };
       const lastReview = (await lastOutput(db, job.proposal_id, "REVIEW"))?.data as Record<string, unknown> | undefined;
       const strategy = (await lastOutput(db, job.proposal_id, "STRATEGY"))?.data as Record<string, unknown> | undefined;
-      const notes = lastReview && lastReview.veredicto === "CAMBIOS" ? JSON.stringify(lastReview.cambios_requeridos ?? []).slice(0, 4000) : "";
-      result = await callClaude({ model, maxTokens: 16000, aria: true, system: `${COMMON}\nEres el Director Creativo.\nReglas del dueño:\n${rulesOf(profile)}`,
+      const notes = lastReview && lastReview.veredicto === "CAMBIOS" ? JSON.stringify(lastReview.cambios_requeridos ?? []).slice(0, 3000) : "";
+      result = await callClaude({ model, maxTokens: 24000, aria: true, system: `${COMMON}\nEres el Director Creativo.\nReglas del dueño:\n${rulesOf(profile)}`,
         prompt: `Campaña: ${proposal?.title} (${proposal?.channel}, personaje ${proposal?.character_id}).\nResumen: ${proposal?.summary}\n\n` +
-          `Investigación previa (JSON):\n${JSON.stringify(research?.output?.data ?? {}).slice(0, 12000)}\n\n` +
-          (strategy?.estrategia ? `Estrategia aprobada por el dueño (JSON, obligatoria):\n${JSON.stringify(strategy.estrategia).slice(0, 6000)}\n\n` : "") +
-          (notes ? `El Director pidió estos cambios a tu diseño anterior; atiéndelos todos:\n${notes}\n\n` : "") +
+          `Investigación (JSON): ${JSON.stringify(research?.output?.data ?? {}).slice(0, 6000)}\n\n` +
+          (strategy?.estrategia ? `Estrategia aprobada por el dueño (JSON, obligatoria): ${JSON.stringify(strategy.estrategia).slice(0, 5000)}\n\n` : "") +
+          (notes ? `El Director pidió estos cambios a tu diseño anterior; atiéndelos todos: ${notes}\n\n` : "") +
           `Fotos que ya existen en la Fototeca (colección → posición: descripción):\n${archive}\n\n` +
-          `Usa la herramienta mis_personajes de Aria para respetar la identidad exacta del personaje y modelos para el precio real por imagen. ` +
-          `Diseña el paquete de la campaña: concepto, microhistoria y publicaciones. Si es un Reel hecho con fotos ya existentes, entrega un kit de montaje (foto, segundos, texto en pantalla, ambiente musical) sin generar nada, indicando en "coleccion_existente" el id de la colección usada y en cada paso "posicion" con el número de la foto en esa colección; en ese caso "publicaciones" va vacío. Sé conciso: textos breves y prompts completos pero sin repetir. ` +
-          `Si requiere fotos nuevas: un prompt autónomo en inglés por foto (identidad, escena, vestuario, cámara/POV correcto, luz, realismo, salida única), texto bilingüe ES/EN breve y texto alternativo. ` +
-          `Recomienda modelo de Aria y calcula el costo estimado total con los precios reales devueltos por la herramienta.\n` +
-          `Termina con un bloque \`\`\`json {"concepto","microhistoria","publicaciones":[{"posicion","escena","plano","prompt","texto","alt"}],"coleccion_existente":null,"montaje":[{"posicion","segundos","texto_pantalla"}],"modelo_aria","costo_estimado_usd","checklist_qa":[]}\`\`\`.` });
+          `Usa mis_personajes de Aria para respetar la identidad exacta del personaje y modelos para el precio real por imagen. ` +
+          `Diseña concepto, microhistoria y publicaciones. Si es un Reel con fotos ya existentes: kit de montaje sin generar nada, "coleccion_existente" = id de la colección y "posicion" = número de foto en ella; "publicaciones" vacío. ` +
+          `Si requiere fotos nuevas: un prompt autónomo en inglés por foto (identidad, escena, vestuario, cámara/POV, luz, realismo, salida única; máx. 120 palabras), texto ES/EN breve y alt. ` +
+          `Modelo de Aria recomendado y costo estimado con precios reales.\n${COMPACT} (Los prompts pueden superar las 25 palabras.)\nForma: ${SCHEMAS.DESIGN}` });
     }
     const output: Record<string, unknown> = { markdown: result.text.slice(0, 60000), data: lastJson(result.text), sources: result.sources, model: MODELS[model].id };
-    const incomplete = result.stopReason === "max_tokens" ? "La respuesta quedó cortada por su longitud. Vuelve a intentarlo."
-      : ["BRIEF", "STRATEGY", "DESIGN", "REVIEW"].includes(kind) && !output.data ? "La respuesta no incluyó un bloque de datos válido. Vuelve a intentarlo." : null;
+    // Rescue instead of discarding paid work: a cut or malformed answer is converted to JSON by a cheap pass.
+    if (SCHEMAS[kind] && (!output.data || result.stopReason === "max_tokens")) {
+      const rescued = await rescueJson(result.text, SCHEMAS[kind]);
+      result = { ...result, usage: addUsage(result.usage, rescued.usage), cost: result.cost + rescued.cost };
+      if (rescued.data) { output.data = rescued.data; output.rescued = true; }
+    }
+    const incomplete = SCHEMAS[kind] && !output.data ? "La respuesta no incluyó datos válidos ni pudo rescatarse. Reintenta este paso." : null;
     if (incomplete) throw Object.assign(new Error(incomplete), { partial: { output, usage: result.usage, cost: result.cost } });
     if (kind === "REVIEW" && proposal) {
       const d = output.data as Record<string, unknown>;
-      if (d.veredicto === "APROBADA" && d.paquete && typeof d.paquete === "object")
-        output.campaign = await materializeCampaign(db, job, proposal, d.paquete as Record<string, unknown>, (d.campana as Record<string, unknown>) ?? {});
+      const design = (await lastOutput(db, job.proposal_id, "DESIGN"))?.data as Record<string, unknown> | undefined;
+      if (d.veredicto === "APROBADA" && design) {
+        const paquete = applyCorrections(design, d.correcciones);
+        output.data = { ...d, paquete };
+        output.campaign = await materializeCampaign(db, job, proposal, paquete, (d.campana as Record<string, unknown>) ?? {});
+      }
     }
     await db.from("raxi_agent_jobs").update({
       status: "SUCCEEDED", output, usage: result.usage, cost_usd: Number(result.cost.toFixed(4)), finished_at: now(), updated_at: now(),

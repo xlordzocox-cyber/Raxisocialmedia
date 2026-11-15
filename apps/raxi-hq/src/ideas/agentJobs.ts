@@ -2,7 +2,7 @@ export type JobKind = 'BRIEF' | 'RESEARCH' | 'STRATEGY' | 'DESIGN' | 'REVIEW';
 export type JobStatus = 'PENDING' | 'RUNNING' | 'SUCCEEDED' | 'FAILED' | 'CANCELED';
 export type AgentJob = {
   id: string; proposalId: string; kind: JobKind; status: JobStatus; costUsd: number;
-  markdown: string; verdict: 'APROBADA' | 'CAMBIOS' | null; decision: 'SUFICIENTE' | 'MAS_INVESTIGACION' | null; campaign: { externalId: string; items: number; kept: boolean } | null; sources: { url: string; title: string }[]; error: string | null; createdAt: string;
+  markdown: string; data: unknown; reused: boolean; rescued: boolean; verdict: 'APROBADA' | 'CAMBIOS' | null; decision: 'SUFICIENTE' | 'MAS_INVESTIGACION' | null; campaign: { externalId: string; items: number; kept: boolean } | null; sources: { url: string; title: string }[]; error: string | null; createdAt: string;
 };
 
 const KINDS = new Set(['BRIEF', 'RESEARCH', 'STRATEGY', 'DESIGN', 'REVIEW']);
@@ -24,6 +24,8 @@ export function parseJobs(rows: unknown): AgentJob[] {
     out.push({
       id: r.id, proposalId: r.proposal_id, kind: r.kind as JobKind, status: r.status as JobStatus,
       costUsd: Number(r.cost_usd) || 0, markdown: typeof output.markdown === 'string' ? output.markdown : '',
+      data: output.data && typeof output.data === 'object' ? output.data : null,
+      reused: typeof output.reused_from === 'string', rescued: output.rescued === true,
       verdict: data.veredicto === 'APROBADA' || data.veredicto === 'CAMBIOS' ? data.veredicto : null,
       decision: data.decision === 'SUFICIENTE' || data.decision === 'MAS_INVESTIGACION' ? data.decision : null,
       campaign: camp && typeof camp.externalId === 'string' ? { externalId: camp.externalId, items: Number(camp.items) || 0, kept: camp.kept === true } : null,
@@ -50,8 +52,12 @@ export function canRun(jobs: AgentJob[], proposalId: string, kind: JobKind): boo
   return jobs.some((j) => j.proposalId === proposalId && j.kind === before && j.status === 'SUCCEEDED');
 }
 
+/** Counts toward the campaign cap: everything except failed steps (failed ones still count toward the monthly cap). */
 export function campaignCost(jobs: AgentJob[], proposalId: string): number {
-  return jobs.filter((j) => j.proposalId === proposalId).reduce((s, j) => s + j.costUsd, 0);
+  return jobs.filter((j) => j.proposalId === proposalId && j.status !== 'FAILED').reduce((s, j) => s + j.costUsd, 0);
+}
+export function failedCost(jobs: AgentJob[], proposalId: string): number {
+  return jobs.filter((j) => j.proposalId === proposalId && j.status === 'FAILED').reduce((s, j) => s + j.costUsd, 0);
 }
 
 const ERRORS: Record<string, string> = {

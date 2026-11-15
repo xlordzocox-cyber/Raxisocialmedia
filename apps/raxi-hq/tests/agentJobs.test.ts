@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { campaignCost, canRun, friendlyError, needsOwner, parseJobs, parsePipelines, stepState } from '../src/ideas/agentJobs';
+import { campaignCost, failedCost, canRun, friendlyError, needsOwner, parseJobs, parsePipelines, stepState } from '../src/ideas/agentJobs';
 
 const job = (id: string, kind: string, status: string, extra: Record<string, unknown> = {}) => ({
   id, proposal_id: 'p1', kind, status, cost_usd: '0.0500', error: null, created_at: `2026-11-15T1${id}:00:00Z`,
@@ -51,4 +51,14 @@ test('campaign pipeline: rows validated; route shows done/current/te toca/failed
   assert.equal(stepState(failed, 'DESIGN'), 'failed'); assert.equal(needsOwner(failed), true);
   const ready = { ...running, status: 'READY_FOR_PRODUCTION' as const, stage: 'DONE' as const };
   assert.equal(stepState(ready, 'DONE'), 'done');
+});
+
+test('agent jobs: failed steps do not count toward the campaign cap; reused and rescued results are flagged', () => {
+  const jobs = parseJobs([job('1', 'RESEARCH', 'FAILED'), job('2', 'RESEARCH', 'SUCCEEDED', { cost_usd: '0', output: { data: { modelos: [] }, reused_from: 'abc' } }),
+    job('3', 'DESIGN', 'SUCCEEDED', { output: { data: { concepto: 'x' }, rescued: true } })]);
+  assert.equal(campaignCost(jobs, 'p1'), 0.05); assert.equal(failedCost(jobs, 'p1'), 0.05);
+  const research = jobs.find((j) => j.kind === 'RESEARCH' && j.status === 'SUCCEEDED')!;
+  assert.equal(research.reused, true); assert.equal(research.rescued, false);
+  assert.equal(jobs.find((j) => j.kind === 'DESIGN')!.rescued, true);
+  assert.deepEqual(jobs.find((j) => j.kind === 'DESIGN')!.data, { concepto: 'x' });
 });

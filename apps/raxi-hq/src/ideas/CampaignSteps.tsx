@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { DataView } from './DataView';
 import {
-  campaignCost, friendlyError, isActive, JOB_LABEL, JOB_STATUS, latest, PIPELINE_STEPS, stepState,
+  campaignCost, failedCost, friendlyError, isActive, JOB_LABEL, JOB_STATUS, latest, PIPELINE_STEPS, stepState,
   type AgentJob, type JobKind, type Pipeline,
 } from './agentJobs';
 
@@ -28,6 +29,7 @@ export function CampaignSteps({ client, proposalId, jobs, pipeline, onChange }: 
   }
 
   const spent = campaignCost(jobs, proposalId);
+  const wasted = failedCost(jobs, proposalId);
   const review = latest(jobs, proposalId, 'REVIEW');
   const results = SHOWN.map((k) => latest(jobs, proposalId, k)).filter((j): j is AgentJob => !!j);
 
@@ -45,7 +47,7 @@ export function CampaignSteps({ client, proposalId, jobs, pipeline, onChange }: 
         <span aria-hidden="true">{ICON[st]}</span> {s.label}{st === 'current' ? ' · trabajando…' : st === 'waiting' ? ' · te toca' : ''}
       </li>; })}
     </ol>
-    <p className="team-proposal-meta">Gastado en esta campaña: ${spent.toFixed(4)} USD de $2.00</p>
+    <p className="team-proposal-meta">Gastado en esta campaña: ${spent.toFixed(4)} USD de $2.00{wasted > 0 ? ` · pasos fallidos: $${wasted.toFixed(4)} (solo cuentan en el tope mensual)` : ''}</p>
 
     {pipeline.status === 'WAITING_APPROVAL' && pipeline.gate === 'STRATEGY_APPROVAL' && <div className="campaign-gate" role="region" aria-label="Te toca: aprobar estrategia">
       <p><b>TE TOCA · Aprobar la estrategia.</b> El Director la propone abajo. El equipo creativo no empieza hasta que la apruebes.</p>
@@ -77,11 +79,11 @@ export function CampaignSteps({ client, proposalId, jobs, pipeline, onChange }: 
 
     {results.map((j) => <details key={j.id} className="campaign-step-result"
       open={isActive(j) || (j.kind === 'STRATEGY' && pipeline.gate === 'STRATEGY_APPROVAL') || (j.kind === 'REVIEW' && pipeline.status === 'READY_FOR_PRODUCTION')}>
-      <summary>{JOB_LABEL[j.kind]} · {JOB_STATUS[j.status]}{j.status === 'SUCCEEDED' || j.status === 'FAILED' ? ` · $${j.costUsd.toFixed(4)}` : ''}
+      <summary>{JOB_LABEL[j.kind]} · {JOB_STATUS[j.status]}{j.reused ? ' · reutilizada · $0' : j.status === 'SUCCEEDED' || j.status === 'FAILED' ? ` · $${j.costUsd.toFixed(4)}` : ''}{j.rescued ? ' · rescatada' : ''}
         {j.verdict ? ` · ${j.verdict === 'APROBADA' ? 'Aprobada' : 'Con cambios'}` : ''}{j.decision === 'MAS_INVESTIGACION' ? ' · pidió más investigación' : ''}</summary>
       {isActive(j) && <p role="status">El agente está trabajando. Esto tarda de 1 a 3 minutos.</p>}
       {j.status === 'FAILED' && <p role="alert">{j.error ?? 'Falló sin detalle.'}</p>}
-      {j.markdown && <pre className="campaign-step-text">{j.markdown}</pre>}
+      {j.data ? <div className="campaign-step-text"><DataView value={j.data} /></div> : j.markdown && <pre className="campaign-step-text">{j.markdown}</pre>}
       {!!j.sources.length && <><p><b>Fuentes</b></p><ul className="team-proposal-evidence">{j.sources.map((s) => <li key={s.url}><a href={s.url} target="_blank" rel="noreferrer">{s.title}</a></li>)}</ul></>}
     </details>)}
   </div>;
