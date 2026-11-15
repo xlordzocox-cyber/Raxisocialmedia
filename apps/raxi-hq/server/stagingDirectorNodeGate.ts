@@ -111,6 +111,7 @@ export function createUnpublishedDirectorNodeGateWithSqlPreauth(
     config.privilegedKey===config.publishableKey||
     typeof config.preauthHmacSecret!=='string'||config.preauthHmacSecret.length<32||
     config.preauthHmacSecret.length>256||
+    config.preauthHmacSecret.startsWith('sb_')||
     config.preauthHmacSecret===config.privilegedKey||
     config.preauthHmacSecret===config.publishableKey||
     Object.hasOwn(config,'admission'))
