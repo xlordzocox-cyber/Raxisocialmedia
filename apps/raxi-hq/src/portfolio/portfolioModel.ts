@@ -101,14 +101,20 @@ export const postText = (item: PortfolioItem): string =>
   item.hashtags.length ? `${item.caption}\n\n${item.hashtags.map((h) => (h.startsWith('#') ? h : `#${h}`)).join(' ')}` : item.caption;
 
 /** Source rectangle for a centered crop to the target ratio (e.g. 9:16 original → 4:5 feed). */
-export function cropRect(width: number, height: number, crop: string): { sx: number; sy: number; sw: number; sh: number } {
+export function cropRect(width: number, height: number, crop: string, focusY = 0.5): { sx: number; sy: number; sw: number; sh: number } {
   const m = /^(\d+):(\d+)$/.exec(crop);
   if (!m || width < 1 || height < 1) return { sx: 0, sy: 0, sw: width, sh: height };
   const target = Number(m[1]) / Number(m[2]);
   if (width / height > target) { const sw = Math.round(height * target); return { sx: Math.round((width - sw) / 2), sy: 0, sw, sh: height }; }
   const sh = Math.round(width / target);
-  return { sx: 0, sy: Math.round((height - sh) / 2), sw: width, sh };
+  const f = Math.min(1, Math.max(0, Number.isFinite(focusY) ? focusY : 0.5));
+  return { sx: 0, sy: Math.round((height - sh) * f), sw: width, sh };
 }
+
+/** How a tall photo fits a 4:5 feed slot. 'full' keeps the whole photo over a blurred fill (nothing is cut). */
+export type Framing = 'top' | 'center' | 'bottom' | 'full';
+export const FRAMING_FOCUS: Record<Exclude<Framing, 'full'>, number> = { top: 0.12, center: 0.5, bottom: 0.88 };
+export const FRAMING_LABEL: Record<Framing, string> = { top: 'Arriba', center: 'Centro', bottom: 'Abajo', full: 'Completa' };
 
 export const canApprove =(item: PortfolioItem): boolean =>
   item.status !== 'PUBLISHED' && item.decision !== 'APPROVED' && item.qaStatus !== 'NEEDS_FIX' && item.qaStatus !== 'FAIL' && !!item.asset;

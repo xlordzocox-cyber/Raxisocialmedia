@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { pickMime, reelDuration, reelFrameAt } from '../src/portfolio/reelVideo';
-import { packText, parsePack } from '../src/portfolio/portfolioModel';
+import { cropRect, FRAMING_FOCUS, packText, parsePack } from '../src/portfolio/portfolioModel';
 
 test('reel video: timeline follows the montage seconds, with a short crossfade', () => {
   const d = [1, 1, 1.5];
@@ -26,4 +26,12 @@ test('publish pack: parsed leniently; only Instagram links kept; hashtags normal
   assert.equal(packText(p), 'Hola\n\n#vesper #noche'); assert.equal(p.qa, 'APPROVED · ok');
   assert.equal(parsePack(null).caption, '');
   assert.equal(parsePack({ published_url: 'https://www.instagram.com/reel/ABCDE/' }).publishedUrl, 'https://www.instagram.com/reel/ABCDE/');
+});
+
+test('carousel framing: tall photos can keep the head (top), center or feet (bottom) when cropped to 4:5', () => {
+  assert.deepEqual(cropRect(1152, 2048, '4:5'), { sx: 0, sy: 304, sw: 1152, sh: 1440 });
+  assert.equal(cropRect(1152, 2048, '4:5', FRAMING_FOCUS.top).sy, Math.round(608 * 0.12));
+  assert.equal(cropRect(1152, 2048, '4:5', FRAMING_FOCUS.bottom).sy, Math.round(608 * 0.88));
+  assert.equal(cropRect(1152, 2048, '4:5', 0).sy, 0);
+  assert.equal(cropRect(1152, 2048, '4:5', 9).sy, 608);
 });

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseWorkspace } from '../persistence/supabaseIdeaRepository';
 import {
-  buildPortfolio, canApprove, cropRect, gridOrder, packText, postText, progress, QA_LABEL, STATUS_LABEL,
+  buildPortfolio, canApprove, cropRect, FRAMING_FOCUS, FRAMING_LABEL, gridOrder, packText, type Framing, postText, progress, QA_LABEL, STATUS_LABEL,
   type PortfolioItem, type PortfolioView,
 } from './portfolioModel';
 import { buildReelVideo, reelDuration } from './reelVideo';
@@ -35,14 +35,25 @@ async function signedUrls(client: SupabaseClient, items: PortfolioItem[]): Promi
 }
 
 /** Crops in the browser (no upload, no new asset) and downloads a JPEG ready for the Instagram feed. */
-async function downloadCropped(url: string, crop: string, name: string): Promise<void> {
+async function downloadCropped(url: string, crop: string, name: string, framing: Framing = 'center'): Promise<void> {
   const img = new Image();
   img.crossOrigin = 'anonymous';
   await new Promise<void>((resolve, reject) => { img.onload = () => resolve(); img.onerror = () => reject(new Error('load')); img.src = url; });
-  const r = cropRect(img.naturalWidth, img.naturalHeight, crop);
   const canvas = document.createElement('canvas');
-  canvas.width = r.sw; canvas.height = r.sh;
-  canvas.getContext('2d')!.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, r.sw, r.sh);
+  if (framing === 'full') {
+    // Whole photo, nothing cut: 1080x1350 with a blurred, darkened copy filling the sides.
+    const W = 1080, H = 1350; canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d')!;
+    const cover = Math.max(W / img.naturalWidth, H / img.naturalHeight), contain = Math.min(W / img.naturalWidth, H / img.naturalHeight);
+    ctx.filter = 'blur(36px) brightness(0.55)';
+    ctx.drawImage(img, (W - img.naturalWidth * cover) / 2, (H - img.naturalHeight * cover) / 2, img.naturalWidth * cover, img.naturalHeight * cover);
+    ctx.filter = 'none';
+    ctx.drawImage(img, (W - img.naturalWidth * contain) / 2, (H - img.naturalHeight * contain) / 2, img.naturalWidth * contain, img.naturalHeight * contain);
+  } else {
+    const r = cropRect(img.naturalWidth, img.naturalHeight, crop, FRAMING_FOCUS[framing]);
+    canvas.width = r.sw; canvas.height = r.sh;
+    canvas.getContext('2d')!.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, r.sw, r.sh);
+  }
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95));
   if (!blob) throw new Error('encode');
   const a = document.createElement('a');
@@ -63,6 +74,14 @@ export function FototecaPage({ client, ownerId }: { client: SupabaseClient; owne
   const [busy, setBusy] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [publishUrl, setPublishUrl] = useState('');
+  const [framing, setFraming] = useState<Record<string, Framing>>({});
+  const frameOf = (id: string): Framing => framing[id] ?? 'top';
+  const setFrame = (id: string, f: Framing) => setFraming((prev) => {
+    const next = { ...prev, [id]: f };
+    try { localStorage.setItem('raxi-framing', JSON.stringify(next)); } catch { /* storage unavailable: keep in memory */ }
+    return next;
+  });
+  useEffect(() => { try { const raw = localStorage.getItem('raxi-framing'); if (raw) setFraming(JSON.parse(raw) as Record<string, Framing>); } catch { /* ignore */ } }, []);
   const [video, setVideo] = useState<{ phase: 'idle' } | { phase: 'building'; pct: number } | { phase: 'ready'; url: string; ext: string; mime: string }>({ phase: 'idle' });
 
   const reload = useCallback(async () => {
@@ -95,7 +114,7 @@ export function FototecaPage({ client, ownerId }: { client: SupabaseClient; owne
     let n = 0;
     for (const it of photos) {
       n += 1;
-      try { await downloadCropped(urls[it.asset!.objectPath], '4:5', `${collection.externalId}-carrusel-${String(n).padStart(2, '0')}.jpg`); }
+      try { await downloadCropped(urls[it.asset!.objectPath], '4:5', `${collection.externalId}-carrusel-${String(n).padStart(2, '0')}.jpg`, frameOf(it.id)); }
       catch { setNotice(`No se pudo descargar la foto ${n}; usa «Abrir original» en esa foto.`); return; }
       await new Promise((r) => setTimeout(r, 700));
     }
@@ -156,7 +175,22 @@ export function FototecaPage({ client, ownerId }: { client: SupabaseClient; owne
             <button type="button" onClick={() => setVideo({ phase: 'idle' })}>Volver a armar</button>
           </>}
           <div className="foto-carousel">
-            <p><b>¿Mejor como carrusel?</b> Descarga las fotos aprobadas, recortadas a 4:5 y numeradas en el orden de la historia.</p>
+            <p><b>Carrusel 4:5.</b> Elige el encuadre de cada foto (la vista previa es exactamente lo que se descarga) y luego descarga todas, numeradas en orden.</p>
+            <div className="foto-framing-list">
+              {collection.items.filter((i) => i.decision !== 'REJECTED' && i.asset && urls[i.asset.objectPath]).map((it, idx) => {
+                const f = frameOf(it.id);
+                return <div key={it.id} className="foto-framing">
+                  <div className={`foto-framing-preview ${f === 'full' ? 'is-full' : ''}`}>
+                    {f === 'full' && <img aria-hidden="true" className="foto-framing-bg" src={urls[it.asset!.objectPath]} alt="" />}
+                    <img src={urls[it.asset!.objectPath]} alt={it.altText} style={f === 'full' ? undefined : { objectPosition: `50% ${FRAMING_FOCUS[f] * 100}%` }} />
+                    <span className="foto-badge">{String(idx + 1).padStart(2, '0')}</span>
+                  </div>
+                  <div className="foto-framing-options" role="group" aria-label={`Encuadre foto ${idx + 1}`}>
+                    {(['top', 'center', 'bottom', 'full'] as Framing[]).map((k) => <button key={k} type="button" aria-pressed={f === k} onClick={() => setFrame(it.id, k)}>{FRAMING_LABEL[k]}</button>)}
+                  </div>
+                </div>;
+              })}
+            </div>
             <button type="button" onClick={() => void downloadCarousel()}>📥 Descargar carrusel ({collection.items.filter((i) => i.decision !== 'REJECTED' && i.asset).length} fotos 4:5)</button>
           </div>
           {collection.pack.audio && <p className="foto-meta"><b>Audio sugerido:</b> {collection.pack.audio} (elígelo en Instagram al publicar).</p>}
