@@ -38,7 +38,20 @@ QA debe revisar y aprobar campañas importantes antes del paquete final.
 
 Raxi es una personalidad digital adulta con identidad visual ya establecida dentro del MCP de Aria Studio. No recrees ni redefinas su rostro, cuerpo, edad, estilo base o identidad visual salvo que el usuario lo pida explícitamente.
 
-Todo contenido maduro debe mantenerse adulto y no explícito. No generes desnudez sexual explícita, actos sexuales gráficos ni contenido que contradiga la identidad adulta de Raxi.
+### Nivel de contenido por superficie (decisión de Luis, 2026-11-15)
+
+| Superficie | Nivel máximo permitido |
+|---|---|
+| Instagram (feed, carrusel, Reels), Stories, teaser y cualquier red pública | **SFW o spicy ocasional** (sensual, lingerie/sleepwear, sugerente) dentro de las normas de la plataforma. **Nunca NSFW ni desnudez.** |
+| Fanvue feed y Fanvue chatting | **NSFW permitido: desnudez adulta** del personaje virtual, generada solo con Aria Studio (modo adulto/"hot"). |
+
+Reglas que no cambian en ninguna superficie:
+
+- Los personajes son adultos virtuales y siempre deben verse claramente adultos; nunca rasgos, contextos o vestuario que sugieran minoría de edad.
+- Nunca usar la cara, el cuerpo o el nombre de una persona real; nunca Aria Cruz para contenido adulto.
+- **No mezclar:** una foto NSFW jamás se asigna, recorta, reutiliza ni se insinúa en una campaña de Instagram/Stories/teaser. Las colecciones NSFW se guardan aparte y QA rechaza cualquier NSFW en una superficie pública.
+- Cada generación NSFW requiere la misma aprobación de costo explícita de Luis, marcada como "NSFW · Fanvue".
+- Actos sexuales gráficos u otros niveles más allá de la desnudez quedan fuera hasta que Luis decida otra cosa explícitamente.
 
 ## Aria Studio MCP policy
 
@@ -91,10 +104,10 @@ Especialmente para:
 
 - FanView feed;
 - FanView chatting;
-- contenido adulto sensual no explícito;
+- contenido adulto sensual o NSFW permitido en Fanvue (desnudez adulta, modo adulto de Aria con la clave propia de WaveSpeed);
 - contenido spicy permitido;
 - lingerie / sleepwear permitido;
-- escenas íntimas no explícitas;
+- escenas íntimas;
 - poses o encuadres que el modelo general resuelva peor;
 - conceptos que hayan fallado previamente con GPT/modelo general;
 - situaciones donde las pruebas indiquen mejor composición o resultado con Seedream.
@@ -142,8 +155,10 @@ Mantén clara la separación entre:
 
 - Redes públicas: alcance, descubrimiento, personalidad, lifestyle, gaming, fashion y comunidad.
 - Teaser: curiosidad, coqueteo y puente hacia contenido exclusivo sin revelar todo.
-- FanView feed: contenido más íntimo, exclusivo y cuidado, siempre no explícito.
-- FanView chatting: imágenes personales, espontáneas y conversacionales.
+- FanView feed: contenido más íntimo, exclusivo y cuidado; puede incluir desnudez adulta (NSFW).
+- FanView chatting: imágenes personales, espontáneas y conversacionales; puede incluir desnudez adulta (NSFW).
+
+Las superficies públicas (redes y teaser) nunca reciben material NSFW; ver "Nivel de contenido por superficie".
 
 Diferencia siempre:
 
