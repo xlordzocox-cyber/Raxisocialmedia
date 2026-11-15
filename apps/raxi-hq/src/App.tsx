@@ -28,6 +28,13 @@ const defaultIdeaRepository = (ownerId: string) => createSupabaseIdeaRepository(
 const defaultCampaignRepository = supabase ? () => createCampaignRepository(supabase!) : undefined;
 
 // Stable controls on the right; the office scene stays mounted above every panel.
+// Agency view (default): Ideas, Campañas, Agentes, Actividad. Developer tools (Tareas, Runtime, Fuentes) only with VITE_RAXI_SHOW_DEMO.
+const agencyModules = [
+  {id:'ideas',label:'Ideas',mark:'✦'},
+  {id:'campaigns',label:'Campañas',mark:'▤'},
+  {id:'agents',label:'Agentes',mark:'◎'},
+  {id:'activity',label:'Actividad',mark:'◷'},
+] as const;
 const hqModules = [
   {id:'ideas',label:'Ideas',mark:'✦'},
   {id:'campaigns',label:'Campañas',mark:'▤'},
@@ -43,6 +50,7 @@ type HQModule = (typeof hqModules)[number]['id'];
 const DEMO_ENABLED = (import.meta.env as Record<string, string | undefined> | undefined)?.VITE_RAXI_SHOW_DEMO === 'true';
 export default function App({ ideaRepository = defaultIdeaRepository, campaignRepository = defaultCampaignRepository, showDemo = DEMO_ENABLED }: { ideaRepository?: (ownerId: string) => RealIdeaRepository; campaignRepository?: (ownerId: string) => CampaignRepository; showDemo?: boolean } = {}) {
   const state = useHQState();
+  const modules: readonly { id: HQModule; label: string; mark: string }[] = showDemo ? hqModules : agencyModules;
   const { user, signOut, getRealIdeaStore, getRealCampaignStore } = useAuth();
   useLayoutEffect(() => {
     hqStore.setObservationScope(user ? { viewerId: user.id, project: OBSERVED_PROJECT } : undefined);
@@ -142,19 +150,19 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
     </section>
     <div className="hq-lower-workspace">
       <section className="hq-work-panel" aria-label="Área de trabajo">
-        <div className="hq-work-heading"><h2>{hqModules.find(item=>item.id===activeModule)?.label}</h2><span>{campusMode === 'DEMO' ? 'DEMO · sin datos reales' : 'REAL · workspace autenticado'}</span></div>
+        <div className="hq-work-heading"><h2>{modules.find(item=>item.id===activeModule)?.label}</h2><span>{campusMode === 'DEMO' ? 'DEMO · sin datos reales' : 'REAL · workspace autenticado'}</span></div>
         <div className="hq-work-scroll">
           <div className="hq-module-content" hidden={activeModule !== 'ideas' && activeModule !== 'campaigns' && activeModule !== 'runtime'}>
             {campusMode === 'DEMO'
       ? <CampusOverview ideas={ideaCenter!.ideas} view={activeModule === 'campaigns' ? 'campaigns' : activeModule === 'runtime' ? 'runtime' : 'ideas'} onNavigateToCampaigns={()=>setActiveModule('campaigns')} />
-      : <RealIdeaCenter store={realIdeas} campaigns={campaignRepository ? workspace => getRealCampaignStore(workspace, owner => new RealCampaignStore(campaignRepository(owner), owner, workspace)) : undefined} onRuntimeSnapshot={onRuntimeSnapshot} view={activeModule === 'campaigns' ? 'campaigns' : activeModule === 'runtime' ? 'runtime' : 'ideas'} />}
+      : <RealIdeaCenter store={realIdeas} campaigns={campaignRepository ? workspace => getRealCampaignStore(workspace, owner => new RealCampaignStore(campaignRepository(owner), owner, workspace)) : undefined} onRuntimeSnapshot={onRuntimeSnapshot} view={activeModule === 'campaigns' ? 'campaigns' : activeModule === 'runtime' ? 'runtime' : 'ideas'} agencyBoard={!showDemo} onOpenIdeas={()=>setActiveModule('ideas')} />}
           </div>
           <div className="hq-module-content" hidden={activeModule !== 'agents'}>
             <AgentDock view={agentView} onSelect={selectAndFocus}/>
             <AgentInspector view={agentView}/>
             {campusMode==='REAL'&&agentView.agents.length===0&&<p className="hq-module-note">Equipo sin agentes registrados todavía. Los agentes aparecen al registrarse y se mueven solo con eventos verificados.</p>}
           </div>
-          <div className="hq-module-content" hidden={activeModule !== 'tasks'}>
+          <div className="hq-module-content" hidden={activeModule !== 'tasks' && !(activeModule === 'activity' && !showDemo)}>
             <AgentTaskBoard state={officeState} view={agentView} scope={user?.id ?? ''}/>
             <HandoffTimeline state={officeState} view={agentView}/>
           </div>
@@ -175,7 +183,7 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
         </div>
       </section>
       <nav className="hq-module-rail" aria-label="Secciones de Raxi HQ">
-        {hqModules.map(item=><button key={item.id} type="button" aria-pressed={activeModule===item.id} aria-label={`Abrir ${item.label}`} onClick={()=>setActiveModule(item.id)}>
+        {modules.map(item=><button key={item.id} type="button" aria-pressed={activeModule===item.id} aria-label={`Abrir ${item.label}`} onClick={()=>setActiveModule(item.id)}>
           <span aria-hidden="true" className="hq-module-symbol">{item.mark}</span><span className="hq-module-name">{item.label}</span>
         </button>)}
       </nav>

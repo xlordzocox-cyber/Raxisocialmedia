@@ -8,12 +8,13 @@ import { RuntimeOfficePanel } from '../runtime/RuntimeOfficePanel';
 import type { RuntimeOfficeSink } from '../runtime/runtimeOfficeStore';
 import { supabase } from '../auth/client';
 import { TeamProposalsPanel } from '../ideas/TeamProposalsPanel';
+import { CampaignBoard } from '../ideas/CampaignBoard';
 const noSubscription = () => () => {};
 const noCampaign = () => null;
 
 export type RealCenterView = 'all' | 'ideas' | 'campaigns' | 'runtime';
 
-export function RealIdeaCenter({ store, campaigns, onRuntimeSnapshot, view = 'all' }: { store: RealIdeaStore; campaigns?: (workspace: string) => RealCampaignStore; onRuntimeSnapshot?: RuntimeOfficeSink; view?: RealCenterView }) {
+export function RealIdeaCenter({ store, campaigns, onRuntimeSnapshot, view = 'all', agencyBoard = false, onOpenIdeas }: { store: RealIdeaStore; campaigns?: (workspace: string) => RealCampaignStore; onRuntimeSnapshot?: RuntimeOfficeSink; view?: RealCenterView; agencyBoard?: boolean; onOpenIdeas?: () => void }) {
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const [open, setOpen] = useState(true);
   const [selectedId, setSelectedId] = useState<string>();
@@ -69,7 +70,9 @@ export function RealIdeaCenter({ store, campaigns, onRuntimeSnapshot, view = 'al
       {state.phase !== 'saving' && <button type="button" onClick={() => { void store.load(); }}>Recargar desde Supabase</button>}
       </div>
       <div hidden={view === 'ideas' || view === 'runtime'}>
-      {campaignStore && <RealCampaignCenter key={`${state.workspace.ownerId}:${state.workspace.id}`} store={campaignStore} ideas={store} ideaState={state} />}
+      {agencyBoard
+        ? supabase && view === 'campaigns' && <CampaignBoard key={`board:${state.workspace.id}`} client={supabase} workspace={state.workspace.id} onOpen={onOpenIdeas} />
+        : campaignStore && <RealCampaignCenter key={`${state.workspace.ownerId}:${state.workspace.id}`} store={campaignStore} ideas={store} ideaState={state} />}
       </div>
       <div hidden={view === 'ideas' || view === 'campaigns'}>
       {supabase && <RuntimeOfficePanel key={`${state.workspace.ownerId}:${state.workspace.id}`} client={supabase} owner={state.workspace.ownerId} workspace={state.workspace.id} onRuntimeSnapshot={onRuntimeSnapshot} renderCanvas={!onRuntimeSnapshot} />}

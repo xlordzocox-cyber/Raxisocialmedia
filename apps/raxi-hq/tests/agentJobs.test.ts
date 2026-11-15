@@ -69,3 +69,12 @@ test('agent jobs: failed steps do not count toward the campaign cap; reused and 
   assert.equal(jobs.find((j) => j.kind === 'DESIGN')!.rescued, true);
   assert.deepEqual(jobs.find((j) => j.kind === 'DESIGN')!.data, { concepto: 'x' });
 });
+
+test('campaign pipeline: current step label for every status', async () => {
+  const { currentStep } = await import('../src/ideas/agentJobs');
+  const base = { proposalId: 'p', note: null, gate: null } as const;
+  assert.equal(currentStep({ ...base, status: 'RUNNING', stage: 'QA' }), 'QA');
+  assert.equal(currentStep({ ...base, status: 'WAITING_APPROVAL', stage: 'STRATEGY', gate: 'STRATEGY_APPROVAL' }), 'GATE');
+  assert.equal(currentStep({ ...base, status: 'READY_FOR_PRODUCTION', stage: 'DONE' }), 'PRODUCTION');
+  assert.equal(currentStep({ ...base, status: 'PUBLISHED', stage: 'DONE' }), 'DONE');
+});
