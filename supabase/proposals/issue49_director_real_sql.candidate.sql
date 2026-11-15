@@ -74,7 +74,26 @@ create trigger raxi_director_real_protect
 create function public.raxi_director_real_scope(
  p_workspace uuid,p_task uuid,p_actor uuid,p_spec jsonb,p_version bigint
 ) returns text language sql immutable security invoker set search_path='' as $f$
-select encode(sha256(convert_to(
+select case when
+  jsonb_typeof(p_spec) is distinct from 'object' or
+  (select count(*) from jsonb_object_keys(p_spec))<>5 or
+  exists(select 1 from jsonb_object_keys(p_spec) k
+   where k not in ('question','externalResearch','provider','model','authorization')) or
+  jsonb_typeof(p_spec->'question') is distinct from 'string' or
+  length(btrim(p_spec->>'question'))<5 or length(p_spec->>'question')>1500 or
+  p_spec->'externalResearch' is distinct from 'false'::jsonb or
+  jsonb_typeof(p_spec->'provider') is distinct from 'string' or
+  jsonb_typeof(p_spec->'model') is distinct from 'string' or
+  jsonb_typeof(p_spec->'authorization') is distinct from 'object' or
+  (select count(*) from jsonb_object_keys(p_spec->'authorization'))<>3 or
+  exists(select 1 from jsonb_object_keys(p_spec->'authorization') k
+   where k not in ('confirmed','maxCostMicros','expiresAt')) or
+  p_spec#>'{authorization,confirmed}' is distinct from 'true'::jsonb or
+  jsonb_typeof(p_spec#>'{authorization,maxCostMicros}') is distinct from 'number' or
+  (p_spec#>>'{authorization,maxCostMicros}') !~ '^[1-9][0-9]{0,14}$' or
+  jsonb_typeof(p_spec#>'{authorization,expiresAt}') is distinct from 'string'
+ then null::text
+ else encode(sha256(convert_to(
  '{"workspaceId":'||to_json(p_workspace::text)::text||
  ',"taskId":'||to_json(p_task::text)::text||
  ',"actorId":'||to_json(p_actor::text)::text||
@@ -83,7 +102,7 @@ select encode(sha256(convert_to(
  ',"model":'||to_json(p_spec->>'model')::text||
  ',"authorization":{"confirmed":true,"maxCostMicros":'||(p_spec#>>'{authorization,maxCostMicros}')::bigint::text||
  ',"expiresAt":'||to_json(p_spec#>>'{authorization,expiresAt}')::text||
- '}},"policyVersion":'||p_version::text||'}','UTF8')),'hex');
+ '}},"policyVersion":'||p_version::text||'}','UTF8')),'hex') end;
 $f$;
 
 create function public.raxi_director_real_prepare(
