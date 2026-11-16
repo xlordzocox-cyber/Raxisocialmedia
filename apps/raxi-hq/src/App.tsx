@@ -138,6 +138,7 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
         {showDemo && <button type="button" aria-pressed={campusMode === 'REAL'} onClick={() => { void hqStore.switchMode('LIVE_READ_ONLY'); setCampusMode('REAL'); }}>REAL</button>}
         {showDemo && <button type="button" aria-pressed={campusMode === 'DEMO'} onClick={() => setCampusMode('DEMO')}>DEMO</button>}
         <Link className="hq-nav-link" to="/fototeca">Fototeca</Link>
+        <Link className="hq-nav-link" to="/multimedia">Multimedia</Link>
         <button type="button" onClick={() => { void signOut(); }}>Salir</button>
       </div>
     </header>

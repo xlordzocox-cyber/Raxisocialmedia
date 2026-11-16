@@ -48,3 +48,9 @@
 .foto-framing-options { display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; }
 .foto-framing-options button { padding: 4px; font-size: .78rem; }
 .foto-framing-options button[aria-pressed=true] { outline: 2px solid #7fe3ff; }
+.media-filters { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0 4px; }
+.media-filters button { min-height: 36px; padding: 6px 12px; border-radius: 999px; background: var(--panel); color: var(--ink); border: 1px solid #263248; font-size: 13px; }
+.media-filters button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); }
+.media-day { margin: 16px 0 4px; font-size: 14px; color: var(--muted); font-weight: 600; }
+.media-grid .foto-tile { aspect-ratio: 3 / 4; }
+.foto-header .hq-session-controls { display: flex; gap: 8px; }
