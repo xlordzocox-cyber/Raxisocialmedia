@@ -54,3 +54,7 @@
 .media-day { margin: 16px 0 4px; font-size: 14px; color: var(--muted); font-weight: 600; }
 .media-grid .foto-tile { aspect-ratio: 3 / 4; }
 .foto-header .hq-session-controls { display: flex; gap: 8px; }
+.media-sections { border-bottom: 1px solid #263248; padding-bottom: 8px; }
+.media-hidden-tab[aria-pressed='true'] { border-color: #b33a3a !important; color: #ff8a8a !important; }
+.media-blur img { filter: blur(18px); transform: scale(1.1); }
+.media-blur[aria-pressed='true'] img { filter: none; transform: none; }

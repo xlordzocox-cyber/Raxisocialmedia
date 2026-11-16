@@ -1,8 +1,14 @@
 // Multimedia: every archived original of the workspace (like Aria "Mis creaciones"), newest first.
 // Pure, validated read model: rows come from RLS-scoped owner reads; malformed or foreign rows are rejected.
 
+/** Content level from metadata.content_level. Missing/unknown → null ("Sin clasificar"), never assumed public. */
+export type ContentLevel = 'PUBLIC' | 'NSFW' | 'EXPLICIT';
+const LEVELS = new Set<ContentLevel>(['PUBLIC', 'NSFW', 'EXPLICIT']);
+export type MediaSection = 'PUBLIC' | 'HIDDEN' | 'UNCLASSIFIED';
+export const sectionOf = (level: ContentLevel | null): MediaSection => (level === 'PUBLIC' ? 'PUBLIC' : level ? 'HIDDEN' : 'UNCLASSIFIED');
+
 export interface MediaAsset {
-  id: string; objectPath: string; mimeType: string; byteSize: number; sha256: string;
+  id: string; level: ContentLevel | null; objectPath: string; mimeType: string; byteSize: number; sha256: string;
   ariaFile: string | null; characterId: string | null; createdAt: string; campaigns: string[];
 }
 export interface MediaView { assets: MediaAsset[]; characters: string[] }
@@ -37,7 +43,7 @@ export function buildMedia(workspaceId: string, rawAssets: unknown, rawItems: un
     const meta = (a.metadata && typeof a.metadata === 'object' ? a.metadata : {}) as Record<string, unknown>;
     const id = str(a.id, 64);
     return {
-      id, objectPath: path, mimeType: str(a.mime_type, 64), byteSize: Number(a.byte_size), sha256: sha,
+      id, level: LEVELS.has(meta.content_level as ContentLevel) ? meta.content_level as ContentLevel : null, objectPath: path, mimeType: str(a.mime_type, 64), byteSize: Number(a.byte_size), sha256: sha,
       ariaFile: soft(meta.aria_file, 200) ?? soft(a.external_asset_id, 200), characterId: soft(meta.character_id, 64),
       createdAt: str(a.created_at, 64), campaigns: [...(campaignsOf.get(id) ?? [])].sort(),
     };
@@ -47,9 +53,16 @@ export function buildMedia(workspaceId: string, rawAssets: unknown, rawItems: un
   return { assets, characters };
 }
 
-export type MediaFilter = { character: string | 'ALL'; onlyLoose: boolean };
+export type MediaFilter = { section: MediaSection; character: string | 'ALL'; onlyLoose: boolean };
+/** Levels never mix: each section shows only its own photos (public view never includes NSFW/EXPLICIT or unclassified). */
 export const filterMedia = (assets: MediaAsset[], f: MediaFilter): MediaAsset[] =>
-  assets.filter((a) => (f.character === 'ALL' || a.characterId === f.character) && (!f.onlyLoose || a.campaigns.length === 0));
+  assets.filter((a) => sectionOf(a.level) === f.section && (f.character === 'ALL' || a.characterId === f.character) && (!f.onlyLoose || a.campaigns.length === 0));
+export const countBySection = (assets: MediaAsset[]): Record<MediaSection, number> => {
+  const c: Record<MediaSection, number> = { PUBLIC: 0, HIDDEN: 0, UNCLASSIFIED: 0 };
+  for (const a of assets) c[sectionOf(a.level)] += 1;
+  return c;
+};
+export const LEVEL_LABEL: Record<ContentLevel, string> = { PUBLIC: 'Público', NSFW: 'NSFW · Fanvue feed', EXPLICIT: 'EXPLICIT · Fanvue chatting' };
 
 /** Groups by local day (YYYY-MM-DD) keeping newest-first order, like a camera roll. */
 export function groupByDay(assets: MediaAsset[], timeZone?: string): { day: string; assets: MediaAsset[] }[] {

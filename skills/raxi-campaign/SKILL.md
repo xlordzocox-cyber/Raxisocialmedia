@@ -106,6 +106,7 @@ Muestra a Luis el diseño completo antes de producir.
 - **Nunca** generes más fotos ni gastes más de lo aprobado. Nunca repitas una generación que ya devolvió id.
 - Consulta `estado_imagen` cada 15–20 s hasta que esté lista. Muestra cada foto a Luis.
 - Archivo opcional en la Fototeca de Raxi HQ: inserta en `raxi_archive_requests` (`workspace_id`, `source_url` = enlace de 24 h, `aria_file`, `character_id`, `status` = 'PENDING') e invoca la función `raxi-archive-aria`. El enlace caduca en 24 h.
+- Después de archivar, marca el nivel de contenido de cada foto en `raxi_assets.metadata.content_level` (`PUBLIC`, `NSFW` o `EXPLICIT`, según su superficie). La página Multimedia separa los niveles: sin nivel, la foto queda en «Sin clasificar» y nunca se muestra entre las públicas; NSFW y EXPLICIT van a «Ocultas».
 
 ### 8. QA visual (solo fotos nuevas)
 Revisa **solo las fotos nuevas o rehechas**, nunca todas otra vez. Compara la cara contra fotos ya aprobadas por Luis del mismo personaje. Si no tienes una referencia visible, dilo: la identidad queda "no verificada".
