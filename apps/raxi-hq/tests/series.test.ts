@@ -206,3 +206,52 @@ test('series migration: clients can only read', () => {
   assert.match(sql, /revoke all on function public\.raxi_series_create\(uuid, jsonb, jsonb\) from public, anon, authenticated/);
   assert.match(sql, /grant execute on function public\.raxi_series_create\(uuid, jsonb, jsonb\) to service_role/);
 });
+
+// ---------------- Continuity inside a campaign ----------------
+import { continuityBlocked, continuityGroups, continuityOf, continuationScene, continuityOrder } from '../../../supabase/functions/raxi-agent-runner/continuity';
+
+test('campaign continuity: only valid continuations of an earlier new photo, max 6 per base', () => {
+  assert.deepEqual(continuityOf([{}, { continuidad_de: 1 }, { continuidad_de: 1 }, { continuidad_de: 2 }, { continuidad_de: 9 }, { continuidad_de: 5 }, { continuidad_de: 7 }]),
+    [null, 1, 1, null, null, 5, null], 'a continuation of a continuation, of a future post or of itself becomes a new photo');
+  const many = [{}, ...Array.from({ length: 8 }, () => ({ continuidad_de: 1 }))];
+  assert.equal(continuityOf(many).filter((b) => b === 1).length, 6);
+  assert.equal(continuationScene({ escena: 'sitting on the bed', plano: 'close-up, looking at the phone' }), 'sitting on the bed. close-up, looking at the phone');
+});
+
+test('campaign continuity: groups wait for nothing but skip rejected, made or started photos', () => {
+  const it = (id: string, position: number, payload: Record<string, unknown>, extra: Record<string, unknown> = {}) => ({ id, position, asset_id: null, payload, ...extra });
+  const groups = continuityGroups([
+    it('a', 1, { kind: 'PHOTO_TO_GENERATE' }, { asset_id: 'base-asset' }),
+    it('b', 2, { kind: 'PHOTO_TO_CONTINUE', base_position: 1, scene: 'sitting' }),
+    it('c', 3, { kind: 'PHOTO_TO_CONTINUE', base_position: 1, scene: 'standing' }, { human_decision: 'REJECTED' }),
+    it('d', 4, { kind: 'PHOTO_TO_CONTINUE', base_position: 1, scene: 'done' }, { asset_id: 'x' }),
+    it('e', 5, { kind: 'PHOTO_TO_CONTINUE', base_position: 1, scene: 'started', series_id: 's' }),
+  ] as never);
+  assert.equal(groups.length, 1);
+  assert.deepEqual(groups[0].items.map((i) => i.id), ['b']);
+  assert.equal(groups[0].baseAssetId, 'base-asset');
+});
+
+test('campaign continuity: Fanvue and missing prerequisites block it; the order prices it in mills', () => {
+  const ok = { channel: 'INSTAGRAM', identityLocked: true, hasGeneralRefs: true, keyConnected: true, priceEnabled: true };
+  assert.equal(continuityBlocked(ok), null);
+  assert.match(String(continuityBlocked({ ...ok, channel: 'FANVUE_FEED' })), /serie pendiente/);
+  assert.match(String(continuityBlocked({ ...ok, identityLocked: false })), /identidad/);
+  assert.match(String(continuityBlocked({ ...ok, keyConnected: false })), /WaveSpeed/);
+  const g = [{ basePosition: 1, baseItemId: 'a', baseAssetId: null, items: [{ id: 'b' }, { id: 'c' }, { id: 'd' }], scenes: ['x', 'y', 'z'] }] as never;
+  const order = continuityOrder(g, 44, null)!;
+  assert.equal(order.total_mills, 132); assert.equal(order.total_usd, 0.132);
+  assert.deepEqual(order.grupos[0].item_ids, ['b', 'c', 'd']);
+  const blocked = continuityOrder(g, 44, 'motivo')!;
+  assert.equal(blocked.total_usd, 0, 'a blocked continuity adds nothing to the approved amount');
+  assert.equal(continuityOrder([], 44, null), null);
+});
+
+test('series migration: a series started by a campaign creates no extra Fototeca collection', async () => {
+  const db = await migrated();
+  await db.exec(`insert into public.raxi_identity_versions values ('${ws}', 'vesper-corvus', 3, 'LOCKED')`);
+  const s = S({ proposal_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee' });
+  await db.query(`select public.raxi_series_create($1::uuid, $2::jsonb, $3::jsonb)`, [owner, s, T(s)]);
+  assert.equal(Number((await db.query<{ n: number }>(`select count(*)::int as n from public.raxi_portfolio_collections`)).rows[0].n), 0);
+  assert.equal((await db.query<{ c: string | null }>(`select collection_id as c from public.raxi_series`)).rows[0].c, null);
+});

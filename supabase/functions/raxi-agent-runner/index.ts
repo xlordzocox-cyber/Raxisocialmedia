@@ -5,6 +5,11 @@
 // Secrets (server only): ANTHROPIC_API_KEY, ARIA_MCP_URL, ARIA_MCP_TOKEN.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { continuityBlocked, continuityGroups, continuityOf, continuationScene, continuityOrder, type CampaignItem } from "./continuity.ts";
+import { makeCreatorDeps } from "../sheet-creator/deps.ts";
+import { handleSeries } from "../sheet-creator/series.ts";
+import { quoteSeries } from "../sheet-creator/seriesPlan.ts";
+const CONTINUITY_MODEL = "bytedance/seedream-v5.5/edit"; // AGENTS.md: Raxi HQ creator default
 
 const MODELS = {
   sonnet: { id: "claude-sonnet-5-5", inPerM: 2, outPerM: 10 },
@@ -170,10 +175,16 @@ async function materializeCampaign(db: SupabaseClient, job: Record<string, unkno
         payload: { kind: "REEL_STEP", seconds: Number(step.segundos) || null, source_collection: txt(data.coleccion_existente, 128), source_position: Number(step.posicion) || null, job: job.id } });
     });
   } else {
-    ((data.publicaciones as Record<string, unknown>[] | undefined) ?? []).slice(0, 30).forEach((post, idx) => {
+    const posts = ((data.publicaciones as Record<string, unknown>[] | undefined) ?? []).slice(0, 30);
+    const bases = continuityOf(posts);
+    posts.forEach((post, idx) => {
+      const base = bases[idx];
       rows.push({ position: idx + 1, asset_id: null, aria_file: null, caption: txt(post.texto, 2200) || null, alt_text: txt(post.alt, 1000) || null,
         crop: channel === "INSTAGRAM_STORY" ? "9:16" : "4:5",
-        payload: { kind: "PHOTO_TO_GENERATE", scene: txt(post.escena, 500), shot: txt(post.plano, 200), prompt: txt(post.prompt, 6000), job: job.id } });
+        payload: base === null
+          ? { kind: "PHOTO_TO_GENERATE", scene: txt(post.escena, 500), shot: txt(post.plano, 200), prompt: txt(post.prompt, 6000), job: job.id }
+          // Same moment as photo `base`: made by the Raxi HQ creator from the archived base photo.
+          : { kind: "PHOTO_TO_CONTINUE", base_position: base, scene: continuationScene(post), job: job.id } });
     });
   }
   const concept = [txt(data.concepto, 2000), txt(data.microhistoria, 1900)].filter(Boolean).join("\n\n") || null;
@@ -343,7 +354,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       BRIEF: `{"viable":true,"objetivo_trabajo":"","preguntas_investigacion":["máx. 4"],"criterios_exito":["máx. 3"],"riesgos":["máx. 3"]}`,
       RESEARCH: `{"modelos":[{"nombre":"","plataforma":"","por_que":"","patrones":["máx. 3"],"fuentes":["URL, máx. 2"]}],"patrones_adaptables":["máx. 4"],"no_copiar":["máx. 3"],"hipotesis":["máx. 3"],"limitaciones":""}`,
       STRATEGY: `{"decision":"SUFICIENTE|MAS_INVESTIGACION","evaluacion_investigacion":"","preguntas_extra":[],"estrategia":{"objetivo":"","audiencia":"","plataformas":[{"plataforma":"","rol":""}],"funnel":"","mensajes_clave":["máx. 3"],"formatos":["máx. 4"],"duracion":"","metrica_principal":"","metricas_secundarias":["máx. 3"],"hipotesis":["máx. 3"],"riesgos":[{"riesgo":"","mitigacion":""}]}}`,
-      DESIGN: `{"concepto":"","microhistoria":"","publicaciones":[{"posicion":1,"escena":"","plano":"","prompt":"","texto":"","alt":""}],"coleccion_existente":null,"montaje":[{"posicion":1,"segundos":1,"texto_pantalla":""}],"modelo_aria":"","costo_estimado_usd":0,"checklist_qa":["máx. 6"]}`,
+      DESIGN: `{"concepto":"","microhistoria":"","publicaciones":[{"posicion":1,"escena":"","plano":"","prompt":"","texto":"","alt":"","continuidad_de":null}],"coleccion_existente":null,"montaje":[{"posicion":1,"segundos":1,"texto_pantalla":""}],"modelo_aria":"","costo_estimado_usd":0,"checklist_qa":["máx. 6"]}`,
       ARCHIVE: `{"resumen":"","facetas":{},"aprendizajes":[],"evitar_repetir":[]}`,
       COPY: `{"gancho":"","caption":"","hashtags":[],"primer_comentario":"","cta":"","alt_reel":"","audio_sugerido":""}`,
       QA: `{"estado":"APPROVED|APPROVED_WITH_CAUTION|REWRITE|REJECT","resumen":"","items":[{"posicion":1,"estado":"PASS|CAUTION|FAIL","nota":""}],"copy":{"estado":"OK|REWRITE","nota":""},"defectos":[]}`,
@@ -389,7 +400,18 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       model = "haiku";
       const { col, items } = await loadCampaign(db, proposal!);
       const todo = items.filter((i) => !i.asset_id && (i.payload as Record<string, unknown>)?.kind === "PHOTO_TO_GENERATE");
-      if (!todo.length) throw new Error("No hay fotos pendientes por producir en esta campaña.");
+      const groups = continuityGroups(items as unknown as CampaignItem[]);
+      if (!todo.length && !groups.length) throw new Error("No hay fotos pendientes por producir en esta campaña.");
+      // Continuity part: priced with the creator's verified WaveSpeed price; only public channels and a locked identity.
+      const creator = makeCreatorDeps(db, db);
+      const cChar = String(proposal?.character_id ?? "");
+      const cPrice = await creator.price(CONTINUITY_MODEL);
+      const cRefs = await creator.currentRefs(String(job.workspace_id), cChar);
+      const { data: ownerRow } = await db.from("raxi_workspaces").select("owner_user_id").eq("id", job.workspace_id).maybeSingle();
+      const blocked = groups.length ? continuityBlocked({ channel: String(col.channel), identityLocked: await creator.identityLocked(String(job.workspace_id), cChar),
+        hasGeneralRefs: Boolean(cRefs.face && cRefs.body), keyConnected: Boolean(ownerRow && await creator.secret(String(ownerRow.owner_user_id))), priceEnabled: Boolean(cPrice?.enabled) }) : null;
+      const perPhoto = cPrice?.enabled ? quoteSeries({ shots: 1, refs: 2, resolution: "1k", price: cPrice }).perPhotoMills : 0;
+      const continuidad = continuityOrder(groups, perPhoto, blocked);
       const catalog = ((await aria("modelos")).modelos as Record<string, unknown>[] | undefined ?? []).filter((m) => Number(m.usd_std) > 0);
       if (!catalog.length) throw new Error("Aria no devolvió modelos disponibles.");
       const keys = new Set(catalog.map((m) => String(m.key)));
@@ -412,8 +434,10 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       const fixed = txt(fixedRow?.fixed_prompt, 4000);
       const fotos = todo.map((i) => { const scene = String((i.payload as Record<string, unknown>).prompt ?? "").slice(0, 4000);
         return { item_id: i.id, posicion: i.position, prompt: fixed ? `${fixed}\n\nSCENE:\n${scene}` : scene }; });
+      const ariaTotal = Number((unit * fotos.length).toFixed(4));
       const plan = { modelo_key: key, modelo_nombre: m.nombre, precio_unitario_usd: unit, calidad: "std", formato, personaje, fotos,
-        total_usd: Number((unit * fotos.length).toFixed(4)),
+        aria_total_usd: ariaTotal, continuidad,
+        total_usd: Number((ariaTotal + (continuidad?.total_usd ?? 0)).toFixed(4)),
         prompt_fijo: fixed ? "Incluido al inicio de cada foto" : "Sin prompt fijo para este personaje",
         nota: fromNote ? "Modelo que pediste en tu nota." : fromPref ? "Tu modelo preferido (conserva mejor la cara)." : fromText ? "Modelo indicado en el diseño." : "Se usa el modelo general por defecto." };
       result = { text: JSON.stringify(plan), usage: {}, stopReason: "end_turn", cost: 0, sources: [] };
@@ -423,19 +447,21 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       const plan = input.plan as Record<string, unknown> | undefined;
       const approved = Number(input.approved_usd);
       if (!plan || !Number.isFinite(approved)) throw new Error("Falta la orden aprobada.");
-      const { items } = await loadCampaign(db, proposal!);
+      const { col: genCol, items } = await loadCampaign(db, proposal!);
       const byId = new Map(items.map((i) => [String(i.id), i]));
       // Spending limit per approval: only rounds of THIS approved order count (a redo gets its own approval).
       const { data: prev } = await db.from("raxi_agent_jobs").select("cost_usd").eq("proposal_id", job.proposal_id).eq("kind", "GENERATE").neq("id", job.id)
         .eq("input->>approved_at", String(input.approved_at ?? ""));
       let spent = (prev ?? []).reduce((t, r) => t + Number(r.cost_usd), 0), costNow = 0;
+      const continuityPlan = plan.continuidad as { grupos?: { base_posicion: number; item_ids: string[]; escenas: string[]; total_mills: number }[]; total_usd?: number } | null | undefined;
+      const continuityReserved = Number(continuityPlan?.total_usd ?? 0);
       const unit = Number(plan.precio_unitario_usd);
       try {
       for (const f of (plan.fotos as Record<string, unknown>[]) ?? []) {
         const it = byId.get(String(f.item_id));
         const pl = (it?.payload ?? {}) as Record<string, unknown>;
         if (!it || it.asset_id || pl.aria_request_id || it.aria_file) continue;
-        if (spent + unit > approved + 1e-6) break; // never above what was approved
+        if (spent + unit > approved - continuityReserved + 1e-6) break; // never above what was approved (continuity keeps its part)
         const r = await aria("generar_imagen", { personaje: plan.personaje, escena: f.prompt, modelo: plan.modelo_key, calidad: plan.calidad, formato: plan.formato });
         const rid = ariaIdOf(r);
         if (!rid) throw new Error(`Aria no devolvió un id: ${JSON.stringify(r).slice(0, 200)}`);
@@ -466,6 +492,44 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       // Archive into the Fototeca (download, hash, private storage) and give it a moment to finish.
       const supa = Deno.env.get("SUPABASE_URL")!;
       await fetch(`${supa}/functions/v1/raxi-archive-aria`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => null);
+      // Continuity: once a base photo is archived, the creator makes the rest of that moment (approved in this same order).
+      if (continuityPlan?.grupos?.length) {
+        const creator = makeCreatorDeps(db, db);
+        const { data: ownerRow } = await db.from("raxi_workspaces").select("owner_user_id").eq("id", job.workspace_id).maybeSingle();
+        const actor = String(ownerRow?.owner_user_id ?? "");
+        const { data: fresh } = await db.from("raxi_portfolio_items").select("id, position, asset_id, human_decision, payload").in("id", items.map((i) => i.id));
+        const freshById = new Map((fresh ?? []).map((i) => [String(i.id), i]));
+        for (const g of continuityPlan.grupos) {
+          const base = (fresh ?? []).find((i) => Number(i.position) === Number(g.base_posicion));
+          const pendingItems = g.item_ids.map((id) => freshById.get(id)).filter((i) => i && !i.asset_id && i.human_decision !== "REJECTED");
+          if (!base?.asset_id || !actor || !pendingItems.length) continue;
+          const started = pendingItems.find((i) => typeof (i!.payload as Record<string, unknown>)?.series_id === "string");
+          let seriesId = started ? String((started.payload as Record<string, unknown>).series_id) : null;
+          if (!seriesId) {
+            // Luis approved this exact amount at PRODUCTION_COST; the creator re-quotes and refuses if the price changed.
+            const out = await handleSeries(creator, actor, String(job.workspace_id), { action: "SERIES_START", character: String(proposal?.character_id ?? ""),
+              baseAssetId: String(base.asset_id), channel: String(genCol.channel),
+              scenes: g.escenas, model: CONTINUITY_MODEL, resolution: "1k", attestNotReal: true, expectedTotalMills: g.total_mills,
+              proposalId: String(job.proposal_id), title: `Continuidad de la foto ${g.base_posicion}` });
+            if (out.status !== 200) throw new Error(`Continuidad de la foto ${g.base_posicion}: ${String(out.body.error ?? out.status)}`);
+            seriesId = String(out.body.seriesId);
+            costNow += g.total_mills / 1000;
+            for (const [n, id] of g.item_ids.entries()) {
+              const it = freshById.get(id);
+              if (it) await db.from("raxi_portfolio_items").update({ payload: { ...(it.payload as Record<string, unknown>), series_id: seriesId, shot: n + 1 }, updated_at: now() }).eq("id", id);
+            }
+          }
+          const st = await handleSeries(creator, actor, String(job.workspace_id), { action: "SERIES_STATUS", seriesId });
+          const takes = (st.body.takes as { id: string; shot: number; takeNo: number; status: string; chosen: boolean }[] | undefined) ?? [];
+          for (const [n, id] of g.item_ids.entries()) {
+            const it = freshById.get(id);
+            const done = takes.filter((t) => t.shot === n + 1 && t.status === "SUCCEEDED").sort((a, b) => b.takeNo - a.takeNo)[0];
+            if (!it || it.asset_id || !done) continue;
+            const chosen = await handleSeries(creator, actor, String(job.workspace_id), { action: "SERIES_CHOOSE", takeId: done.id });
+            if (chosen.status === 200) { await db.from("raxi_portfolio_items").update({ asset_id: String(chosen.body.assetId), updated_at: now() }).eq("id", id); ready += 1; }
+          }
+        }
+      }
       const { data: after } = await db.from("raxi_portfolio_items").select("id, asset_id, aria_file, payload, human_decision").in("id", items.map((i) => i.id));
       const missing = (after ?? []).filter((i) => i.human_decision !== "REJECTED" && !i.asset_id).length;
       const data = { generadas_ahora: Math.round(costNow / (unit || 1)), listas_en_esta_vuelta: ready, pendientes: missing, gastado_usd: Number(costNow.toFixed(4)), aprobado_usd: approved };
@@ -595,7 +659,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
           `Fotos que ya existen en la Fototeca (colección → posición: descripción):\n${archive}\n\n` +
           `Usa mis_personajes de Aria para respetar la identidad exacta del personaje y modelos para el precio real por imagen. ` +
           `Diseña concepto, microhistoria y publicaciones. Si es un Reel con fotos ya existentes: kit de montaje sin generar nada, "coleccion_existente" = id de la colección y "posicion" = número de foto en ella; "publicaciones" vacío. ` +
-          `Si requiere fotos nuevas: un prompt en inglés por foto con SOLO la escena (acción, lugar, vestuario, cámara/POV, luz, realismo; máx. 120 palabras): Producción antepone automáticamente el prompt fijo del personaje (identidad, anatomía, collar, @Image1), así que no lo repitas ni lo contradigas. Texto ES/EN breve y alt. ` +
+          `Si requiere fotos nuevas: un prompt en inglés por foto con SOLO la escena (acción, lugar, vestuario, cámara/POV, luz, realismo; máx. 120 palabras): Producción antepone automáticamente el prompt fijo del personaje (identidad, anatomía, collar, @Image1), así que no lo repitas ni lo contradigas. Texto ES/EN breve y alt. Continuidad: si varias fotos son el MISMO momento (mismo lugar, ropa y luz; cambia solo la pose, el gesto o el encuadre), haz nueva solo la primera y marca las demás con "continuidad_de" = posición de esa primera foto (máx. 6 por base; la base nunca es continuidad de otra). En ellas escribe en "escena" y "plano" solo qué cambia (pose, gesto, encuadre) en inglés, sin repetir lugar ni ropa. Producción las hace con el creador de Raxi HQ usando la foto base, más barato y con la misma ropa y lugar. Solo para Instagram, Stories y teaser. ` +
           `Modelo de Aria recomendado y costo estimado con precios reales.\n${COMPACT} (Los prompts pueden superar las 25 palabras.)\nForma: ${SCHEMAS.DESIGN}` });
     }
     const output: Record<string, unknown> = { markdown: result.text.slice(0, 60000), data: ["FINAL", "PRODUCTION", "GENERATE"].includes(kind) ? JSON.parse(result.text) : lastJson(result.text), sources: result.sources, model: MODELS[model].id };

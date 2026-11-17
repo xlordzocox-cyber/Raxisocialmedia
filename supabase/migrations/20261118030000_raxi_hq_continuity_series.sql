@@ -92,11 +92,17 @@ begin
   end loop;
   select coalesce(sum((e->>'cost_mills')::integer), 0) into v_total from jsonb_array_elements(p_takes) e;
   if v_total > (p_series->>'ceiling_mills')::integer then raise exception 'over the series ceiling' using errcode = '22023'; end if;
-  insert into public.raxi_portfolio_collections (id, workspace_id, external_id, character_id, title, channel, status, concept, payload)
-  values (v_col, v_ws, 'serie-' || v_id::text, v_char, left(coalesce(nullif(p_series->>'title', ''), 'Serie de continuidad'), 160),
-          p_series->>'channel', 'DRAFT', null, jsonb_build_object('series_id', v_id, 'content_level', v_level));
-  insert into public.raxi_portfolio_items (workspace_id, collection_id, position, asset_id, payload)
-  values (v_ws, v_col, 1, v_base.id, jsonb_build_object('kind', 'SERIES_BASE', 'series_id', v_id));
+  -- A series started from the Fototeca gets its own collection (base at position 1). A series started by a campaign
+  -- puts its photos in the campaign's own items instead, so no extra collection is created.
+  if nullif(p_series->>'proposal_id', '') is null then
+    insert into public.raxi_portfolio_collections (id, workspace_id, external_id, character_id, title, channel, status, concept, payload)
+    values (v_col, v_ws, 'serie-' || v_id::text, v_char, left(coalesce(nullif(p_series->>'title', ''), 'Serie de continuidad'), 160),
+            p_series->>'channel', 'DRAFT', null, jsonb_build_object('series_id', v_id, 'content_level', v_level));
+    insert into public.raxi_portfolio_items (workspace_id, collection_id, position, asset_id, payload)
+    values (v_ws, v_col, 1, v_base.id, jsonb_build_object('kind', 'SERIES_BASE', 'series_id', v_id));
+  else
+    v_col := null;
+  end if;
   insert into public.raxi_series (id, workspace_id, character_id, channel, level, base_asset_id, base_path, identity_version, ref_asset_ids, ref_paths,
                                   scenes, model, resolution, ceiling_mills, attested_not_real, collection_id, proposal_id, created_by)
   values (v_id, v_ws, v_char, p_series->>'channel', v_level, v_base.id, v_base.object_path, v_identity,
