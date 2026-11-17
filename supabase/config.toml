@@ -9,3 +9,6 @@ verify_jwt = true
 
 [functions.provider-connection]
 verify_jwt = true
+
+[functions.talent-reference]
+verify_jwt = true
