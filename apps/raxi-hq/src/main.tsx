@@ -5,6 +5,8 @@ import { AuthProvider } from './auth/AuthProvider';
 import { AuthRoutes } from './auth/AuthRoutes';
 import { AuthStore } from './auth/authStore';
 import { supabase } from './auth/client';
+import '@fontsource-variable/inter';
+import '@fontsource-variable/fraunces';
 import './design/tokens.css';
 import './design/global.css';
 import './campus/campus.css';
