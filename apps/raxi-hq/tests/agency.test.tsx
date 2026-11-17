@@ -11,12 +11,12 @@ import { AgenciaPage } from '../src/agency/AgenciaPage';
 
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true });
 
-test('agency nav: five sections, the current one is marked', async () => {
-  assert.deepEqual(AGENCY_SECTIONS.map((s) => [s.to, s.label]), [['/', 'Agencia'], ['/fototeca', 'Fototeca'], ['/multimedia', 'Archivo'], ['/conexiones', 'Conexiones'], ['/estudio', 'Estudio en vivo']]);
+test('agency nav: six sections, the current one is marked', async () => {
+  assert.deepEqual(AGENCY_SECTIONS.map((s) => [s.to, s.label]), [['/', 'Agencia'], ['/talento', 'Talento'], ['/fototeca', 'Fototeca'], ['/multimedia', 'Archivo'], ['/conexiones', 'Conexiones'], ['/estudio', 'Estudio en vivo']]);
   let r!: ReactTestRenderer;
   await act(async () => { r = create(<MemoryRouter initialEntries={['/fototeca']}><AgencyNav /></MemoryRouter>); });
   const links = r.root.findAllByType('a');
-  assert.deepEqual(links.map((a) => a.props.href), ['/', '/fototeca', '/multimedia', '/conexiones', '/estudio']);
+  assert.deepEqual(links.map((a) => a.props.href), ['/', '/talento', '/fototeca', '/multimedia', '/conexiones', '/estudio']);
   assert.deepEqual(links.filter((a) => a.props['aria-current'] === 'page').map((a) => a.props.href), ['/fototeca']);
   assert.equal(r.root.findByType('nav').props['aria-label'], 'Secciones de la agencia');
 });

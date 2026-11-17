@@ -31,3 +31,6 @@
 .agency-bar { height: 6px; border-radius: var(--radius-pill); background: var(--border); overflow: hidden; }
 .agency-bar span { display: block; height: 100%; background: var(--accent); }
 .agency-cover-empty { display: grid; place-items: center; color: var(--muted); font-size: var(--text-sm); }
+.agency-talent-name a { color: inherit; text-decoration: none; }
+.agency-talent-name a:hover { color: var(--accent); }
+.agency-talent-name a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

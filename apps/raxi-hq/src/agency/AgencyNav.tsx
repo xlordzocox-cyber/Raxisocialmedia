@@ -3,6 +3,7 @@ import './agency.css';
 
 export const AGENCY_SECTIONS = [
   { to: '/', label: 'Agencia' },
+  { to: '/talento', label: 'Talento' },
   { to: '/fototeca', label: 'Fototeca' },
   { to: '/multimedia', label: 'Archivo' },
   { to: '/conexiones', label: 'Conexiones' },
