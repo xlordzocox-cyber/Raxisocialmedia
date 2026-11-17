@@ -57,11 +57,11 @@ test('sheet prompts: identity first, headless body views, change instruction las
   }
   assert.doesNotMatch(buildSheetPrompt({ level: 'ADULT', view: 'BODY_FRONT', fixedPrompt: null }), /bra/, 'the adult template keeps its own wardrobe');
   for (const level of ['GENERAL', 'ADULT'] as const) for (const view of ['BODY_FRONT', 'BODY_SIDE', 'BODY_BACK'] as const)
-    assert.match(buildSheetPrompt({ level, view, fixedPrompt: null, adultTemplate: level === 'ADULT' ? 'Plantilla de Luis.' : null }), /down to the feet, both feet fully visible/, `${level} ${view} framed to the feet`);
+    assert.match(buildSheetPrompt({ level, view, fixedPrompt: null, adultTemplate: level === 'ADULT' ? 'Plantilla de Luis.' : null }), /head, face and hair are completely outside the frame, both feet fully visible/, `${level} ${view} framed to the feet`);
   assert.doesNotMatch(buildSheetPrompt({ level: 'GENERAL', view: 'FRONT', fixedPrompt: null }), /feet/, 'face views keep their framing');
   assert.match(ADULT_TEMPLATE, /artistic anatomical reference, neutral standing pose, non-sexual/);
   assert.match(buildSheetPrompt({ level: 'ADULT', view: 'BODY_FRONT', fixedPrompt: null }), /non-sexual/);
-  assert.match(buildSheetPrompt({ level: 'ADULT', view: 'BODY_FRONT', fixedPrompt: null, adultTemplate: 'Plantilla de Luis.' }), /^Plantilla de Luis, full body from the neck down to the feet/);
+  assert.match(buildSheetPrompt({ level: 'ADULT', view: 'BODY_FRONT', fixedPrompt: null, adultTemplate: 'Plantilla de Luis.' }), /^Plantilla de Luis, framed from the neck down to the feet/);
   assert.throws(() => buildSheetPrompt({ level: 'GENERAL', view: 'FRONT', fixedPrompt: 'y'.repeat(4001) }), /largo/);
   assert.throws(() => buildSheetPrompt({ level: 'ADULT', view: 'FRONT', fixedPrompt: null }), /vista/);
 });
