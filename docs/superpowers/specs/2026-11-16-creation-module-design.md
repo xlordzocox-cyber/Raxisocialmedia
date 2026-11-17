@@ -96,3 +96,15 @@ Piezas que ya existen ahí y que el módulo **reutiliza en vez de duplicar**:
 | `metadata.content_level` (`PUBLIC` / `NSFW` / `EXPLICIT`) en Multimedia | Clasificar cada foto generada; lo no público nunca aparece en superficies de Instagram |
 
 Esto sustituye lo dicho en la sección 4 sobre un bucket nuevo y una tabla de generaciones con Asset ID propio. Tablas realmente nuevas: identidad versionada, órdenes de serie y libro de costos.
+
+## 11. Sección "Conexiones" (añadida por Luis, 2026-11-16)
+
+Luis pidió una sección en Raxi HQ para conectar de forma segura la clave de API de WaveSpeed, en vez de cargarla a mano como secreto de Supabase. Sustituye el punto 3 de la sección 9.
+
+- **Dónde:** ruta protegida `/conexiones`. En el rediseño pasa a la navegación de la agencia.
+- **Qué hace:** guardar y comprobar la clave, ver su estado y sus últimos 4 caracteres, probar la conexión, reemplazarla y desconectarla.
+- **Cómo se protege:** el navegador la envía por HTTPS a la Edge Function `provider-connection` con la sesión de Luis; la función la comprueba contra WaveSpeed y la guarda cifrada en Supabase Vault mediante una RPC exclusiva de `service_role`. La clave nunca vuelve al navegador ni aparece en logs, auditoría o respuestas.
+- **Quién la lee:** solo funciones del servidor (`provider-connection` y, después, `creation-command`), con `raxi_connection_secret`.
+- **Límite del diseño:** quien entre con la cuenta de Luis puede reemplazar o borrar la clave, pero no leerla.
+
+Plan de implementación: `docs/superpowers/plans/2026-11-16-conexiones-seguras.md`. Es el primer plan en ejecutarse porque desbloquea el resto del módulo.
