@@ -55,3 +55,26 @@ Cada paso deja la app funcionando, con `npm test` y `npm run typecheck` en verde
 ## 6. Pruebas
 
 Pruebas de render de los componentes base y de las rutas nuevas (el repo ya usa `react-test-renderer`); una comprobación automática de que no quedan hex fuera de `tokens.css`; revisión visual de Luis por paso.
+
+## 7. Fototeca y Multimedia (añadido por Luis, 2026-11-16)
+
+**Hecho verificado:** la app actual vive en `feat/claude-team-office`, con tres rutas protegidas: `/` (oficina), `/fototeca` y `/multimedia` (`src/portfolio/`). El plan parte de esa rama, no de `main`.
+
+**Regla:** mejorar su aspecto sin perder nada de lo que ya funciona. Solo cambia la presentación; los modelos de datos (`portfolioModel.ts`, `mediaModel.ts`), la RPC `raxi_portfolio_decide` y las pruebas existentes no se tocan y deben seguir en verde.
+
+Lo que hoy funciona y se conserva tal cual:
+
+- **Fototeca:** campañas con sus fotos y progreso; aprobar, corregir, descartar y volver a pendiente; "Rehacer esta foto"; paquete de publicación (texto para Instagram, hashtags, primer comentario, texto alternativo, audio sugerido) con botones de copiar; recorte 4:5 para el feed; "Marcar como publicada" con enlace de Instagram; recordatorio de la etiqueta «AI info»; "Armar video del Reel"; abrir el original.
+- **Multimedia:** todas las fotos archivadas, las más nuevas primero; filtros por personaje y nivel de contenido; vínculo con campañas; detalle de la foto; solo lectura; lo no público marcado como solo para Fanvue.
+
+Encaje en la estructura de agencia (sección 2):
+
+| Hoy | En la versión agencia |
+|---|---|
+| `/fototeca` | Vive dentro de **Producción** como "Fototeca"; conserva su ruta |
+| `/multimedia` | Vive dentro de **Producción** como "Archivo"; conserva su ruta |
+| Navegación propia (Oficina / Fototeca / Multimedia) | Se reemplaza por la navegación común de la agencia |
+
+Mejoras visuales: mismas fuentes, tokens y componentes base; cuadrícula editorial con fotos más grandes; estados de QA y decisión con el badge común; el paquete de publicación como panel lateral legible; sin desbordamiento horizontal en teléfono (ya corregido en el commit `18c5c53`, se mantiene).
+
+Orden de trabajo actualizado: Fototeca y Multimedia se migran en el paso 4, junto con Producción.

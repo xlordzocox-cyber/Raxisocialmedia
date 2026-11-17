@@ -80,3 +80,19 @@ TDD (rojo → verde → refactor) con WaveSpeed simulado para toda la lógica: p
 1. Aplicar en `AGENTS.md` la excepción aprobada (sección 6 del spec), en un commit propio.
 2. Actualizar `apps/raxi-hq/src/adapters/aria/README.md`.
 3. Luis: segunda clave de WaveSpeed como secreto de Supabase; ficha corregida de Vesper.
+
+## 10. Corrección de base (2026-11-16, tras revisar `feat/claude-team-office`)
+
+**Hecho verificado:** la app que funciona hoy en staging vive en la rama `feat/claude-team-office` (65 archivos y +5,693 líneas por delante de `main`). Este diseño y el spec se escribieron mirando `main`, donde esas piezas no existen. El plan debe partir de `feat/claude-team-office`.
+
+Piezas que ya existen ahí y que el módulo **reutiliza en vez de duplicar**:
+
+| Ya existe | Uso en el módulo |
+|---|---|
+| Bucket privado `raxi-hq-private` + tabla `raxi_assets` (sha256, ruta por workspace) | Archivo de las fotos generadas. **No se crea otro bucket ni otra tabla de assets** |
+| `raxi_portfolio_collections` / `raxi_portfolio_items` + RPC auditada `raxi_portfolio_decide` | Cada serie es una colección; cada foto, un ítem con su QA y decisión de Luis |
+| `raxi_archive_requests` + Edge Function `raxi-archive-aria` | Importación de la foto base de Aria (ya descarga, verifica y calcula sha256) |
+| Edge Function `raxi-agent-runner` y el pipeline de campaña | Punto de integración de los agentes; por estudiar al escribir el plan |
+| `metadata.content_level` (`PUBLIC` / `NSFW` / `EXPLICIT`) en Multimedia | Clasificar cada foto generada; lo no público nunca aparece en superficies de Instagram |
+
+Esto sustituye lo dicho en la sección 4 sobre un bucket nuevo y una tabla de generaciones con Asset ID propio. Tablas realmente nuevas: identidad versionada, órdenes de serie y libro de costos.
