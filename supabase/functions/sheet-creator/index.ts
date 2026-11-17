@@ -2,6 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { createSheetHandler, type RunRow, type TakeRow } from './handler.ts';
 import { createWaveSpeed } from './wavespeed.ts';
 import type { Price } from './sheetPlan.ts';
+import type { SeriesRow, SeriesTakeRow } from './series.ts';
 
 const url = Deno.env.get('SUPABASE_URL')!;
 const auth = createClient(url, Deno.env.get('SUPABASE_ANON_KEY')!, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -115,6 +116,62 @@ Deno.serve(createSheetHandler({
   async supersede(ws, character, angle, level, keepId) {
     const { error } = await server.rpc('raxi_reference_supersede', { p_ws: ws, p_character: character, p_angle: angle, p_level: level, p_keep: keepId });
     if (error) throw new Error('supersede');
+  },
+  // ---- Continuity series (same engine) ----
+  async identityLocked(ws, character) {
+    const { count, error } = await server.from('raxi_identity_versions').select('version', { count: 'exact', head: true }).eq('workspace_id', ws).eq('character_id', character).eq('status', 'LOCKED');
+    if (error) throw new Error('identity');
+    return (count ?? 0) > 0;
+  },
+  async baseAsset(ws, character, assetId) {
+    const { data, error } = await server.from('raxi_assets').select('id,object_path,kind,metadata').eq('workspace_id', ws).eq('id', assetId).maybeSingle();
+    if (error) throw new Error('base');
+    if (!data || !['ORIGINAL', 'REFERENCE'].includes(data.kind) || data.metadata?.character_id !== character || data.metadata?.superseded_by) return null;
+    const lvl = data.metadata?.content_level;
+    return { id: data.id, objectPath: data.object_path, level: lvl === 'NSFW' || lvl === 'EXPLICIT' ? lvl : 'PUBLIC' };
+  },
+  async currentRefs(ws, character) {
+    const { data, error } = await server.from('raxi_assets').select('id,object_path,metadata,created_at').eq('workspace_id', ws).eq('kind', 'REFERENCE')
+      .eq('metadata->>character_id', character).in('metadata->>angle', ['FRONT', 'BODY_FRONT']).is('metadata->>superseded_by', null).order('created_at', { ascending: false });
+    if (error) throw new Error('refs');
+    const out: { face?: { id: string; objectPath: string }; body?: { id: string; objectPath: string }; adultBody?: { id: string; objectPath: string } } = {};
+    for (const a of data ?? []) {
+      const ref = { id: a.id as string, objectPath: a.object_path as string };
+      const lvl = a.metadata?.content_level; const angle = a.metadata?.angle;
+      if (angle === 'FRONT' && lvl === 'PUBLIC' && !out.face) out.face = ref;
+      else if (angle === 'BODY_FRONT' && lvl === 'PUBLIC' && !out.body) out.body = ref;
+      else if (angle === 'BODY_FRONT' && lvl === 'NSFW' && !out.adultBody) out.adultBody = ref;
+    }
+    return out;
+  },
+  async createSeries(actor, series, takes) {
+    const { error } = await server.rpc('raxi_series_create', { p_actor: actor, p_series: series, p_takes: takes });
+    if (error) throw capError(error);
+  },
+  async addSeriesTake(actor, take) {
+    const { error } = await server.rpc('raxi_sheet_add_take', { p_actor: actor, p_take: take });
+    if (error) throw capError(error);
+  },
+  async loadSeries(ws, seriesId) {
+    const { data: series, error } = await server.from('raxi_series').select('*').eq('workspace_id', ws).eq('id', seriesId).maybeSingle();
+    if (error) throw new Error('series');
+    if (!series) return null;
+    const { data: takes, error: e2 } = await server.from('raxi_sheet_takes').select('*').eq('workspace_id', ws).eq('series_id', seriesId);
+    if (e2) throw new Error('takes');
+    return { series: series as SeriesRow, takes: (takes ?? []) as SeriesTakeRow[] };
+  },
+  async loadSeriesTake(ws, takeId) {
+    const { data } = await server.from('raxi_sheet_takes').select('*').eq('workspace_id', ws).eq('id', takeId).not('series_id', 'is', null).maybeSingle();
+    return (data as SeriesTakeRow | null) ?? null;
+  },
+  async registerSeriesPhoto(row) {
+    const { error } = await server.from('raxi_assets').insert({ ...row, bucket_id: BUCKET });
+    if (error) throw new Error('register');
+  },
+  async placeInCollection(ws, collectionId, position, assetId, payload) {
+    const { error } = await server.from('raxi_portfolio_items').upsert({ workspace_id: ws, collection_id: collectionId, position, asset_id: assetId, payload,
+      qa_status: 'VISUAL_REVIEW_REQUIRED', human_decision: 'PENDING', status: 'DRAFT', updated_at: new Date().toISOString() }, { onConflict: 'workspace_id,collection_id,position' });
+    if (error) throw new Error('collection');
   },
   newId: () => crypto.randomUUID(),
 }));

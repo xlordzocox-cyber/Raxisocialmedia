@@ -4,6 +4,7 @@
 import { anchorOf, chainImages, formatUsd, inputsFor, isLevel, isView, quoteRun, takeCost, viewsFor, CAP_MILLS, type Level, type Price, type Resolution, type View } from './sheetPlan.ts';
 import { buildSheetPrompt, MAX_ADULT_TEMPLATE, MAX_INSTRUCTION } from './sheetPrompts.ts';
 import type { EditBody, PollResult } from './wavespeed.ts';
+import { handleSeries, SERIES_ACTIONS, type SeriesDependencies } from './series.ts';
 
 export type TakeStatus = 'QUEUED' | 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 export interface RunRow {
@@ -56,7 +57,7 @@ class Reply { constructor(readonly status: number, readonly body: Record<string,
 const fail = (status: number, error: string) => new Reply(status, { error });
 const isCap = (e: unknown) => typeof e === 'object' && e !== null && (e as { cap?: unknown }).cap === true;
 
-export function createSheetHandler(d: SheetDependencies) {
+export function createSheetHandler(d: SheetDependencies & SeriesDependencies) {
   const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Cache-Control': 'no-store' };
   const reply = (r: Reply) => Response.json(r.body, { status: r.status, headers });
 
@@ -218,6 +219,7 @@ export function createSheetHandler(d: SheetDependencies) {
         if (typeof b.takeId !== 'string') return fail(400, 'Falta la toma.');
         const take = await d.loadTake(ws, b.takeId);
         if (!take) return fail(404, 'No encontré esa toma.');
+        if (!take.run_id) return fail(409, 'Esa foto es de una serie.');
         if (take.status !== 'SUCCEEDED' || !take.object_path || !take.sha256) return fail(409, 'Esa toma todavía no está lista.');
         if (take.chosen_asset_id) return new Reply(200, { assetId: take.chosen_asset_id, duplicate: true });
         const loaded = await d.loadRun(ws, take.run_id);
@@ -230,8 +232,10 @@ export function createSheetHandler(d: SheetDependencies) {
         await d.supersede(ws, loaded.run.character_id, take.view, level, id);
         return new Reply(200, { assetId: id, duplicate: false });
       }
-      default:
+      default: {
+        if (typeof b.action === 'string' && SERIES_ACTIONS.has(b.action)) { const out = await handleSeries(d, user.id, ws, b); return new Reply(out.status, out.body); }
         return fail(400, 'Acción no válida.');
+      }
     }
   }
 

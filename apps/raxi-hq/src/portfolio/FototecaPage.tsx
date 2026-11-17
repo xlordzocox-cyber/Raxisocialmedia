@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AgencyNav } from '../agency/AgencyNav';
+import { Link } from 'react-router-dom';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseWorkspace } from '../persistence/supabaseIdeaRepository';
 import {
@@ -255,6 +256,7 @@ export function FototecaPage({ client, ownerId }: { client: SupabaseClient; owne
               .then(() => setNotice(`Foto recortada a ${item.crop} descargada.`), () => setNotice('No se pudo recortar en este navegador; usa «Abrir original».'));
           }}>{`Descargar ${item.crop} lista para Instagram`}</button>}
           {item.asset && urls[item.asset.objectPath] && <a className="foto-download" href={urls[item.asset.objectPath]} download target="_blank" rel="noreferrer">Abrir original</a>}
+          {item.asset && <Link className="foto-download" to={`/series/nueva?base=${item.asset.id}&modelo=${collection.characterId}`}>Crear serie de continuidad</Link>}
           <p className="foto-meta">Al publicar, activa la etiqueta «AI info» en Instagram.</p>
           <div className="foto-actions" role="group" aria-label="Decisión">
             <button type="button" disabled={!!busy || !canApprove(item)} onClick={() => void decide(item, 'APPROVED')}>Aprobar</button>
