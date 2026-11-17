@@ -107,6 +107,7 @@ function harness(over: Partial<SheetDependencies> = {}) {
   const takes = new Map<string, TakeRow>();
   const submitted: { model: string; images: string[]; prompt: string }[] = [];
   const registered: Record<string, unknown>[] = [];
+  const superseded: string[] = [];
   let spent = 0; let n = 0; let predN = 0;
   const polls = new Map<string, { status: 'PENDING' | 'SUCCEEDED' | 'FAILED'; outputUrl?: string; error?: string }>();
   const deps: SheetDependencies = {
@@ -133,11 +134,12 @@ function harness(over: Partial<SheetDependencies> = {}) {
     async poll(_key, id) { return polls.get(id) ?? { status: 'PENDING' }; },
     async storeOutput(_url, path) { return { path, sha256: 'c'.repeat(64), byteSize: 10, mime: 'image/png' }; },
     async registerReference(row) { registered.push(row as unknown as Record<string, unknown>); },
+    async supersede(_ws, character, angle, level, keep) { superseded.push(`${character}:${angle}:${level}:${keep}`); },
     newId: () => `id-${++n}`,
     ...over,
   };
   const call = (body: unknown, token = 'good') => createSheetHandler(deps)(new Request('http://x/sheet-creator', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) }));
-  return { deps, runs, takes, submitted, registered, polls, call, setSpent: (v: number) => { spent = v; }, getSpent: () => spent };
+  return { deps, runs, takes, submitted, registered, superseded, polls, call, setSpent: (v: number) => { spent = v; }, getSpent: () => spent };
 }
 const startBody = { action: 'START', character: 'raxi-vox', level: 'GENERAL', model: price.model, resolution: '1k', sourceIds: ['raxi-vox:s1'], attestNotReal: true, expectedTotalMills: 208 };
 
@@ -257,6 +259,7 @@ test('sheet handler: CHOOSE registers a reference with the right level, once', a
   const again = await h.call({ action: 'CHOOSE', takeId: anchor.id });
   assert.equal(again.status, 200);
   assert.equal(h.registered.length, 1, 'choosing twice does not duplicate');
+  assert.deepEqual(h.superseded, [`raxi-vox:FRONT:PUBLIC:${(await r.clone().json()).assetId}`], 'choosing retires older references of that view');
 });
 
 test('sheet handler: missing WaveSpeed key stops before reserving', async () => {
@@ -276,7 +279,7 @@ async function migrated() {
     create schema auth; create function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;
     grant usage on schema public, auth to anon, authenticated, service_role;
     create table public.raxi_workspaces(id uuid primary key, owner_user_id uuid not null, slug text not null);
-    create table public.raxi_assets(id uuid primary key);
+    create table public.raxi_assets(id uuid primary key, workspace_id uuid, kind text, metadata jsonb not null default '{}', created_at timestamptz not null default now(), updated_at timestamptz);
     insert into public.raxi_workspaces values ('${wsId}', '${owner}', 'raxi-hq');`);
   await db.exec(sql);
   return db;
@@ -322,4 +325,24 @@ test('sheet migration: attestation, roster and owner are checked; clients can on
   assert.deepEqual(prices.rows.map((p) => [p.model, p.enabled]), [['bytedance/seedream-v5.0-pro/edit', false], ['bytedance/seedream-v5.5/edit', true]]);
   assert.equal(Number(prices.rows[1].out_1k), 0.02);
   assert.equal(Number(prices.rows[1].per_input), 0.008);
+});
+
+test('reference supersede: one chosen reference per view and level; sources and other models untouched', async () => {
+  const db = await migrated();
+  const a = (id: string, angle: string, level = 'PUBLIC', ch = 'raxi-vox', mins = 0) =>
+    `('${id}', '${wsId}', 'REFERENCE', '{"character_id":"${ch}","angle":"${angle}","content_level":"${level}"}', now() - interval '${mins} minutes')`;
+  const ids = { old: '10000000-0000-4000-8000-000000000001', mid: '10000000-0000-4000-8000-000000000002', src: '10000000-0000-4000-8000-000000000003',
+    nsfw: '10000000-0000-4000-8000-000000000004', other: '10000000-0000-4000-8000-000000000005', keep: '10000000-0000-4000-8000-000000000006' };
+  await db.exec(`insert into public.raxi_assets (id, workspace_id, kind, metadata, created_at) values
+    ${a(ids.old, 'FRONT', 'PUBLIC', 'raxi-vox', 30)}, ${a(ids.mid, 'FRONT', 'PUBLIC', 'raxi-vox', 20)}, ${a(ids.src, 'SOURCE', 'PUBLIC', 'raxi-vox', 40)},
+    ${a(ids.nsfw, 'FRONT', 'NSFW', 'raxi-vox', 25)}, ${a(ids.other, 'FRONT', 'PUBLIC', 'vesper-corvus', 50)}, ${a(ids.keep, 'FRONT', 'PUBLIC', 'raxi-vox', 1)}`);
+  await db.exec(readFileSync(join(process.cwd(), '../../supabase/migrations/20261118010000_raxi_hq_reference_supersede.sql'), 'utf8'));
+  const live = async () => (await db.query<{ id: string }>(`select id from public.raxi_assets where not (metadata ? 'superseded_by') order by id`)).rows.map((r) => r.id);
+  assert.deepEqual(await live(), [ids.src, ids.nsfw, ids.other, ids.keep], 'the cleanup keeps the newest per model, view and level, and every source photo');
+  const fresh = '10000000-0000-4000-8000-000000000007';
+  await db.exec(`insert into public.raxi_assets (id, workspace_id, kind, metadata, created_at) values ${a(fresh, 'FRONT')}`);
+  const n = await db.query<{ n: number }>(`select public.raxi_reference_supersede('${wsId}', 'raxi-vox', 'FRONT', 'PUBLIC', '${fresh}') as n`);
+  assert.equal(Number(n.rows[0].n), 1);
+  assert.deepEqual(await live(), [ids.src, ids.nsfw, ids.other, fresh]);
+  assert.equal(Number((await db.query<{ n: number }>(`select public.raxi_reference_supersede('${wsId}', 'raxi-vox', 'SOURCE', 'PUBLIC', '${fresh}') as n`)).rows[0].n), 0, 'SOURCE is never retired');
 });

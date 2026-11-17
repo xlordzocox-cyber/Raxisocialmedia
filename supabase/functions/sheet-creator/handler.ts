@@ -45,6 +45,8 @@ export interface SheetDependencies {
   poll(key: string, predictionId: string): Promise<PollResult>;
   storeOutput(url: string, path: string): Promise<{ path: string; sha256: string; byteSize: number; mime: string }>;
   registerReference(row: CreatorReference): Promise<void>;
+  /** Retires this model's older references for the same view and level, so Talento keeps one chosen image per view. */
+  supersede(workspaceId: string, character: string, angle: View, level: 'PUBLIC' | 'NSFW', keepId: string): Promise<void>;
   newId(): string;
 }
 
@@ -221,9 +223,11 @@ export function createSheetHandler(d: SheetDependencies) {
         const loaded = await d.loadRun(ws, take.run_id);
         if (!loaded) return fail(404, 'No encontré esa ficha.');
         const id = d.newId();
+        const level = loaded.run.level === 'ADULT' ? 'NSFW' as const : 'PUBLIC' as const;
         await d.registerReference({ id, workspace_id: ws, kind: 'REFERENCE', object_path: take.object_path, mime_type: take.mime_type ?? 'image/png', byte_size: take.byte_size ?? 0, sha256: take.sha256,
-          metadata: { character_id: loaded.run.character_id, angle: take.view, content_level: loaded.run.level === 'ADULT' ? 'NSFW' : 'PUBLIC', source: 'RAXI_CREATOR', run_id: loaded.run.id, take_id: take.id, model: loaded.run.model } });
+          metadata: { character_id: loaded.run.character_id, angle: take.view, content_level: level, source: 'RAXI_CREATOR', run_id: loaded.run.id, take_id: take.id, model: loaded.run.model } });
         await d.updateTake(take.id, { chosen_asset_id: id });
+        await d.supersede(ws, loaded.run.character_id, take.view, level, id);
         return new Reply(200, { assetId: id, duplicate: false });
       }
       default:

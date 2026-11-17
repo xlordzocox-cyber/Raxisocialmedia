@@ -41,7 +41,7 @@ Deno.serve(createSheetHandler({
   },
   async generalAnchors(ws, character) {
     const { data, error } = await server.from('raxi_assets').select('id,object_path,metadata,created_at').eq('workspace_id', ws).eq('kind', 'REFERENCE')
-      .eq('metadata->>character_id', character).eq('metadata->>content_level', 'PUBLIC').in('metadata->>angle', ['FRONT', 'BODY_FRONT']).order('created_at', { ascending: false });
+      .eq('metadata->>character_id', character).eq('metadata->>content_level', 'PUBLIC').in('metadata->>angle', ['FRONT', 'BODY_FRONT']).is('metadata->>superseded_by', null).order('created_at', { ascending: false });
     if (error) throw new Error('anchors');
     const out: Partial<Record<'FRONT' | 'BODY_FRONT', { id: string; objectPath: string }>> = {};
     for (const a of data ?? []) { const k = a.metadata?.angle as 'FRONT' | 'BODY_FRONT'; if (!out[k]) out[k] = { id: a.id, objectPath: a.object_path }; }
@@ -111,6 +111,10 @@ Deno.serve(createSheetHandler({
   async registerReference(row) {
     const { error } = await server.from('raxi_assets').insert({ ...row, bucket_id: BUCKET });
     if (error) throw new Error('register');
+  },
+  async supersede(ws, character, angle, level, keepId) {
+    const { error } = await server.rpc('raxi_reference_supersede', { p_ws: ws, p_character: character, p_angle: angle, p_level: level, p_keep: keepId });
+    if (error) throw new Error('supersede');
   },
   newId: () => crypto.randomUUID(),
 }));

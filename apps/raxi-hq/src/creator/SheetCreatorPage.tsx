@@ -94,8 +94,12 @@ function SheetSection({ client, characterId, level, talent, onChange, pollMs }: 
   });
   const choose = (takeId: string) => act(async () => {
     await callSheet(client, { action: 'CHOOSE', takeId });
-    setNotice({ kind: 'ok', text: 'Elegida. Ya es una referencia de Talento.' });
-    if (run) setRun({ ...run, takes: run.takes.map((t) => (t.id === takeId ? { ...t, chosen: true } : t)) });
+    setNotice({ kind: 'ok', text: 'Elegida. Reemplaza a la anterior de esta vista en Talento.' });
+    if (run) {
+      const view = run.takes.find((t) => t.id === takeId)?.view;
+      // One chosen take per view: the previous one is retired from Talento on the server.
+      setRun({ ...run, takes: run.takes.map((t) => (t.id === takeId ? { ...t, chosen: true } : t.view === view ? { ...t, chosen: false } : t)) });
+    }
     await onChange();
   });
 

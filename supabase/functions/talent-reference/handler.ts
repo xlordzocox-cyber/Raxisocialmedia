@@ -12,6 +12,8 @@ export interface ReferenceDependencies {
   upload(path: string, bytes: Uint8Array, mime: string): Promise<void>;
   register(row: ReferenceRow): Promise<void>;
   removeObject(path: string): Promise<void>;
+  /** Retires older references of the same model, view and level (one chosen image per view). Never called for SOURCE photos. */
+  supersede(workspaceId: string, character: string, angle: string, level: 'PUBLIC' | 'NSFW', keepId: string): Promise<void>;
   newId(): string;
   sha256(bytes: Uint8Array): Promise<string>;
 }
@@ -69,6 +71,8 @@ export function createReferenceHandler(dependencies: ReferenceDependencies) {
       await dependencies.upload(path, bytes, mime);
       await dependencies.register({ id, workspace_id: workspaceId, kind: 'REFERENCE', object_path: path, mime_type: mime, byte_size: bytes.length, sha256,
         metadata: { character_id: character, angle, content_level: level, source: 'LUIS_UPLOAD' } });
+      path = null; // stored: a failure from here on must not delete the object
+      if (angle !== 'SOURCE') { try { await dependencies.supersede(workspaceId, character, angle, level, id); } catch { /* the new reference is saved; older ones stay visible */ } }
       return reply(200, { assetId: id, character, angle, duplicate: false });
     } catch {
       if (path) { try { await dependencies.removeObject(path); } catch { /* keep the original error */ } }

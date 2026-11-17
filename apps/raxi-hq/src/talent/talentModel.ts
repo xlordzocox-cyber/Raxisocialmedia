@@ -4,7 +4,14 @@ import { TALENT_ROSTER } from '../agency/agencyModel';
 
 export const ANGLES = ['FRONT', 'THREE_QUARTER', 'PROFILE', 'BODY_FRONT', 'BODY_SIDE', 'BODY_BACK', 'BACK', 'FULL_BODY', 'SHEET', 'SOURCE'] as const;
 export type Angle = (typeof ANGLES)[number];
-export const ANGLE_LABEL: Record<Angle, string> = { FRONT: 'Frente', THREE_QUARTER: 'Tres cuartos', PROFILE: 'Perfil', BACK: 'Espalda', FULL_BODY: 'Cuerpo completo', SHEET: 'Ficha completa', BODY_FRONT: 'Cuerpo de frente', BODY_SIDE: 'Cuerpo de lado', BODY_BACK: 'Cuerpo de espalda', SOURCE: 'Foto de la modelo' };
+/** The six views of the 360 sheet, in display order. Older angles show only if a reference already uses them; SOURCE photos live in the creator. */
+export const SHEET_VIEWS = ['FRONT', 'THREE_QUARTER', 'PROFILE', 'BODY_FRONT', 'BODY_SIDE', 'BODY_BACK'] as const satisfies readonly Angle[];
+export const gridAngles = (refs: { angle: Angle }[], adult = false): Angle[] => {
+  const used = (a: Angle) => refs.some((r) => r.angle === a);
+  // The adult sheet only has body views; a face slot appears there only if an adult reference already uses it.
+  return [...SHEET_VIEWS.filter((a) => !adult || a.startsWith('BODY_') || used(a)), ...(['BACK', 'FULL_BODY', 'SHEET'] as const).filter(used)];
+};
+export const ANGLE_LABEL: Record<Angle, string> = { FRONT: 'Cara de frente', THREE_QUARTER: 'Cara a tres cuartos', PROFILE: 'Cara de perfil', BACK: 'Espalda', FULL_BODY: 'Cuerpo completo', SHEET: 'Ficha completa', BODY_FRONT: 'Cuerpo de frente', BODY_SIDE: 'Cuerpo de lado', BODY_BACK: 'Cuerpo de espalda', SOURCE: 'Foto de la modelo' };
 
 export type RefLevel = 'GENERAL' | 'ADULT';
 export interface TalentReference { id: string; angle: Angle; level: RefLevel; objectPath: string; sha256: string; createdAt: string }
@@ -28,6 +35,7 @@ export function buildTalentProfile(workspaceId: string, characterId: string, raw
     const sha = str(a.sha256, 64);
     if (!/^[0-9a-f]{64}$/.test(sha)) throw new Error('Talento: hash inválido');
     if (!(ANGLES as readonly string[]).includes(meta.angle as string)) continue;
+    if (meta.superseded_by) continue; // replaced by a newer chosen reference for the same view
     const level: RefLevel | null = meta.content_level === 'PUBLIC' ? 'GENERAL' : meta.content_level === 'NSFW' || meta.content_level === 'EXPLICIT' ? 'ADULT' : null;
     if (!level) continue; // unclassified references are never used
     references.push({ id: str(a.id, 64), angle: meta.angle as Angle, level, objectPath: path, sha256: sha, createdAt: str(a.created_at, 64) });

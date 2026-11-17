@@ -64,6 +64,21 @@ test('talent model: body views and source photos of the 360 creator are valid an
   assert.deepEqual(p.references.map((r) => r.angle).sort(), ['BODY_BACK', 'BODY_FRONT', 'BODY_SIDE', 'SOURCE']);
 });
 
+test('talent model: a superseded reference leaves the profile; only the chosen one per view stays', () => {
+  const old = { ...ref('o1', 'FRONT'), metadata: { character_id: 'raxi-vox', angle: 'FRONT', content_level: 'PUBLIC', superseded_by: 'n1' } };
+  const p = buildTalentProfile(ws, 'raxi-vox', [], [old, ref('n1', 'FRONT')]);
+  assert.deepEqual(p.references.map((r) => r.id), ['n1']);
+});
+
+test('Talento profile: source photos and superseded takes are not shown in the 360 sheet', async () => {
+  const old = { ...ref('o1', 'BODY_SIDE'), metadata: { character_id: 'raxi-vox', angle: 'BODY_SIDE', content_level: 'PUBLIC', superseded_by: 'n1' } };
+  const { client } = talentClient([], [ref('s1', 'SOURCE'), old, ref('n1', 'BODY_SIDE')]);
+  const r = await renderProfile(client);
+  const shown = r.root.findAllByType('img').map((i) => String(i.props.src));
+  assert.ok(shown.some((x) => x.includes('/n1.jpg')));
+  assert.ok(!shown.some((x) => x.includes('/o1.jpg') || x.includes('/s1.jpg')));
+});
+
 test('talent model: list fields are trimmed lines, max 20', () => {
   assert.deepEqual(splitLines('  uno \n\n dos\n'), ['uno', 'dos']);
   assert.equal(splitLines(Array.from({ length: 30 }, (_, i) => `x${i}`).join('\n')).length, 20);
@@ -104,6 +119,7 @@ function refDeps(over: Partial<ReferenceDependencies> = {}) {
     async upload(path, bytes, mime) { calls.push(`upload:${path}:${bytes.length}:${mime}`); },
     async register(row) { calls.push(`register:${row.kind}:${row.metadata.character_id}:${row.metadata.angle}:${row.metadata.content_level}`); },
     async removeObject(path) { calls.push(`remove:${path}`); },
+    async supersede(_ws, character, angle, level, keep) { calls.push(`supersede:${character}:${angle}:${level}:${keep}`); },
     newId: () => 'new-id',
     async sha256() { return sha; },
     ...over,
@@ -130,10 +146,10 @@ test('reference handler: stores the reference as REFERENCE with its level', asyn
   const res = await createReferenceHandler(d)(upload(okFields));
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { assetId: 'new-id', character: 'raxi-vox', angle: 'FRONT', duplicate: false });
-  assert.deepEqual(calls, [`upload:${ws}/references/raxi-vox/${sha}.jpg:${JPEG.length}:image/jpeg`, 'register:REFERENCE:raxi-vox:FRONT:PUBLIC']);
+  assert.deepEqual(calls, [`upload:${ws}/references/raxi-vox/${sha}.jpg:${JPEG.length}:image/jpeg`, 'register:REFERENCE:raxi-vox:FRONT:PUBLIC', 'supersede:raxi-vox:FRONT:PUBLIC:new-id']);
   const adult = refDeps();
   assert.equal((await createReferenceHandler(adult.d)(upload({ ...okFields, level: 'ADULT' }))).status, 200);
-  assert.equal(adult.calls.at(-1), 'register:REFERENCE:raxi-vox:FRONT:NSFW');
+  assert.equal(adult.calls.at(-1), 'supersede:raxi-vox:FRONT:NSFW:new-id');
 });
 
 test('reference handler: refuses a missing level, unknown model or angle, and non-images', async () => {
@@ -144,6 +160,12 @@ test('reference handler: refuses a missing level, unknown model or angle, and no
   assert.equal((await h(upload({ ...okFields, angle: 'SIDEWAYS' }))).status, 400);
   assert.equal((await h(upload({ ...okFields, angle: 'HEAD' }))).status, 400);
   for (const angle of ['BODY_FRONT', 'BODY_SIDE', 'BODY_BACK', 'SOURCE']) assert.equal((await createReferenceHandler(refDeps().d)(upload({ ...okFields, angle }))).status, 200, angle);
+  const src = refDeps();
+  await createReferenceHandler(src.d)(upload({ ...okFields, angle: 'SOURCE' }));
+  assert.ok(!src.calls.some((c) => c.startsWith('supersede')), 'source photos are never retired');
+  const failing = refDeps({ async supersede() { throw new Error('x'); } });
+  assert.equal((await createReferenceHandler(failing.d)(upload(okFields))).status, 200, 'a failed retire keeps the saved reference');
+  assert.ok(!failing.calls.some((c) => c.startsWith('remove')), 'and never deletes it');
   assert.equal((await h(upload(okFields, null))).status, 400);
   assert.equal((await h(upload(okFields, new TextEncoder().encode('<svg onload=x>')))).status, 415);
 });
@@ -161,7 +183,7 @@ test('reference handler: duplicates are reused, other uses conflict, failed regi
   const archived = refDeps({ async findBySha() { return { id: 'old', kind: 'ORIGINAL', characterId: 'raxi-vox' }; } });
   const ra = await createReferenceHandler(archived.d)(upload(okFields));
   assert.equal(ra.status, 200, 'a Fototeca photo of the same model can become her reference');
-  assert.deepEqual(archived.calls, [`upload:${ws}/references/raxi-vox/${sha}.jpg:${JPEG.length}:image/jpeg`, 'register:REFERENCE:raxi-vox:FRONT:PUBLIC']);
+  assert.deepEqual(archived.calls, [`upload:${ws}/references/raxi-vox/${sha}.jpg:${JPEG.length}:image/jpeg`, 'register:REFERENCE:raxi-vox:FRONT:PUBLIC', 'supersede:raxi-vox:FRONT:PUBLIC:new-id']);
   const broken = refDeps({ async register() { throw new Error('db down'); } });
   const r3 = await createReferenceHandler(broken.d)(upload(okFields));
   assert.equal(r3.status, 503);
@@ -202,7 +224,8 @@ test('Talento profile: shows each 360 angle, missing ones included, read with RL
   const text = JSON.stringify(r.toJSON());
   assert.match(text, /Raxi Vox/);
   assert.match(text, /Sin identidad todavía/);
-  for (const label of ['Frente', 'Tres cuartos', 'Perfil', 'Espalda', 'Cuerpo completo']) assert.match(text, new RegExp(label));
+  for (const label of ['Cara de frente', 'Cara a tres cuartos', 'Cara de perfil', 'Cuerpo de frente', 'Cuerpo de lado', 'Cuerpo de espalda']) assert.match(text, new RegExp(label));
+  assert.doesNotMatch(text, /Ficha completa|Foto de la modelo/, 'legacy slots without references and source photos stay out of the sheet');
   assert.equal(r.root.findAllByType('img').filter((i) => String(i.props.src).includes('/r1.jpg')).length, 1);
   assert.deepEqual(rpcs.map(([n]) => n), ['raxi_get_workspace']);
 });
