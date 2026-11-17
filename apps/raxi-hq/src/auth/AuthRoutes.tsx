@@ -6,6 +6,7 @@ import { PasswordRecoverySignOutError } from './authStore';
 const Office = lazy(() => import('../App'));
 const Fototeca = lazy(() => import('../portfolio/FototecaRoute'));
 const Multimedia = lazy(() => import('../portfolio/MultimediaRoute'));
+const Conexiones = lazy(() => import('../connections/ConexionesRoute'));
 export function safeReturnPath(value: unknown): string {
   return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') && !/[\r\n]/.test(value) && value.split(/[?#]/)[0] !== '/login' ? value : '/';
 }
@@ -124,6 +125,7 @@ export function AuthRoutes() {
       <Route path="/" element={<AuthenticatedOffice />} />
       <Route path="/fototeca" element={<Suspense fallback={<Loading />}><Fototeca /></Suspense>} />
       <Route path="/multimedia" element={<Suspense fallback={<Loading />}><Multimedia /></Suspense>} />
+      <Route path="/conexiones" element={<Suspense fallback={<Loading />}><Conexiones /></Suspense>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Route>
   </Routes>;

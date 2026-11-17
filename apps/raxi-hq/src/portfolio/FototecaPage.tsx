@@ -286,7 +286,7 @@ export function FototecaPage({ client, ownerId }: { client: SupabaseClient; owne
 function Header() {
   return <header className="hq-command-header foto-header">
     <div className="hq-brand"><h1>Raxi HQ <span>Fototeca</span></h1><p>Campañas, fotos y textos listos para publicar</p></div>
-    <div className="hq-session-controls"><Link to="/multimedia">Multimedia</Link><Link to="/">Oficina</Link></div>
+    <div className="hq-session-controls"><Link to="/multimedia">Multimedia</Link><Link to="/conexiones">Conexiones</Link><Link to="/">Oficina</Link></div>
   </header>;
 }
 
