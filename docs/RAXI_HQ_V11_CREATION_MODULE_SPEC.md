@@ -1,6 +1,7 @@
 # Raxi HQ v1.1 — Módulo de Creación (enfoque B híbrido) + renovación visual
 
-> **Estado:** PROPUESTA · enfoque B aprobado por Luis el 2026-11-16. El diseño detallado y el plan de implementación están pendientes.
+> **Estado:** PROPUESTA · enfoque B aprobado por Luis el 2026-11-16. La excepción de política de la sección 6 también quedó aprobada por Luis el 2026-11-16 (ver sección 8). El diseño detallado y el plan de implementación siguen pendientes.
+> **Revisión 2026-11-16 (Claude):** se agregaron el MCP propio (4.2), la política de referencias (4.3), los datos verificados de WaveSpeed (4.4), los hallazgos de QA de las fichas (2.1), la dirección "agencia" para el diseño (sección 5) y el registro de decisiones (sección 8).
 > **Para el agente que ejecute esto (Claude Fable 5.2 en Claude Code):** usa la metodología Superpowers (`obra/superpowers` v7.x): `brainstorming` → diseño aprobado → `writing-plans` → `subagent-driven-development`. **No escribas código hasta que Luis apruebe el diseño.** Respeta `AGENTS.md`, salvo la excepción de la sección 6, que requiere su aprobación explícita.
 
 ---
@@ -13,8 +14,11 @@ Usa Superpowers: empieza con brainstorming sobre este spec. Muéstrame el diseñ
 en bloques cortos para aprobarlo y después escribe el plan en
 docs/superpowers/plans/ con writing-plans.
 Tienes dos frentes, y deben quedar en planes separados:
-  (1) Módulo de Creación híbrido: identidad, continuidad, costos, archivo y QA.
-  (2) Renovación visual de Raxi HQ: sistema de diseño y estética.
+  (1) Módulo de Creación híbrido: identidad, continuidad, costos, archivo, QA
+      y un MCP propio para que Claude y Codex operen el módulo (sección 4.2).
+  (2) Renovación visual de Raxi HQ: que se vea como el centro de operaciones
+      de una agencia profesional de producción fotográfica de modelos para
+      redes sociales (sección 5).
 Reglas: no inventes APIs, modelos ni precios; verifica en documentación oficial.
 Nada de secretos en el cliente. Ninguna generación de pago sin mi aprobación
 explícita por ejecución. Separa siempre lo que es hecho, inferencia y recomendación.
@@ -44,6 +48,22 @@ Raxi HQ tiene que conservar dentro de sí la identidad de los personajes (Raxi V
 - Varias creaciones separadas por menos de 1 s podrían ser cobros dobles. Hay que revisarlo en el panel de WaveSpeed.
 - Repetir en `escena` los rasgos físicos que ya trae la identidad duplica el prompt y puede restar estabilidad.
 
+### 2.1 QA visual de las fichas 360 (revisión de Claude, 2026-11-16)
+
+Luis subió 17 imágenes de ficha: rostro, cuerpo con ropa interior y versiones sin ropa de ambas modelos. Es una revisión visual, no una medición automatizada.
+
+| Modelo | Hallazgo | Impacto | Acción propuesta |
+|---|---|---|---|
+| Vesper | En los paneles de cuerpo el cabello es castaño y lacio; en los de rostro es negro azabache y ondulado. La cara está cortada y la piel se ve más cálida | **Alto:** usar ese cuerpo como referencia mezcla dos identidades | Regenerar los paneles de cuerpo usando el rostro como referencia, o conseguir en Aria una versión correcta. **Decisión de Luis pendiente.** |
+| Vesper | La cruz con piedra roja, los aretes y el labial rojo oscuro aparecen siempre, pero no están en su texto de identidad | Medio | Agregarlos como "accesorios de firma" |
+| Raxi | El texto dice "teal blue highlights"; las fotos muestran mechas turquesa con toques lila | Bajo | Ajustar el texto |
+| Raxi | Lunar sobre el labio, pecas y un lunar en el muslo aparecen en todas las tomas, pero no están en el texto | Medio | Agregarlos como "marcas distintivas" |
+| Raxi | El texto dice "average build, medium bust and hips"; las fotos muestran complexión delgada y atlética | Medio | Ajustar el texto al cuerpo real de la ficha |
+| Raxi | Inferencia: el rostro aparenta algo más de 25 años | Bajo | Que Luis decida si se ajusta la edad o el texto |
+| Ambas | Los paneles de cuerpo cortan la cara; no hay una imagen que una rostro y cuerpo | Bajo | Agregar al set canónico una toma de cuerpo completo con la cara visible |
+
+Los cambios a los textos de identidad son una **propuesta**. Requieren la aprobación de Luis antes de versionarse (AGENTS.md: no redefinir la identidad sin pedido explícito).
+
 ## 3. Matriz de funciones
 
 | Función | Aria (MCP) | Raxi HQ v1.1 |
@@ -57,8 +77,11 @@ Raxi HQ tiene que conservar dentro de sí la identidad de los personajes (Raxi V
 | Archivo permanente | No (24 h) | Asset Library con Asset ID canónico (sha256) |
 | Edición / upscale | No | Magnific (fase posterior) |
 | QA + revisión humana | No | Quality Gate de `AGENTS.md` + aprobación de Luis |
+| Acceso para agentes (Claude / Codex) | Sí (MCP de Aria) | **MCP propio `raxi-creation`** (sección 4.2) |
 
 ## 4. Arquitectura propuesta (enfoque B)
+
+### 4.1 Flujo y restricciones
 
 ```
 Strategy aprobada → Orden de producción (por serie)
@@ -76,7 +99,50 @@ Strategy aprobada → Orden de producción (por serie)
 - Idempotencia por `jobId` para evitar cobros dobles: es el hallazgo de la sección 2.
 - **No copiar nada interno de Aria.** Solo se usa su MCP público y lo que Luis ve como usuario.
 
-**Por verificar antes de diseñar (no inventar):** API oficial de WaveSpeed. Concretamente: endpoints, si permite varias imágenes de referencia por modelo, semilla, polling o webhooks, y precios actuales.
+### 4.2 MCP propio `raxi-creation` (nuevo)
+
+Objetivo: que Claude y Codex operen el Módulo de Creación de forma directa, igual que hoy usan el MCP de Aria, pero con las reglas aplicadas **en el servidor**. Un agente no debe poder saltárselas.
+
+Herramientas mínimas (YAGNI: nada más hasta que se necesite):
+
+| Herramienta | Qué hace | Cobra |
+|---|---|---|
+| `personajes` | Lista personajes con su versión de identidad bloqueada | No |
+| `ficha` | Texto de identidad, marcas distintivas y referencias canónicas de un personaje | No |
+| `cotizar` | Precio de una foto o serie antes de generar (modelo + resolución + nº de referencias) | No |
+| `generar_continuidad` | Foto N de una serie: personaje + escena + referencias (ficha + foto anterior aprobada) + modelo explícito + `orderId` | Sí |
+| `estado` | Estado de una generación (job id, costo, sha256, Asset ID) | No |
+| `serie` | Lista las fotos de una serie con su linaje y su estado de QA | No |
+| `qa_identidad` | Compara una foto con la ficha bloqueada y devuelve puntaje y problemas (lo revisa Claude con visión; lo decide Luis) | Solo tokens |
+| `cancelar` | Cancela trabajo pendiente | No |
+
+Reglas aplicadas por el servidor:
+1. Sin una orden con `executionApproval` vigente, `generar_continuidad` solo cotiza.
+2. Nunca supera el techo de la orden ni el presupuesto mensual (`pilotBudget`).
+3. Siempre adjunta las referencias de la identidad bloqueada. El agente no puede quitarlas.
+4. Idempotencia por `orderId` + número de toma: el mismo pedido nunca cobra dos veces.
+5. Nada se reporta como listo hasta tener sha256 y Asset ID en la Asset Library.
+6. Token obligatorio. Registro de cada llamada: quién, herramienta, costo.
+
+**Decisión de diseño pendiente (resolver en el brainstorming con datos verificados):** dónde vive el MCP.
+- Opción A: Supabase Edge Function junto a `creation-command`, reutilizando `supabase/functions/_shared`.
+- Opción B: ruta `/api/mcp` en la app de Vercel con [`mcp-handler`](https://vercel.com/docs/mcp/deploy-mcp-servers-to-vercel), que Vercel documenta como adaptador oficial con autenticación.
+- Hay que verificar en la documentación oficial cuál admite Streamable HTTP + autenticación con menos piezas nuevas. No elegir de memoria.
+
+### 4.3 Política de referencias
+
+- Solo se cargan como referencias las fichas **con ropa** (rostro y cuerpo). Las versiones sin ropa **no entran** al módulo, por `AGENTS.md` ("Todo contenido maduro debe mantenerse adulto y no explícito").
+- Las referencias viven en un bucket privado. Las fotos finales se sirven con enlaces firmados de corta duración.
+- Ningún texto de identidad cambia sin la aprobación de Luis (ver 2.1).
+
+### 4.4 API de WaveSpeed: verificado vs. pendiente
+
+**Verificado en la documentación de WaveSpeed (2026-11-16):**
+- Los modelos con referencias usan endpoints `/edit`: por ejemplo, `POST https://api.wavespeed.ai/api/v3/bytedance/seedream-v5.0-pro/edit`, con un arreglo `images` y autenticación `Bearer`.
+- [Seedream 5.0 Pro Edit admite hasta 10 imágenes de referencia](https://wavespeed.ai/models/bytedance/seedream-v5.0-pro/edit/llms.txt).
+- La llamada devuelve un id de predicción. El resultado se consulta en `GET /api/v3/predictions/{id}/result`; [WaveSpeed recomienda consultar cada ~2 s](https://wavespeed.ai/models/bytedance/seedream-v5.5/edit).
+
+**Sigue pendiente (no inventar):** semilla, webhooks, el precio directo por modelo y si coincide con el que muestra Aria, y la política de contenido de WaveSpeed. También, por cada modelo candidato, el máximo de referencias en su endpoint `/edit`.
 
 ## 5. Renovación visual de Raxi HQ (frente 2)
 
@@ -89,6 +155,14 @@ Strategy aprobada → Orden de producción (por serie)
 - La identidad visual existente que vale la pena conservar: fondo navy oscuro, acento cian `#35e7ff`, morado secundario en Ideas y el Campus con edificios y estética gamer.
 
 **Objetivo:** que Raxi HQ se sienta como un **centro de mando creativo premium y coherente**, no como una suma de paneles. Debe mantener su ADN (oscuro, cian, gamer y agentes) con más jerarquía, aire y consistencia.
+
+**Dirección pedida por Luis (2026-11-16):** que Raxi HQ se vea **profesional, como la plataforma de una compañía o agencia de marketing especializada en producción fotográfica de modelos para redes sociales**. Implicaciones para el diseño:
+- Lenguaje de agencia: "Talento" (los personajes), "Producción" (series y sesiones), "Equipo" (los agentes como especialistas: Dirección, Creativa, Producción, QA, Copy, Distribución), "Clientes y canales" (Instagram, FanView) y "Resultados".
+- Una portada tipo agencia: identidad de marca, servicios, portafolio de talento con fichas, proceso de producción, equipo y métricas clave.
+- Presentación del talento al estilo de una agencia de modelos: una ficha profesional por personaje (look, marcas, assets aprobados, campañas).
+- El Campus/oficina PixiJS se queda como diferenciador ("el estudio en vivo"), pero deja de ser la primera impresión.
+- Raxi HQ es una herramienta interna. Si alguna vista se vuelve pública, los personajes deben identificarse como creados con IA.
+- Fable debe proponer 2–3 direcciones visuales (por ejemplo: editorial oscuro de agencia, estudio fotográfico minimalista, centro de mando premium) en bloques cortos, **antes** de aplicar nada.
 
 **Alcance pedido a Fable:**
 1. Sistema de tokens completo en `tokens.css`: color semántico (superficies, bordes, estados, acento por zona), tipografía, espaciado, radios, sombras y movimiento. Migrar los hex sueltos a tokens.
@@ -108,10 +182,28 @@ Strategy aprobada → Orden de producción (por serie)
 
 `src/adapters/aria/README.md` ("no image generation from HQ") también debe actualizarse cuando el adaptador esté aprobado.
 
+**Estado: APROBADA por Luis el 2026-11-16.** En sus palabras, cambiar la regla "para usarla en paralelo cuando sea necesario en lo que armamos todo". Interpretación vigente: rige el enfoque B (Aria para la foto base, WaveSpeed directo para la continuidad), con Aria siempre disponible en paralelo. Aplicar este texto en `AGENTS.md` es la primera tarea del plan de implementación, en un commit propio y revisable.
+
 ## 7. Riesgos
 
 - **Deriva de identidad entre proveedores.** Mitigación: QA de rostro obligatorio y referencias fijas.
 - **Costos.** Mitigación: techo por orden, presupuesto mensual e idempotencia.
 - **Fuga de claves.** Mitigación: solo en el servidor, sin registrarlas en logs.
 - **Términos de uso de Aria/WaveSpeed.** Revisarlos antes de producción.
-- **Contenido.** Las reglas de contenido adulto no explícito de `AGENTS.md` siguen vigentes.
+- **Contenido.** Las reglas de contenido adulto no explícito de `AGENTS.md` siguen vigentes. Las fichas sin ropa no se usan como referencias (4.3).
+- **Ficha de Vesper inconsistente** (cabello castaño en los paneles de cuerpo). Mitigación: no bloquear su identidad hasta corregirla (2.1).
+- **El MCP propio como superficie de ataque.** Mitigación: token, reglas en el servidor, registro de llamadas y tope de gasto (4.2).
+
+## 8. Registro de decisiones
+
+| Fecha | Decisión | Estado |
+|---|---|---|
+| 2026-11-16 | Enfoque B híbrido: Aria para la foto base, WaveSpeed directo para la continuidad | Aprobada por Luis |
+| 2026-11-16 | Excepción de política de la sección 6, con Aria en paralelo cuando sea necesario | Aprobada por Luis; pendiente aplicarla en `AGENTS.md` |
+| 2026-11-16 | MCP propio `raxi-creation` para que Claude y Codex operen el módulo | Pedida por Luis; el diseño se decide en el brainstorming |
+| 2026-11-16 | Dirección visual "agencia profesional de producción fotográfica de modelos para redes" | Pedida por Luis; las direcciones concretas se proponen en el brainstorming |
+| 2026-11-16 | Corrección de la ficha de Vesper (regenerar o conseguirla de Aria) | Pendiente de decisión de Luis |
+| 2026-11-16 | Ajustes a los textos de identidad (2.1) | Propuesta; pendiente de aprobación |
+| 2026-11-16 | Ejecutor: Claude Fable 5.2 con la metodología Superpowers | Pedido por Luis |
+
+Plan de referencia previo (no rector): "Raxi Studio — Plan de creación y MCP propio" en Claude Docs. Donde difiera, manda este spec.
