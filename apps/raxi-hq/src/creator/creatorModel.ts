@@ -26,11 +26,13 @@ export const viewCost = (run: SheetRun, view: SheetView) => run.takes.find((t) =
 /** Calls the sheet-creator function and returns its JSON, or throws with the server's Spanish message. */
 export async function callSheet<T>(client: SupabaseClient, body: Record<string, unknown>): Promise<T> {
   const { data, error } = await client.functions.invoke('sheet-creator', { body });
-  if (error) {
-    let message = 'No se pudo completar la acción.';
-    const ctx = (error as { context?: unknown }).context;
-    if (ctx instanceof Response) { try { const j = await ctx.json(); if (typeof j?.error === 'string') message = j.error; } catch { /* keep generic */ } }
-    throw new Error(message);
-  }
+  if (error) throw new Error(await serverMessage(error, 'No se pudo completar la acción.'));
   return data as T;
+}
+
+/** The Spanish message our functions return in `{ error }`, or the fallback. */
+export async function serverMessage(error: unknown, fallback: string): Promise<string> {
+  const ctx = (error as { context?: unknown }).context;
+  if (ctx instanceof Response) { try { const j = await ctx.json(); if (typeof j?.error === 'string') return j.error; } catch { /* keep fallback */ } }
+  return fallback;
 }

@@ -16,7 +16,7 @@ Deno.serve(createReferenceHandler({
     return (data?.id as string | undefined) ?? null;
   },
   async findBySha(workspaceId, sha256) {
-    const { data, error } = await server.from('raxi_assets').select('id,kind,metadata').eq('workspace_id', workspaceId).eq('sha256', sha256).limit(1);
+    const { data, error } = await server.from('raxi_assets').select('id,kind,metadata').eq('workspace_id', workspaceId).eq('sha256', sha256).order('kind', { ascending: false }).limit(1); // REFERENCE before ORIGINAL
     if (error) throw new Error('lookup');
     const row = data?.[0] as { id: string; kind: string; metadata: Record<string, unknown> } | undefined;
     return row ? { id: row.id, kind: row.kind, characterId: typeof row.metadata?.character_id === 'string' ? row.metadata.character_id : null } : null;

@@ -153,8 +153,15 @@ test('reference handler: duplicates are reused, other uses conflict, failed regi
   const r1 = await createReferenceHandler(dup.d)(upload(okFields));
   assert.deepEqual(await r1.json(), { assetId: 'old', character: 'raxi-vox', angle: 'FRONT', duplicate: true });
   assert.deepEqual(dup.calls, []);
-  const other = refDeps({ async findBySha() { return { id: 'old', kind: 'ORIGINAL', characterId: 'raxi-vox' }; } });
-  assert.equal((await createReferenceHandler(other.d)(upload(okFields))).status, 409);
+  const otherModel = refDeps({ async findBySha() { return { id: 'old', kind: 'REFERENCE', characterId: 'vesper-corvus' }; } });
+  const r2 = await createReferenceHandler(otherModel.d)(upload(okFields));
+  assert.equal(r2.status, 409);
+  assert.match((await r2.json()).error, /otra modelo/);
+  assert.deepEqual(otherModel.calls, []);
+  const archived = refDeps({ async findBySha() { return { id: 'old', kind: 'ORIGINAL', characterId: 'raxi-vox' }; } });
+  const ra = await createReferenceHandler(archived.d)(upload(okFields));
+  assert.equal(ra.status, 200, 'a Fototeca photo of the same model can become her reference');
+  assert.deepEqual(archived.calls, [`upload:${ws}/references/raxi-vox/${sha}.jpg:${JPEG.length}:image/jpeg`, 'register:REFERENCE:raxi-vox:FRONT:PUBLIC']);
   const broken = refDeps({ async register() { throw new Error('db down'); } });
   const r3 = await createReferenceHandler(broken.d)(upload(okFields));
   assert.equal(r3.status, 503);

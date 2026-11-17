@@ -60,8 +60,9 @@ export function createReferenceHandler(dependencies: ReferenceDependencies) {
       const sha256 = await dependencies.sha256(bytes);
       const existing = await dependencies.findBySha(workspaceId, sha256);
       if (existing) {
-        if (existing.kind === 'REFERENCE' && existing.characterId === character) return reply(200, { assetId: existing.id, character, angle, duplicate: true });
-        return reply(409, { error: 'Esa imagen ya está en el archivo con otro uso.' });
+        if (existing.characterId !== character) return reply(409, { error: 'Esa imagen ya está guardada como foto de otra modelo.' });
+        if (existing.kind === 'REFERENCE') return reply(200, { assetId: existing.id, character, angle, duplicate: true });
+        // Same model, already in the archive (e.g. a Fototeca photo): store it again as her reference.
       }
       const id = dependencies.newId();
       path = `${workspaceId}/references/${character}/${sha256}.${EXT[mime]}`;

@@ -4,7 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { AgencyNav } from '../agency/AgencyNav';
 import { loadTalent } from '../talent/TalentProfilePage';
 import type { TalentProfile } from '../talent/talentModel';
-import { DEFAULT_MODEL, STATUS_LABEL, VIEWS, VIEW_LABEL, anchorReady, callSheet, isBusy, usd, viewCost, type Quote, type SheetLevel, type SheetRun, type SheetView } from './creatorModel';
+import { DEFAULT_MODEL, serverMessage, STATUS_LABEL, VIEWS, VIEW_LABEL, anchorReady, callSheet, isBusy, usd, viewCost, type Quote, type SheetLevel, type SheetRun, type SheetView } from './creatorModel';
 import '../talent/talent.css';
 import './creator.css';
 
@@ -81,7 +81,7 @@ function SheetSection({ client, characterId, level, talent, onChange, pollMs }: 
     const body = new FormData();
     body.set('character', characterId); body.set('angle', angle); body.set('level', level === 'ADULT' ? 'ADULT' : 'GENERAL'); body.set('file', file);
     const { error } = await client.functions.invoke('talent-reference', { body });
-    if (error) throw new Error('No se pudo subir la imagen.');
+    if (error) throw new Error(await serverMessage(error, 'No se pudo subir la imagen.'));
     setNotice({ kind: 'ok', text: 'Imagen guardada.' }); await onChange();
   });
   const start = () => act(async () => {
