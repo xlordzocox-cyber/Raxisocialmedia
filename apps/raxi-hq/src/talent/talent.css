@@ -1,0 +1,23 @@
+.talent-roster, .talent-angles, .talent-history { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-5); }
+.talent-roster { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.talent-name { font-family: var(--font-display); font-weight: 400; font-size: var(--text-2xl); margin: 0; }
+.talent-angles { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.talent-angle { display: flex; flex-direction: column; gap: var(--space-2); }
+.talent-angle h3 { margin: 0; font-size: var(--text-sm); color: var(--muted); font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.talent-ref { display: flex; flex-direction: column; gap: var(--space-2); font-size: var(--text-sm); color: var(--muted); }
+.talent-ref img, .talent-missing { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; object-position: top; border-radius: var(--radius-md); background: var(--surface-2); }
+.talent-missing { display: grid; place-items: center; border: 1px dashed var(--border-strong); color: var(--muted); font-size: var(--text-sm); }
+.talent-upload, .agency-section textarea, .talent-confirm { font: inherit; }
+.talent-upload { display: grid; gap: var(--space-2); max-width: 520px; padding: var(--space-5); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.talent-upload input, .talent-upload select, .agency-section textarea { min-height: 44px; padding: var(--space-2) var(--space-3); background: var(--bg); color: var(--ink); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.agency-section textarea { width: 100%; resize: vertical; }
+.talent-sheet-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.talent-switch { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); font-weight: 600; font-size: var(--text-sm); }
+.talent-switch input { width: 20px; height: 20px; accent-color: var(--status-danger); }
+.talent-upload button, .talent-actions button, .talent-confirm button { min-height: 44px; padding: 0 var(--space-4); border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: transparent; color: var(--ink); font-weight: 600; cursor: pointer; }
+.talent-upload button[type='submit'] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.talent-upload button:disabled, .talent-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+.talent-actions { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.talent-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--status-warn); border-radius: var(--radius-md); }
+.talent-confirm p { flex-basis: 100%; margin: 0; color: var(--ink); }
+.talent-history li { color: var(--muted); font-size: var(--text-sm); }
