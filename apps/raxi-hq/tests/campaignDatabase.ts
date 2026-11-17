@@ -42,6 +42,10 @@ export async function campaignDatabase(includeCampaignProposal = true, dataDir?:
     '20261117000000_raxi_hq_provider_connections.sql',
     // Talento v1 depends on raxi_character_profiles (post-freeze product schema); covered by talent.test.tsx.
     '20261117100000_raxi_hq_talent_identity.sql',
+    // Creador de ficha 360 (M2): post-freeze product schema; its cap and grants are covered by sheetCreator.test.ts with its own PGlite.
+    '20261118000000_raxi_hq_sheet_creator.sql',
+    '20261118010000_raxi_hq_reference_supersede.sql',
+    '20261118020000_raxi_hq_identity_general_only.sql',
   ]);
   for (const file of readdirSync('../../supabase/migrations').filter(f =>
     f.endsWith('.sql') && f !== stagedRuntimeOnly && !postFreezeProduct.has(f) &&

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseWorkspace } from '../persistence/supabaseIdeaRepository';
 import { AgencyNav } from '../agency/AgencyNav';
-import { ANGLES, ANGLE_LABEL, buildTalentProfile, canLock, splitLines, type Angle, type RefLevel, type TalentProfile } from './talentModel';
+import { ANGLE_LABEL, SHEET_VIEWS, gridAngles, buildTalentProfile, canLock, splitLines, type Angle, type RefLevel, type TalentProfile } from './talentModel';
 import './talent.css';
 
 const BUCKET = 'raxi-hq-private';
@@ -42,7 +42,9 @@ export function TalentProfilePage({ client, ownerId, characterId }: { client: Su
       const r = await loadTalent(client, ownerId, characterId);
       const base = r.profile.draft ?? r.profile.locked;
       setText(base?.identityText ?? ''); setMarks((base?.marks ?? []).join('\n')); setAccessories((base?.accessories ?? []).join('\n'));
-      setSelected(base?.referenceIds ?? r.profile.references.map((x) => x.id));
+      // The identity is anchored on the general sheet only; adult references are Fanvue-only and never part of it.
+      const visible = new Set(r.profile.references.filter((x) => x.angle !== 'SOURCE' && x.level === 'GENERAL').map((x) => x.id));
+      setSelected((base?.referenceIds ?? [...visible]).filter((id) => visible.has(id)));
       setState({ phase: 'ready', ...r });
     } catch (cause) { setState({ phase: 'error', message: cause instanceof Error ? cause.message : 'No se pudo leer la ficha.' }); }
   }, [client, ownerId, characterId]);
@@ -75,18 +77,21 @@ export function TalentProfilePage({ client, ownerId, characterId }: { client: Su
     <header className="agency-header"><Link to="/" className="agency-brand">Raxi HQ</Link><AgencyNav /></header>
     <main className="agency-main">
       <section className="agency-hero"><p className="agency-eyebrow"><Link to="/talento">Talento</Link></p><h1>{profile.name}</h1>
-        <p className="agency-lead">{status}{profile.draft ? ` · borrador v${profile.draft.version} sin bloquear` : ''}</p></section>
+        <p className="agency-lead">{status}{profile.draft ? ` · borrador v${profile.draft.version} sin bloquear` : ''}</p>
+        <p><Link className="talent-create" to={`/talento/${characterId}/creador`}>Crear ficha 360</Link></p></section>
 
       <section aria-labelledby="t-360" className="agency-section">
         <div className="talent-sheet-head"><h2 id="t-360">Ficha 360 · {nsfw ? 'adulta' : 'general'}</h2>
           <label className="talent-switch"><input id="nsfw-switch" type="checkbox" role="switch" checked={nsfw} onChange={(e) => setNsfw(e.target.checked)} /> NSFW</label></div>
         <ul className="talent-angles">
-          {ANGLES.map((a) => {
+          {gridAngles(profile.references.filter((r) => r.level === (nsfw ? 'ADULT' : 'GENERAL')), nsfw).map((a) => {
             const refs = profile.references.filter((r) => r.angle === a && r.level === (nsfw ? 'ADULT' : 'GENERAL'));
             return <li key={a} className="talent-angle"><h3>{ANGLE_LABEL[a]}</h3>
               {refs.length === 0 ? <div className="talent-missing">Falta</div> : refs.map((r) => <label key={r.id} className="talent-ref">
                 {urls[r.objectPath] ? <img src={urls[r.objectPath]} alt={`${profile.name}, ${ANGLE_LABEL[a].toLowerCase()}`} loading="lazy" /> : <div className="talent-missing">Sin vista previa</div>}
-                <span><input type="checkbox" checked={selected.includes(r.id)} onChange={(e) => setSelected((s) => (e.target.checked ? [...s, r.id] : s.filter((x) => x !== r.id)))} /> Usar en la identidad</span>
+                {r.level === 'GENERAL'
+                  ? <span><input type="checkbox" checked={selected.includes(r.id)} onChange={(e) => setSelected((s) => (e.target.checked ? [...s, r.id] : s.filter((x) => x !== r.id)))} /> Usar en la identidad</span>
+                  : <span className="agency-meta">Solo Fanvue · no forma parte de la identidad</span>}
               </label>)}
             </li>;
           })}
@@ -96,7 +101,7 @@ export function TalentProfilePage({ client, ownerId, characterId }: { client: Su
           <input id="ref-file" type="file" accept="image/jpeg,image/png,image/webp" disabled={busy} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           <label htmlFor="ref-angle">Ángulo</label>
           <select id="ref-angle" value={angle} disabled={busy} onChange={(e) => setAngle(e.target.value as Angle)}>
-            {ANGLES.map((a) => <option key={a} value={a}>{ANGLE_LABEL[a]}</option>)}
+            {SHEET_VIEWS.map((a) => <option key={a} value={a}>{ANGLE_LABEL[a]}</option>)}
           </select>
           <label htmlFor="ref-level">Tipo de ficha</label>
           <select id="ref-level" value={level} disabled={busy} onChange={(e) => setLevel(e.target.value as RefLevel)}>

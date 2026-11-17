@@ -12,12 +12,14 @@ export interface ReferenceDependencies {
   upload(path: string, bytes: Uint8Array, mime: string): Promise<void>;
   register(row: ReferenceRow): Promise<void>;
   removeObject(path: string): Promise<void>;
+  /** Retires older references of the same model, view and level (one chosen image per view). Never called for SOURCE photos. */
+  supersede(workspaceId: string, character: string, angle: string, level: 'PUBLIC' | 'NSFW', keepId: string): Promise<void>;
   newId(): string;
   sha256(bytes: Uint8Array): Promise<string>;
 }
 
 const ROSTER = new Set(['raxi-vox', 'vesper-corvus']);
-const ANGLES = new Set(['FRONT', 'THREE_QUARTER', 'PROFILE', 'BACK', 'FULL_BODY', 'SHEET']);
+const ANGLES = new Set(['FRONT', 'THREE_QUARTER', 'PROFILE', 'BODY_FRONT', 'BODY_SIDE', 'BODY_BACK', 'BACK', 'FULL_BODY', 'SHEET', 'SOURCE']);
 const LEVELS: Record<string, 'PUBLIC' | 'NSFW'> = { GENERAL: 'PUBLIC', ADULT: 'NSFW' };
 const MAX_BYTES = 15 * 1024 * 1024;
 const EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
@@ -60,14 +62,17 @@ export function createReferenceHandler(dependencies: ReferenceDependencies) {
       const sha256 = await dependencies.sha256(bytes);
       const existing = await dependencies.findBySha(workspaceId, sha256);
       if (existing) {
-        if (existing.kind === 'REFERENCE' && existing.characterId === character) return reply(200, { assetId: existing.id, character, angle, duplicate: true });
-        return reply(409, { error: 'Esa imagen ya está en el archivo con otro uso.' });
+        if (existing.characterId !== character) return reply(409, { error: 'Esa imagen ya está guardada como foto de otra modelo.' });
+        if (existing.kind === 'REFERENCE') return reply(200, { assetId: existing.id, character, angle, duplicate: true });
+        // Same model, already in the archive (e.g. a Fototeca photo): store it again as her reference.
       }
       const id = dependencies.newId();
       path = `${workspaceId}/references/${character}/${sha256}.${EXT[mime]}`;
       await dependencies.upload(path, bytes, mime);
       await dependencies.register({ id, workspace_id: workspaceId, kind: 'REFERENCE', object_path: path, mime_type: mime, byte_size: bytes.length, sha256,
         metadata: { character_id: character, angle, content_level: level, source: 'LUIS_UPLOAD' } });
+      path = null; // stored: a failure from here on must not delete the object
+      if (angle !== 'SOURCE') { try { await dependencies.supersede(workspaceId, character, angle, level, id); } catch { /* the new reference is saved; older ones stay visible */ } }
       return reply(200, { assetId: id, character, angle, duplicate: false });
     } catch {
       if (path) { try { await dependencies.removeObject(path); } catch { /* keep the original error */ } }
