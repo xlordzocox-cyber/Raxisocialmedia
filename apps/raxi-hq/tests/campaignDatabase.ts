@@ -40,6 +40,8 @@ export async function campaignDatabase(includeCampaignProposal = true, dataDir?:
     '20261115230000_raxi_hq_character_fixed_prompt.sql',
     // Conexiones v1 depends on Supabase Vault (absent in PGlite); its grants are covered by connections.test.tsx.
     '20261117000000_raxi_hq_provider_connections.sql',
+    // Talento v1 depends on raxi_character_profiles (post-freeze product schema); covered by talent.test.tsx.
+    '20261117100000_raxi_hq_talent_identity.sql',
   ]);
   for (const file of readdirSync('../../supabase/migrations').filter(f =>
     f.endsWith('.sql') && f !== stagedRuntimeOnly && !postFreezeProduct.has(f) &&
