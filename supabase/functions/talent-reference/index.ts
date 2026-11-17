@@ -25,5 +25,5 @@ Deno.serve(createReferenceHandler({
   async register(row) { const { error } = await server.from('raxi_assets').insert({ ...row, bucket_id: BUCKET }); if (error) throw new Error('register'); },
   async removeObject(path) { await server.storage.from(BUCKET).remove([path]); },
   newId: () => crypto.randomUUID(),
-  async sha256(bytes) { return hex(await crypto.subtle.digest('SHA-256', bytes)); },
+  async sha256(bytes) { return hex(await crypto.subtle.digest('SHA-256', new Uint8Array(bytes))); },
 }));
