@@ -6,6 +6,8 @@ import { AgencyNav, AGENCY_SECTIONS } from '../src/agency/AgencyNav';
 import { buildPortfolio } from '../src/portfolio/portfolioModel';
 import { buildMedia } from '../src/portfolio/mediaModel';
 import { buildAgency } from '../src/agency/agencyModel';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { AgenciaPage } from '../src/agency/AgenciaPage';
 
 Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, configurable: true });
 
@@ -62,4 +64,41 @@ test('agency model: talent covers are public-only and newest first', () => {
     { id: 'raxi-vox', name: 'Raxi Vox', photos: 1, campaigns: 1, coverPath: null },
     { id: 'vesper-corvus', name: 'Vesper Corvus', photos: 3, campaigns: 1, coverPath: `${ws}/a1/original.jpg` },
   ]);
+});
+
+
+function fakeClient(tables: Record<string, unknown[]>) {
+  const calls: string[] = [];
+  const client = {
+    rpc: async (name: string) => { calls.push('rpc:' + name); return { data: { id: ws, ownerId: owner, name: 'raxi-hq' }, error: null }; },
+    from: (name: string) => ({ select: () => ({ eq: async () => ({ data: tables[name], error: null }) }) }),
+    storage: { from: () => ({ createSignedUrls: async (paths: string[]) => ({ data: paths.map((p) => ({ path: p, signedUrl: 'https://signed.example/' + p })), error: null }) }) },
+  } as unknown as SupabaseClient;
+  return { client, calls };
+}
+const render = async (client: SupabaseClient) => {
+  let r!: ReactTestRenderer;
+  await act(async () => { r = create(<MemoryRouter><AgenciaPage client={client} ownerId={owner} /></MemoryRouter>); await new Promise((res) => setTimeout(res, 20)); });
+  return r;
+};
+
+test('Agencia page: shows pending decisions, productions and talent, read-only', async () => {
+  const { client, calls } = fakeClient({ raxi_portfolio_collections: collections, raxi_portfolio_items: items, raxi_assets: assets });
+  const r = await render(client);
+  const text = JSON.stringify(r.toJSON());
+  assert.match(text, /2 decisiones esperan por ti/);
+  assert.match(text, /Una noche/);
+  assert.match(text, /Vesper Corvus/);
+  assert.match(text, /Raxi Vox/);
+  assert.ok(!text.includes('Setup nuevo'), 'finished campaigns are not in progress');
+  assert.deepEqual(r.root.findAllByType('img').map((i) => i.props.src).filter((s: string) => s.includes('/a2/')), [], 'NSFW asset never used as a cover');
+  assert.ok(r.root.findAllByType('img').every((i) => typeof i.props.alt === 'string' && i.props.alt.length > 0));
+  assert.deepEqual(calls, ['rpc:raxi_get_workspace'], 'no write RPCs');
+});
+
+test('Agencia page: empty workspace says so instead of inventing content', async () => {
+  const { client } = fakeClient({ raxi_portfolio_collections: [], raxi_portfolio_items: [], raxi_assets: [] });
+  const text = JSON.stringify((await render(client)).toJSON());
+  assert.match(text, /Nada espera tu decisión/);
+  assert.match(text, /Aún no hay producciones en curso/);
 });
