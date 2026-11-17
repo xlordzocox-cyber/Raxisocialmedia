@@ -10,7 +10,7 @@
 .auth-card button:disabled { opacity: .6; cursor: wait; }
 .auth-card [role=alert] { color: #ffb4b4; }
 .real-idea-center code { overflow-wrap: anywhere; }
-body { margin: 0; color: var(--ink); background: var(--bg); font-family: 'Segoe UI', sans-serif; }
+body { margin: 0; color: var(--ink); background: var(--bg); font-family: var(--font-ui); }
 main { max-width: 1600px; margin: auto; padding: 24px; }
 header, .controls, .campaign { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 h1 { margin: 0; font-size: 30px; } h1 span { color: var(--accent); font-size: 16px; }
@@ -72,7 +72,7 @@ aside { background: var(--panel); padding: 16px; border-radius: 12px; }
 .task-board-heading h2 { margin: 0; }.task-board-heading span, .task-board > p { color: var(--muted); font-size: 12px; }
 .task-board-filters { display: flex; flex-wrap: wrap; gap: 16px; margin: 18px 0; }
 .task-board-filters label { display: grid; gap: 8px; flex: 1 1 200px; min-width: 0; font-size: 13px; }
-.task-board-filters select { width: 100%; min-width: 0; min-height: 44px; padding: 10px; background: #101a2a; color: var(--text); border: 1px solid #445775; border-radius: 7px; }
+.task-board-filters select { width: 100%; min-width: 0; min-height: 44px; padding: 10px; background: #101a2a; color: var(--ink); border: 1px solid #445775; border-radius: 7px; }
 .task-board-filters select:focus-visible { outline: 3px solid #ffd166; outline-offset: 2px; }
 .task-board-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,280px),1fr)); gap: 16px; }
 .task-board-card { min-width: 0; padding: 16px; background: #101a2a; border: 1px solid #29364d; border-radius: 10px; overflow-wrap: anywhere; }

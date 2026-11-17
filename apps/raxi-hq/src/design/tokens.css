@@ -1,1 +1,16 @@
-:root { --bg: #090d18; --panel: #121a2a; --ink: #f4f7ff; --muted: #99a3b8; --accent: #35e7ff; }
+:root {
+  /* Color: surfaces and text (the first five names are the original tokens and stay). */
+  --bg: #090d18; --panel: #121a2a; --ink: #f4f7ff; --muted: #99a3b8; --accent: #35e7ff;
+  --surface-2: #18233a; --border: #29364d; --border-strong: #496180; --accent-ink: #06121a;
+  --status-ok: #6ee7a8; --status-warn: #f0b45a; --status-danger: #ffb4b4;
+  /* Type */
+  --font-ui: 'Inter Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
+  --text-xs: 12px; --text-sm: 14px; --text-md: 16px; --text-lg: 20px; --text-xl: 28px; --text-2xl: 36px;
+  --text-display: clamp(2.4rem, 6vw, 4rem);
+  /* Space, shape, depth, motion */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px; --space-6: 32px; --space-7: 48px; --space-8: 72px;
+  --radius-sm: 8px; --radius-md: 12px; --radius-pill: 999px;
+  --shadow-1: 0 8px 24px rgb(0 0 0 / 0.35);
+  --ease: cubic-bezier(0.2, 0, 0, 1); --dur-fast: 120ms;
+}
