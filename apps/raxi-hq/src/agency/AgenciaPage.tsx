@@ -20,7 +20,7 @@ export async function loadAgency(client: SupabaseClient, ownerId: string): Promi
   const [c, i, a] = await Promise.all([
     client.from('raxi_portfolio_collections').select('*').eq('workspace_id', workspaceId),
     client.from('raxi_portfolio_items').select('*').eq('workspace_id', workspaceId),
-    client.from('raxi_assets').select('id,workspace_id,object_path,mime_type,sha256,byte_size,external_asset_id,metadata,created_at').eq('workspace_id', workspaceId),
+    client.from('raxi_assets').select('id,workspace_id,kind,object_path,mime_type,sha256,byte_size,external_asset_id,metadata,created_at').eq('workspace_id', workspaceId),
   ]);
   if (c.error || i.error || a.error) throw new Error('No se pudo leer la agencia.');
   const view = buildAgency(buildPortfolio(workspaceId, c.data, i.data, a.data), buildMedia(workspaceId, a.data, i.data, c.data));
@@ -75,7 +75,7 @@ export function AgenciaPage({ client, ownerId }: { client: SupabaseClient; owner
               {t.coverPath && state.urls[t.coverPath]
                 ? <img src={state.urls[t.coverPath]} alt={`Foto reciente de ${t.name}`} className="agency-cover" loading="lazy" />
                 : <div className="agency-cover agency-cover-empty" role="img" aria-label={`${t.name}: sin foto pública archivada`}><span>Sin foto pública todavía</span></div>}
-              <h3 className="agency-talent-name">{t.name}</h3>
+              <h3 className="agency-talent-name"><Link to={`/talento/${t.id}`}>{t.name}</Link></h3>
               <p className="agency-meta">{t.photos} {t.photos === 1 ? 'foto' : 'fotos'} en archivo · {t.campaigns} {t.campaigns === 1 ? 'campaña' : 'campañas'}</p>
             </li>)}
           </ul>}

@@ -14,7 +14,7 @@ export async function loadMultimedia(client: SupabaseClient, ownerId: string): P
   if (ws.error || !ws.data) throw new Error('No se encontró tu workspace.');
   const workspaceId = parseWorkspace(ws.data, ownerId).id;
   const [a, i, c] = await Promise.all([
-    client.from('raxi_assets').select('id,workspace_id,object_path,mime_type,sha256,byte_size,external_asset_id,metadata,created_at').eq('workspace_id', workspaceId),
+    client.from('raxi_assets').select('id,workspace_id,kind,object_path,mime_type,sha256,byte_size,external_asset_id,metadata,created_at').eq('workspace_id', workspaceId),
     client.from('raxi_portfolio_items').select('workspace_id,asset_id,collection_id').eq('workspace_id', workspaceId),
     client.from('raxi_portfolio_collections').select('id,workspace_id,title').eq('workspace_id', workspaceId),
   ]);

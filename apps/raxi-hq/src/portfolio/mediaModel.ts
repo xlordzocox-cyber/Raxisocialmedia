@@ -34,7 +34,8 @@ export function buildMedia(workspaceId: string, rawAssets: unknown, rawItems: un
     if (!campaignsOf.has(assetId)) campaignsOf.set(assetId, new Set());
     campaignsOf.get(assetId)!.add(title);
   }
-  const assets = (rawAssets as Record<string, unknown>[]).map((a): MediaAsset => {
+  // Identity references (Talento) are working material, not archive photos.
+  const assets = (rawAssets as Record<string, unknown>[]).filter((a) => a.kind !== 'REFERENCE').map((a): MediaAsset => {
     if (a.workspace_id !== workspaceId) throw new Error('Multimedia: asset ajeno');
     const path = str(a.object_path, 400);
     if (path.split('/')[0] !== workspaceId) throw new Error('Multimedia: ruta ajena');
