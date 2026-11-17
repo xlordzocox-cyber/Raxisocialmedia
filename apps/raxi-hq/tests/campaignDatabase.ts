@@ -22,8 +22,25 @@ export async function campaignDatabase(includeCampaignProposal = true, dataDir?:
   // the native isolated PG17 workflow that reconstructs them in proper order.
   // Do NOT silently exclude any other versioned migrations here.
   const stagedRuntimeOnly = '20261115040235_raxi_hq_issue49_director_real_gate_schema_only.sql';
+  // Post-freeze product migrations (Claude-led v2): the Fototeca migration depends on
+  // Supabase Storage policies and pg_net (absent in PGlite), and both change the schema
+  // frozen by the earlier B2 staging-preparation digest. They are verified against
+  // raxi-hq-staging directly. Listed explicitly so nothing else is skipped silently.
+  const postFreezeProduct = new Set([
+    '20261115083451_raxi_hq_fototeca_v1.sql',
+    '20261115154028_raxi_hq_team_proposals.sql',
+    '20261115170000_raxi_hq_agent_jobs.sql',
+    '20261115172000_raxi_hq_director_review.sql',
+    '20261115180000_raxi_hq_campaign_pipeline.sql',
+    '20261115190000_raxi_hq_pipeline_savings.sql',
+    '20261115200000_raxi_hq_copy_qa_publish.sql',
+    '20261115210000_raxi_hq_production_archive.sql',
+    '20261115211000_raxi_hq_generate_loop.sql',
+    '20261115220000_raxi_hq_photo_redo.sql',
+    '20261115230000_raxi_hq_character_fixed_prompt.sql',
+  ]);
   for (const file of readdirSync('../../supabase/migrations').filter(f =>
-    f.endsWith('.sql') && f !== stagedRuntimeOnly &&
+    f.endsWith('.sql') && f !== stagedRuntimeOnly && !postFreezeProduct.has(f) &&
     (includeCampaignProposal || !f.includes('campaign_strategy_pending_review'))
   ).sort()) await db.exec(readFileSync(`../../supabase/migrations/${file}`, 'utf8'));
   return db;

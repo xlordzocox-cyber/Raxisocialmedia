@@ -14,6 +14,9 @@ import { officeAgentView } from '../src/office/ui/agentViewSelectors';
 import { AgentDock } from '../src/office/ui/AgentDock';
 import { AgentInspector } from '../src/office/ui/AgentInspector';
 import { AgentTaskBoard } from '../src/office/ui/AgentTaskBoard';
+import { RealIdeaCenter } from '../src/persistence/RealIdeaCenter';
+import { CampusOverview } from '../src/campus/CampusOverview';
+import { OperationsInbox } from '../src/operations/OperationsInbox';
 import { mockAgents } from '../src/adapters/mock/mockScenario';
 import type { HQState } from '../src/domain/hq';
 import { settings, Container } from 'pixi.js';
@@ -124,6 +127,64 @@ test('inspector withdraws a task on inconsistent or incomplete refresh and recov
   await act(async()=>view.unmount());
 });
 
+test('gesture that begins on an agent never becomes a department tap',()=>{
+  const {scene}=sceneFixture();
+  const handlers=new Map<string,(event?:{stopPropagation?:()=>void})=>void>();
+  const sprite={on(name:string,handler:(event?:{stopPropagation?:()=>void})=>void){handlers.set(name,handler);}};
+  const selections:string[]=[];
+  scene.onSelect=(id:string)=>selections.push(id);
+  scene.bindAgentEvents(sprite as never,'a');
+  assert.equal(scene.dragMoved,undefined);
+  handlers.get('pointerdown')?.();
+  assert.equal(scene.dragMoved,true,'agent-originated gesture suppresses stage room tap');
+  let stopped=false;
+  handlers.get('pointertap')?.({stopPropagation(){stopped=true;}});
+  assert.equal(stopped,true,'agent selection does not bubble to room handler');
+  assert.deepEqual(selections,['a']);
+});
+
+test('room focus smoothly magnifies the selected department without inventing agents',()=>{
+  const {scene,world}=sceneFixture();
+  const before=structuredClone(scene.state);
+  const selected:(string|undefined)[]=[];
+  scene.onZoneFocusChange=(id?:string)=>selected.push(id);
+  assert.equal(scene.focusZone('ARIA_LINK'),true);
+  assert.equal(scene.activeZoneId,'ARIA_LINK');
+  assert.equal(scene.zoneFocusTarget,'ARIA_LINK');
+  for(let i=0;i<250&&scene.zoneFocusTarget;i++)scene.tick(16);
+  assert.equal(scene.zoneFocusTarget,undefined,'focus animation settles');
+  assert.equal(world.scale.x,1.85);
+  assert.equal(scene.focusCriticalEvents,false);
+  assert.deepEqual(scene.state,before,'camera-only interaction leaves domain state intact');
+  assert.equal(scene.focusZone('__proto__'),false,'untrusted invalid room rejected');
+  assert.deepEqual(selected,['ARIA_LINK']);
+  scene.zoom(1.1);
+  assert.equal(scene.activeZoneId,undefined,'manual camera takes control');
+  assert.equal(scene.zoneFocusTarget,undefined);
+  assert.equal(selected.at(-1),undefined);
+  assert.equal(scene.focusZone('QA_LAB'),true);
+  scene.resetCamera();
+  assert.equal(scene.activeZoneId,undefined);
+  assert.equal(scene.zoneFocusTarget,undefined);
+  assert.equal(world.scale.x,1.05);
+  assert.deepEqual(scene.state,before);
+});
+
+test('reduced-motion room focus finishes in one tick and keeps REAL source disconnected',()=>{
+  const {scene,world}=sceneFixture();
+  scene.state={...snapshot(),mode:'LIVE_READ_ONLY',mockMode:false,
+    agents:{},events:[],sourceHealth:{source:'munder',mode:'LIVE_READ_ONLY',connection:'DISCONNECTED',eventsLoaded:0,agentsLoaded:0,tasksLoaded:0}};
+  scene.reducedMotion={matches:true};
+  const original=structuredClone(scene.state);
+  assert.equal(scene.focusZone('GITHUB_HUB'),true);
+  scene.tick(16);
+  assert.equal(scene.zoneFocusTarget,undefined);
+  assert.equal(world.scale.x,1.85);
+  assert.deepEqual(scene.state,original);
+  assert.equal(scene.state.sourceHealth.connection,'DISCONNECTED');
+  assert.equal(Object.keys(scene.state.agents).length,0);
+});
+
 test('manual focus snapshots rendered position and refocuses the same selected agent',()=>{
   const {scene}=sceneFixture();const before=structuredClone(scene.state);
   assert.equal(scene.focusAgent('a'),true);assert.deepEqual(scene.focusTarget,{x:-20,y:10});
@@ -207,10 +268,73 @@ test('mounted StrictMode App shares sprite/dock selection intent, preserves oper
   const auth=new AuthStore({getUser:async()=>({data:{user},error:null}),onAuthStateChange:()=>({data:{subscription:{unsubscribe(){}}}}),signOut:async()=>({error:null})} as unknown as SupabaseClient['auth']);
   const repository=()=>({findWorkspace:async()=>{reads++;return null;},createWorkspace:async()=>{throw Error('forbidden');},listIdeas:async()=>[],createIdea:async()=>{throw Error('forbidden');}});
   const oldFetch=globalThis.fetch;globalThis.fetch=async()=>{calls++;throw Error('forbidden');};
-  const tree=(key=0)=><StrictMode><AuthProvider store={auth}><MemoryRouter><Routes><Route element={<ProtectedRoute/>}><Route path="/" element={<App key={key} ideaRepository={repository}/>}/></Route></Routes></MemoryRouter></AuthProvider></StrictMode>;
+  const tree=(key=0)=><StrictMode><AuthProvider store={auth}><MemoryRouter><Routes><Route element={<ProtectedRoute/>}><Route path="/" element={<App showDemo key={key} ideaRepository={repository}/>}/></Route></Routes></MemoryRouter></AuthProvider></StrictMode>;
   let view!:ReactTestRenderer;
   try {
     await act(async()=>{view=create(tree());});
+    const command=view.root.findByProps({className:'hq-command-shell'});
+    assert.ok(command,'single viewport-height command center exists');
+    assert.equal(view.root.findAllByProps({'aria-label':'Oficina fija de Raxi HQ'}).length,1,'one fixed office, no parallel canvas');
+    assert.ok(view.root.findByProps({'aria-label':'Área de trabajo'}),'independently scrollable lower panel');
+    const cameraStatus=view.root.findByProps({className:'office-zone-status'});
+    assert.match(cameraStatus.props.children,/Vista completa/,'camera status reserves the same slot before room selection');
+    const rail=view.root.findByProps({'aria-label':'Secciones de Raxi HQ'});
+    const railButtons=rail.findAllByType('button');
+    assert.equal(railButtons.length,7,'right navigation has seven functional modules');
+    assert.equal(railButtons[0].props['aria-pressed'],true);
+    assert.equal(view.root.findByType(RealIdeaCenter).props.view,'ideas');
+    const readsBeforeRail=reads;
+    await act(async()=>{railButtons[1].props.onClick();});
+    assert.equal(view.root.findByType(RealIdeaCenter).props.view,'campaigns');
+    assert.equal(view.root.findAllByProps({'aria-label':'Oficina fija de Raxi HQ'}).length,1);
+    await act(async()=>{railButtons[5].props.onClick();});
+    assert.equal(view.root.findByType(RealIdeaCenter).props.view,'runtime','runtime read-only component remains mounted');
+    await act(async()=>{railButtons[2].props.onClick();});
+    assert.equal(view.root.findByType(AgentDock).props.view.agents.length,0);
+    assert.equal(reads,readsBeforeRail,'switching modules cannot remount the REAL store');
+    await act(async()=>{railButtons[0].props.onClick();});
+    assert.equal(view.root.findByType(RealIdeaCenter).props.view,'ideas');
+    assert.equal(hqStore.getSnapshot().mode,'LIVE_READ_ONLY','panel switching never changes source truth');
+    const zoneNav=view.root.findByProps({'aria-label':'Acercar cámara a departamentos'});
+    const zoneButtons=zoneNav.findAllByType('button');
+    assert.equal(zoneButtons.length,8,'global view and seven camera-only rooms');
+    assert.equal(zoneButtons[0].props['aria-pressed'],true);
+    assert.equal(zoneButtons.every(button=>button.props.type==='button'&&typeof button.props.onClick==='function'),true);
+    assert.match(JSON.stringify(zoneButtons.map(button=>button.props.children)),/Supermemory Core/);
+    const zoneScroller=zoneNav.findByProps({'aria-label':'Elegir departamento'});
+    assert.equal(zoneScroller.findAllByType('button').length,7,'only the departments scroll; Vista completa stays separate');
+    assert.equal(zoneNav.findAllByProps({className:'office-zone-home'}).length,1,'full-view action remains permanently available');
+    const realDemoGroup=view.root.findByProps({'aria-label':'Explorar agentes sin ejecución real'});
+    assert.match(realDemoGroup.findAllByType('span')[0].props.children,/REAL/);
+    await act(async()=>{
+      view.root.findByProps({'aria-label':'Ver agentes de demostración'}).props.onClick();
+      await Promise.resolve();await Promise.resolve();
+    });
+    assert.equal(hqStore.getSnapshot().mode,'MOCK','explicit shortcut selects the isolated demo source');
+    assert.equal(Object.keys(hqStore.getSnapshot().agents).length,mockAgents.length);
+    await act(async()=>{railButtons[1].props.onClick();});
+    const demoInboxToggle=view.root.findByProps({'aria-label':'Abrir bandeja de propuestas en Campañas'});
+    await act(async()=>{demoInboxToggle.props.onClick();});
+    assert.equal(view.root.findByProps({'aria-label':'Bandeja de propuestas recibidas'}).props.hidden,false,'DEMO inbox accessible within campaigns');
+    await act(async()=>{railButtons[0].props.onClick();});
+    assert.equal(view.root.findByProps({'aria-label':'Bandeja de propuestas recibidas'}).props.hidden,false,'opened inbox remains visible in Ideas');
+    const inbox=view.root.findByType(OperationsInbox);
+    await act(async()=>{inbox.props.onOpenCampaign('CAMPAIGN-DEMO-NAVIGATION-TEST');});
+    assert.equal(view.root.findByType(CampusOverview).props.view,'campaigns','opening a campaign from Ideas must navigate to Campaigns');
+    await act(async()=>{railButtons[0].props.onClick();});
+    assert.ok(view.root.findByProps({'aria-label':'Volver a Campus REAL'}),'user can return without scrolling to the campus header');
+    let clearedSynchronously=false;
+    await act(async()=>{
+      view.root.findByProps({'aria-label':'Volver a Campus REAL'}).props.onClick();
+      const instant=hqStore.getSnapshot();
+      clearedSynchronously=instant.mode==='LIVE_READ_ONLY' && instant.mockMode===false &&
+        instant.sourceHealth.source==='munder' &&
+        Object.keys(instant.agents).length===0 && instant.events.length===0;
+      await Promise.resolve();await Promise.resolve();
+    });
+    assert.equal(clearedSynchronously,true,'MOCK source cleared before REAL React update, not merely after its effect');
+    assert.equal(hqStore.getSnapshot().mode,'LIVE_READ_ONLY');
+    assert.equal(Object.keys(hqStore.getSnapshot().agents).length,0,'DEMO agents never remain in REAL');
     await act(async()=>{await hqStore.switchMode('MOCK');});
     const before=structuredClone(hqStore.getSnapshot());const baseline=reads;
     const dock=view.root.findByType(AgentDock);const id=Object.keys(before.agents)[1];

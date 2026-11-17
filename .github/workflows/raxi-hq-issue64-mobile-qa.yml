@@ -1,0 +1,58 @@
+name: Raxi HQ Issue64 mobile camera QA (no deploy)
+on:
+  pull_request:
+    branches:
+      - feat/issue60-main-office-runtime-bridge
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: raxi-hq-issue64-mobile-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app-qa:
+    name: TypeScript, app tests, build and audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/raxi-hq
+    env:
+      CI: "true"
+    steps:
+      - name: Read-only checkout (no credentials persisted)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Node.js 22, locked install
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: apps/raxi-hq/package-lock.json
+      - name: Install without dependency lifecycle scripts
+        run: npm ci --ignore-scripts
+      - name: Typecheck browser and runtime
+        run: npm run typecheck
+      - name: Run entire Raxi HQ suite serially
+        run: npm test -- --serial
+      - name: Verify Vite build
+        run: npm run build
+      - name: Audit dependencies
+        run: npm audit --audit-level=moderate
+
+  pg17-safety:
+    name: Preserve PostgreSQL 17 runtime safety
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - name: Read-only checkout (no credentials persisted)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Isolated native PG17 fixture (no network or hosted SQL)
+        shell: bash
+        run: bash apps/raxi-hq/scripts/issue60-pg17-ci.sh

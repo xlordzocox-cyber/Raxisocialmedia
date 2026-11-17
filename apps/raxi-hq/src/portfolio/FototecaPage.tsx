@@ -1,0 +1,299 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { parseWorkspace } from '../persistence/supabaseIdeaRepository';
+import {
+  buildPortfolio, canApprove, cropRect, FRAMING_FOCUS, FRAMING_LABEL, gridOrder, packText, type Framing, postText, progress, QA_LABEL, STATUS_LABEL,
+  type PortfolioItem, type PortfolioView,
+} from './portfolioModel';
+import { buildReelVideo, reelDuration } from './reelVideo';
+import './fototeca.css';
+
+const BUCKET = 'raxi-hq-private';
+type Load = { phase: 'loading' } | { phase: 'error'; message: string } | { phase: 'ready'; workspaceId: string; view: PortfolioView };
+
+/** Owner-only reads (RLS) + signed URLs that expire; no write except the audited decision RPC. */
+export async function loadFototeca(client: SupabaseClient, ownerId: string): Promise<{ workspaceId: string; view: PortfolioView }> {
+  const ws = await client.rpc('raxi_get_workspace');
+  if (ws.error || !ws.data) throw new Error('No se encontró tu workspace.');
+  const workspaceId = parseWorkspace(ws.data, ownerId).id;
+  const [c, i, a] = await Promise.all([
+    client.from('raxi_portfolio_collections').select('*').eq('workspace_id', workspaceId),
+    client.from('raxi_portfolio_items').select('*').eq('workspace_id', workspaceId),
+    client.from('raxi_assets').select('id,workspace_id,object_path,mime_type,sha256,byte_size').eq('workspace_id', workspaceId),
+  ]);
+  if (c.error || i.error || a.error) throw new Error(c.error?.code === '42P01' ? 'La Fototeca aún no está instalada en esta base.' : 'No se pudo leer la Fototeca.');
+  return { workspaceId, view: buildPortfolio(workspaceId, c.data, i.data, a.data) };
+}
+
+async function signedUrls(client: SupabaseClient, items: PortfolioItem[]): Promise<Record<string, string>> {
+  const paths = [...new Set(items.flatMap((i) => (i.asset ? [i.asset.objectPath] : [])))];
+  if (!paths.length) return {};
+  const { data, error } = await client.storage.from(BUCKET).createSignedUrls(paths, 60 * 30);
+  if (error || !data) return {};
+  return Object.fromEntries(data.flatMap((d) => (d.path && d.signedUrl ? [[d.path, d.signedUrl]] : [])));
+}
+
+/** Crops in the browser (no upload, no new asset) and downloads a JPEG ready for the Instagram feed. */
+async function downloadCropped(url: string, crop: string, name: string, framing: Framing = 'center'): Promise<void> {
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  await new Promise<void>((resolve, reject) => { img.onload = () => resolve(); img.onerror = () => reject(new Error('load')); img.src = url; });
+  const canvas = document.createElement('canvas');
+  if (framing === 'full') {
+    // Whole photo, nothing cut: 1080x1350 with a blurred, darkened copy filling the sides.
+    const W = 1080, H = 1350; canvas.width = W; canvas.height = H;
+    const ctx = canvas.getContext('2d')!;
+    const cover = Math.max(W / img.naturalWidth, H / img.naturalHeight), contain = Math.min(W / img.naturalWidth, H / img.naturalHeight);
+    ctx.filter = 'blur(36px) brightness(0.55)';
+    ctx.drawImage(img, (W - img.naturalWidth * cover) / 2, (H - img.naturalHeight * cover) / 2, img.naturalWidth * cover, img.naturalHeight * cover);
+    ctx.filter = 'none';
+    ctx.drawImage(img, (W - img.naturalWidth * contain) / 2, (H - img.naturalHeight * contain) / 2, img.naturalWidth * contain, img.naturalHeight * contain);
+  } else {
+    const r = cropRect(img.naturalWidth, img.naturalHeight, crop, FRAMING_FOCUS[framing]);
+    canvas.width = r.sw; canvas.height = r.sh;
+    canvas.getContext('2d')!.drawImage(img, r.sx, r.sy, r.sw, r.sh, 0, 0, r.sw, r.sh);
+  }
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.95));
+  if (!blob) throw new Error('encode');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10_000);
+}
+
+function copy(text: string, done: () => void) {
+  void navigator.clipboard?.writeText(text).then(done, () => undefined);
+}
+
+export function FototecaPage({ client, ownerId }: { client: SupabaseClient; ownerId: string }) {
+  const [state, setState] = useState<Load>({ phase: 'loading' });
+  const [selected, setSelected] = useState<string>();
+  const [focus, setFocus] = useState<string>();
+  const [urls, setUrls] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string>();
+  const [notice, setNotice] = useState<string>();
+  const [publishUrl, setPublishUrl] = useState('');
+  const [redoOpen, setRedoOpen] = useState(false);
+  const [redoNote, setRedoNote] = useState('');
+  const [framing, setFraming] = useState<Record<string, Framing>>({});
+  const frameOf = (id: string): Framing => framing[id] ?? 'top';
+  const setFrame = (id: string, f: Framing) => setFraming((prev) => {
+    const next = { ...prev, [id]: f };
+    try { localStorage.setItem('raxi-framing', JSON.stringify(next)); } catch { /* storage unavailable: keep in memory */ }
+    return next;
+  });
+  useEffect(() => { try { const raw = localStorage.getItem('raxi-framing'); if (raw) setFraming(JSON.parse(raw) as Record<string, Framing>); } catch { /* ignore */ } }, []);
+  const [video, setVideo] = useState<{ phase: 'idle' } | { phase: 'building'; pct: number } | { phase: 'ready'; url: string; ext: string; mime: string }>({ phase: 'idle' });
+
+  const reload = useCallback(async () => {
+    try {
+      const data = await loadFototeca(client, ownerId);
+      setState({ phase: 'ready', ...data });
+      setSelected((prev) => prev ?? data.view.collections[0]?.id);
+    } catch (e) {
+      setState({ phase: 'error', message: e instanceof Error ? e.message : 'Error inesperado.' });
+    }
+  }, [client, ownerId]);
+  useEffect(() => { void reload(); }, [reload]);
+
+  const collection = state.phase === 'ready' ? state.view.collections.find((c) => c.id === selected) : undefined;
+  useEffect(() => {
+    let alive = true;
+    if (collection) void signedUrls(client, collection.items).then((u) => { if (alive) setUrls(u); });
+    return () => { alive = false; };
+  }, [client, collection]);
+  const item = useMemo(() => collection?.items.find((i) => i.id === focus), [collection, focus]);
+  useEffect(() => { setPublishUrl(''); }, [focus]);
+  useEffect(() => { setVideo({ phase: 'idle' }); }, [selected]);
+
+  /** Carousel: every photo the owner did not discard, in order, cropped to 4:5 (what Instagram shows best). */
+  async function downloadCarousel() {
+    if (!collection) return;
+    const photos = collection.items.filter((i) => i.decision !== 'REJECTED' && i.asset && urls[i.asset.objectPath]);
+    if (!photos.length) { setNotice('No hay fotos listas.'); return; }
+    setNotice(`Descargando ${photos.length} fotos 4:5… si el navegador pregunta, permite varias descargas.`);
+    let n = 0;
+    for (const it of photos) {
+      n += 1;
+      try { await downloadCropped(urls[it.asset!.objectPath], '4:5', `${collection.externalId}-carrusel-${String(n).padStart(2, '0')}.jpg`, frameOf(it.id)); }
+      catch { setNotice(`No se pudo descargar la foto ${n}; usa «Abrir original» en esa foto.`); return; }
+      await new Promise((r) => setTimeout(r, 700));
+    }
+    setNotice(`Listo: ${photos.length} fotos 4:5 en orden (01 → ${String(photos.length).padStart(2, '0')}). Súbelas en ese orden como carrusel.`);
+  }
+
+  async function makeReel() {
+    if (!collection) return;
+    const frames = collection.items.filter((i) => i.decision !== 'REJECTED' && i.asset && urls[i.asset.objectPath])
+      .map((i) => ({ url: urls[i.asset!.objectPath], seconds: i.seconds ?? 1, text: i.caption }));
+    if (!frames.length) { setNotice('No hay fotos listas para el video.'); return; }
+    setVideo({ phase: 'building', pct: 0 });
+    try {
+      const { blob, mime } = await buildReelVideo(frames, (p) => setVideo({ phase: 'building', pct: Math.round(p * 100) }));
+      setVideo({ phase: 'ready', url: URL.createObjectURL(blob), ext: mime === 'video/mp4' ? 'mp4' : 'webm', mime });
+    } catch (e) {
+      setVideo({ phase: 'idle' }); setNotice(e instanceof Error ? e.message : 'No se pudo armar el video.');
+    }
+  }
+
+  async function redo(target: PortfolioItem) {
+    setBusy(target.id); setNotice(undefined);
+    const { error } = await client.rpc('raxi_photo_redo', { p_item: target.id, p_note: redoNote.trim() || null });
+    setBusy(undefined);
+    if (error) { setNotice(redoError(error.message)); return; }
+    setRedoOpen(false); setRedoNote('');
+    setNotice('Marcada para rehacer. Producción prepara la orden: aprueba el costo en Campañas (no se gasta nada antes). Puedes marcar más fotos mientras tanto.');
+    await reload();
+  }
+
+  async function decide(target: PortfolioItem, decision: 'APPROVED' | 'REJECTED' | 'PENDING' | 'PUBLISHED') {
+    setBusy(target.id); setNotice(undefined);
+    const { error } = await client.rpc('raxi_portfolio_decide', { p_item: target.id, p_decision: decision, p_published_url: decision === 'PUBLISHED' ? publishUrl.trim() : null });
+    setBusy(undefined);
+    if (error) { setNotice('No se guardó la decisión: ' + (error.message || 'error')); return; }
+    setNotice('Decisión guardada.');
+    await reload();
+  }
+
+  if (state.phase === 'loading') return <main className="fototeca" role="status">Cargando Fototeca…</main>;
+  if (state.phase === 'error') return <main className="fototeca"><Header /><p role="alert">{state.message}</p></main>;
+  if (!state.view.collections.length) return <main className="fototeca"><Header /><p>Aún no hay campañas en la Fototeca.</p></main>;
+
+  const p = collection ? progress(collection.items) : undefined;
+  return <main className="fototeca">
+    <Header />
+    <nav className="foto-collections" aria-label="Campañas">
+      {state.view.collections.map((c) => <button key={c.id} type="button" aria-pressed={c.id === selected} onClick={() => { setSelected(c.id); setFocus(undefined); }}>
+        <b>{c.title}</b><span>{c.characterId} · {c.channel}</span>
+      </button>)}
+    </nav>
+    {collection && p && <section className="foto-collection" aria-label={collection.title}>
+      <header>
+        <h2>{collection.title}</h2>
+        {collection.concept && <p>{collection.concept}</p>}
+        <p className="foto-progress">{`${p.approved}/${p.total} aprobadas · ${p.published} publicadas${p.blocked ? ` · ${p.blocked} necesitan corrección` : ''}`}</p>
+      </header>
+      {(collection.pack.caption || collection.pack.format === 'REEL') && <section className="foto-pack" aria-label="Paquete de publicación">
+        <h3>{collection.pack.format === 'REEL' ? 'Reel listo para publicar' : 'Publicación lista'}</h3>
+        {collection.pack.format === 'REEL' && <>
+          <p className="foto-meta">{`${collection.items.filter((i) => i.decision !== 'REJECTED').length} fotos · ${reelDuration(collection.items.filter((i) => i.decision !== 'REJECTED').map((i) => i.seconds ?? 1)).toFixed(1)} s · 9:16 con textos en pantalla. Se arma aquí en tu teléfono; no se sube a ningún lado.`}</p>
+          {video.phase === 'idle' && <button type="button" onClick={() => void makeReel()}>🎬 Armar video del Reel</button>}
+          {video.phase === 'building' && <p role="status">Grabando el video… {video.pct}% (no cambies de pestaña)</p>}
+          {video.phase === 'ready' && <>
+            <video src={video.url} controls playsInline className="foto-reel-preview" />
+            <a className="foto-download" href={video.url} download={`${collection.externalId}.${video.ext}`}>Descargar video ({video.ext.toUpperCase()})</a>
+            {video.ext !== 'mp4' && <p className="foto-meta">Tu navegador solo pudo grabar WebM. Si Instagram no lo acepta, ábrelo en Chrome actualizado o conviértelo a MP4.</p>}
+            <button type="button" onClick={() => setVideo({ phase: 'idle' })}>Volver a armar</button>
+          </>}
+          <div className="foto-carousel">
+            <p><b>Carrusel 4:5.</b> Elige el encuadre de cada foto (la vista previa es exactamente lo que se descarga) y luego descarga todas, numeradas en orden.</p>
+            <div className="foto-framing-list">
+              {collection.items.filter((i) => i.decision !== 'REJECTED' && i.asset && urls[i.asset.objectPath]).map((it, idx) => {
+                const f = frameOf(it.id);
+                return <div key={it.id} className="foto-framing">
+                  <div className={`foto-framing-preview ${f === 'full' ? 'is-full' : ''}`}>
+                    {f === 'full' && <img aria-hidden="true" className="foto-framing-bg" src={urls[it.asset!.objectPath]} alt="" />}
+                    <img src={urls[it.asset!.objectPath]} alt={it.altText} style={f === 'full' ? undefined : { objectPosition: `50% ${FRAMING_FOCUS[f] * 100}%` }} />
+                    <span className="foto-badge">{String(idx + 1).padStart(2, '0')}</span>
+                  </div>
+                  <div className="foto-framing-options" role="group" aria-label={`Encuadre foto ${idx + 1}`}>
+                    {(['top', 'center', 'bottom', 'full'] as Framing[]).map((k) => <button key={k} type="button" aria-pressed={f === k} onClick={() => setFrame(it.id, k)}>{FRAMING_LABEL[k]}</button>)}
+                  </div>
+                </div>;
+              })}
+            </div>
+            <button type="button" onClick={() => void downloadCarousel()}>📥 Descargar carrusel ({collection.items.filter((i) => i.decision !== 'REJECTED' && i.asset).length} fotos 4:5)</button>
+          </div>
+          {collection.pack.audio && <p className="foto-meta"><b>Audio sugerido:</b> {collection.pack.audio} (elígelo en Instagram al publicar).</p>}
+        </>}
+        {collection.pack.caption && <>
+          <label>Texto de la publicación</label>
+          <pre className="foto-caption">{packText(collection.pack)}</pre>
+          <button type="button" onClick={() => copy(packText(collection.pack), () => setNotice('Texto de la publicación copiado.'))}>Copiar texto</button>
+        </>}
+        {collection.pack.firstComment && <>
+          <label>Primer comentario</label>
+          <pre className="foto-caption">{collection.pack.firstComment}</pre>
+          <button type="button" onClick={() => copy(collection.pack.firstComment, () => setNotice('Primer comentario copiado.'))}>Copiar primer comentario</button>
+        </>}
+        {collection.pack.qa && <p className="foto-meta"><b>QA:</b> {collection.pack.qa}</p>}
+        {collection.pack.publishedUrl && <a href={collection.pack.publishedUrl} target="_blank" rel="noreferrer">Ver en Instagram</a>}
+        <p className="foto-meta">Activa la etiqueta «AI info» al publicar.</p>
+        {notice && <p role="status">{notice}</p>}
+      </section>}
+      <p className="foto-hint">Vista de cuadrícula como en Instagram: la última publicación queda arriba a la izquierda.</p>
+      <div className="foto-grid" role="list">
+        {gridOrder(collection.items).map((it) => {
+          const url = it.asset ? urls[it.asset.objectPath] : undefined;
+          return <button key={it.id} role="listitem" type="button" className={`foto-tile s-${it.status.toLowerCase()} q-${it.qaStatus.toLowerCase()}`} aria-pressed={it.id === focus} onClick={() => setFocus(it.id)} aria-label={`Publicación ${it.position}: ${STATUS_LABEL[it.status]}`}>
+            {url ? <img src={url} alt={it.altText} loading="lazy" /> : <span className="foto-missing">{it.asset ? 'Cargando…' : 'Sin archivar'}</span>}
+            <span className="foto-badge">#{it.position}</span>
+            {it.qaStatus === 'NEEDS_FIX' && <span className="foto-flag">Corregir</span>}
+            {it.decision === 'APPROVED' && it.status !== 'PUBLISHED' && <span className="foto-ok">✓</span>}
+            {it.status === 'PUBLISHED' && <span className="foto-ok">Publicada</span>}
+          </button>;
+        })}
+      </div>
+      {item && <article className="foto-detail" aria-label={`Detalle publicación ${item.position}`}>
+        <div className="foto-detail-media">
+          {item.asset && urls[item.asset.objectPath] ? <img src={urls[item.asset.objectPath]} alt={item.altText} /> : <span className="foto-missing">Sin imagen archivada</span>}
+        </div>
+        <div className="foto-detail-body">
+          <h3>Publicación #{item.position} · {STATUS_LABEL[item.status]}</h3>
+          <p><b>{QA_LABEL[item.qaStatus]}</b>{item.qaNotes ? ` — ${item.qaNotes}` : ''}</p>
+          <p className="foto-meta">Recorte para el feed: <b>{item.crop}</b>{item.asset ? ` · SHA-256 ${item.asset.sha256.slice(0, 12)}…` : ''}</p>
+          <label>Texto para Instagram</label>
+          <pre className="foto-caption">{postText(item)}</pre>
+          <button type="button" onClick={() => copy(postText(item), () => setNotice('Texto copiado.'))}>Copiar texto</button>
+          <label>Texto alternativo (accesibilidad)</label>
+          <pre className="foto-caption">{item.altText || '—'}</pre>
+          <button type="button" onClick={() => copy(item.altText, () => setNotice('Texto alternativo copiado.'))} disabled={!item.altText}>Copiar texto alternativo</button>
+          {item.asset && urls[item.asset.objectPath] && item.crop !== 'ORIGINAL' && <button type="button" className="foto-download" onClick={() => {
+            const url = urls[item.asset!.objectPath];
+            void downloadCropped(url, item.crop, `${collection.externalId}-${String(item.position).padStart(2, '0')}-${item.crop.replace(':', 'x')}.jpg`)
+              .then(() => setNotice(`Foto recortada a ${item.crop} descargada.`), () => setNotice('No se pudo recortar en este navegador; usa «Abrir original».'));
+          }}>{`Descargar ${item.crop} lista para Instagram`}</button>}
+          {item.asset && urls[item.asset.objectPath] && <a className="foto-download" href={urls[item.asset.objectPath]} download target="_blank" rel="noreferrer">Abrir original</a>}
+          <p className="foto-meta">Al publicar, activa la etiqueta «AI info» en Instagram.</p>
+          <div className="foto-actions" role="group" aria-label="Decisión">
+            <button type="button" disabled={!!busy || !canApprove(item)} onClick={() => void decide(item, 'APPROVED')}>Aprobar</button>
+            <button type="button" disabled={!!busy || item.status === 'PUBLISHED' || item.decision === 'REJECTED'} onClick={() => void decide(item, 'REJECTED')}>Descartar</button>
+            {item.decision !== 'PENDING' && item.status !== 'PUBLISHED' && <button type="button" disabled={!!busy} onClick={() => void decide(item, 'PENDING')}>Volver a pendiente</button>}
+          </div>
+          {item.status !== 'PUBLISHED' && (redoOpen
+            ? <div className="foto-redo">
+                <label htmlFor="redo-note">¿Qué hay que corregir? (opcional; QA ya anotó lo suyo)</label>
+                <textarea id="redo-note" maxLength={1000} value={redoNote} onChange={(e) => setRedoNote(e.target.value)} placeholder="Ej.: la mano izquierda se ve rara; que se vean los pies" />
+                <button type="button" disabled={!!busy} onClick={() => void redo(item)}>Marcar para rehacer</button>
+                <button type="button" disabled={!!busy} onClick={() => setRedoOpen(false)}>Cancelar</button>
+                <p className="foto-meta">No gasta nada: Producción te mostrará el costo exacto y tú lo apruebas en Campañas.</p>
+              </div>
+            : <button type="button" disabled={!!busy} onClick={() => setRedoOpen(true)}>🔁 Rehacer esta foto</button>)}
+          {item.decision === 'APPROVED' && item.status !== 'PUBLISHED' && <div className="foto-publish">
+            <label htmlFor="pub-url">Ya la publiqué — enlace de Instagram</label>
+            <input id="pub-url" type="url" inputMode="url" placeholder="https://www.instagram.com/p/…" value={publishUrl} onChange={(e) => setPublishUrl(e.target.value)} />
+            <button type="button" disabled={!!busy || !/^https:\/\/(www\.)?instagram\.com\//.test(publishUrl.trim())} onClick={() => void decide(item, 'PUBLISHED')}>Marcar como publicada</button>
+          </div>}
+          {item.publishedUrl && <a href={item.publishedUrl} target="_blank" rel="noreferrer">Ver en Instagram</a>}
+          {notice && <p role="status">{notice}</p>}
+        </div>
+      </article>}
+    </section>}
+  </main>;
+}
+
+function Header() {
+  return <header className="hq-command-header foto-header">
+    <div className="hq-brand"><h1>Raxi HQ <span>Fototeca</span></h1><p>Campañas, fotos y textos listos para publicar</p></div>
+    <div className="hq-session-controls"><Link to="/multimedia">Multimedia</Link><Link to="/">Oficina</Link></div>
+  </header>;
+}
+
+function redoError(message: string): string {
+  if (/already running/.test(message)) return 'El equipo está trabajando en esta campaña; espera a que termine el paso actual y vuelve a intentarlo.';
+  if (/budget/.test(message)) return 'Se alcanzó el tope de gasto de la campaña.';
+  if (/no campaign|nothing to decide/.test(message)) return 'Esta foto no pertenece a una campaña activa del equipo.';
+  if (/already published/.test(message)) return 'Esta foto ya está publicada.';
+  return 'No se pudo marcar: ' + (message || 'error');
+}

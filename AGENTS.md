@@ -38,7 +38,21 @@ QA debe revisar y aprobar campañas importantes antes del paquete final.
 
 Raxi es una personalidad digital adulta con identidad visual ya establecida dentro del MCP de Aria Studio. No recrees ni redefinas su rostro, cuerpo, edad, estilo base o identidad visual salvo que el usuario lo pida explícitamente.
 
-Todo contenido maduro debe mantenerse adulto y no explícito. No generes desnudez sexual explícita, actos sexuales gráficos ni contenido que contradiga la identidad adulta de Raxi.
+### Nivel de contenido por superficie (decisión de Luis, 2026-11-15)
+
+| Superficie | Nivel máximo permitido |
+|---|---|
+| Instagram (feed, carrusel, Reels), Stories, teaser y cualquier red pública | **SFW o spicy ocasional** (sensual, lingerie/sleepwear, sugerente) dentro de las normas de la plataforma. **Nunca NSFW ni desnudez.** |
+| Fanvue feed | **NSFW: desnudez adulta** del personaje virtual, generada solo con Aria Studio (modo adulto/"hot"). Sin actos sexuales gráficos. |
+| Fanvue chatting | **NSFW y explícito sexual gráfico** permitido (nivel EXPLICIT), solo para mensajes privados de pago. |
+
+Reglas que no cambian en ninguna superficie:
+
+- Los personajes son adultos virtuales y siempre deben verse claramente adultos; nunca rasgos, contextos o vestuario que sugieran minoría de edad.
+- Nunca usar la cara, el cuerpo o el nombre de una persona real; nunca Aria Cruz para contenido adulto.
+- **No mezclar, por niveles:** SFW/spicy (público) → NSFW (Fanvue feed) → EXPLICIT (solo Fanvue chatting). Una foto solo puede ir a su nivel o a uno superior, nunca hacia abajo: nada NSFW en público y nada EXPLICIT en el feed de Fanvue ni en público. Cada nivel tiene colecciones separadas y QA rechaza cualquier foto de nivel superior al de la superficie.
+- Cada generación NSFW o EXPLICIT requiere la aprobación de costo explícita de Luis, marcada con su nivel ("NSFW · Fanvue feed" / "EXPLICIT · Fanvue chatting").
+- Antes de la primera publicación en Fanvue se verifican las normas vigentes de Fanvue sobre contenido generado con IA y su etiquetado.
 
 ## Aria Studio MCP policy
 
@@ -60,6 +74,8 @@ Antes de generar imágenes, define:
 Descubre y utiliza las herramientas y esquemas reales expuestos por el MCP. Nunca inventes nombres de herramientas, parámetros, imágenes generadas, URLs de assets ni resultados. Si el MCP falla o no está disponible, dilo claramente y continúa con el trabajo estratégico, prompts, estructura de campaña o documentación que sí puedas completar. Nunca afirmes que una imagen fue creada si el MCP no devolvió realmente esa imagen.
 
 ## Model selection policy
+
+**Preferencia de Luis (2026-11-15): Seedream 5.0 Pro (`seedream`) es el modelo por defecto para todos sus personajes**, también en Instagram, porque conserva mejor la cara; Nano Banana pierde la identidad y solo se usa si Luis lo pide. Esta preferencia prevalece sobre la política general de abajo.
 
 No uses siempre el mismo modelo dentro de Aria Studio. Selecciona el modelo según la plataforma, el nivel de contenido, la dificultad visual, la consistencia obtenida y el objetivo de la imagen.
 
@@ -91,10 +107,10 @@ Especialmente para:
 
 - FanView feed;
 - FanView chatting;
-- contenido adulto sensual no explícito;
+- contenido adulto sensual o NSFW permitido en Fanvue (desnudez adulta, modo adulto de Aria con la clave propia de WaveSpeed);
 - contenido spicy permitido;
 - lingerie / sleepwear permitido;
-- escenas íntimas no explícitas;
+- escenas íntimas;
 - poses o encuadres que el modelo general resuelva peor;
 - conceptos que hayan fallado previamente con GPT/modelo general;
 - situaciones donde las pruebas indiquen mejor composición o resultado con Seedream.
@@ -142,8 +158,10 @@ Mantén clara la separación entre:
 
 - Redes públicas: alcance, descubrimiento, personalidad, lifestyle, gaming, fashion y comunidad.
 - Teaser: curiosidad, coqueteo y puente hacia contenido exclusivo sin revelar todo.
-- FanView feed: contenido más íntimo, exclusivo y cuidado, siempre no explícito.
-- FanView chatting: imágenes personales, espontáneas y conversacionales.
+- FanView feed: contenido más íntimo, exclusivo y cuidado; puede incluir desnudez adulta (NSFW).
+- FanView chatting: imágenes personales, espontáneas y conversacionales; puede incluir desnudez adulta y contenido sexual gráfico (EXPLICIT).
+
+Las superficies públicas (redes y teaser) nunca reciben material NSFW; ver "Nivel de contenido por superficie".
 
 Diferencia siempre:
 
@@ -178,6 +196,8 @@ Descarta resultados débiles aunque sean visualmente llamativos. Si cambiar de m
 Todo asset visual debe referenciarse por `Asset ID` canónico desde `content/asset-library/ASSET_CATALOG.json` y por una ruta portable del repositorio. Nunca guardes rutas locales como `C:\Users\...` dentro de campañas, catálogos o documentación. La aprobación visual requiere inspección real de la imagen; si no hay acceso visual, marca `VISUAL_REVIEW_REQUIRED`.
 
 ## Campaign workflow
+
+**El flujo operativo paso a paso, con el prompt fijo de cada personaje, las aprobaciones y las reglas de prompts y QA, vive en `skills/raxi-campaign/SKILL.md`. Síguelo para cualquier campaña.**
 
 Para campañas sustanciales:
 

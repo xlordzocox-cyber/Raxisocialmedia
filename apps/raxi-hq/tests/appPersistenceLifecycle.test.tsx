@@ -25,7 +25,7 @@ const note = 'Solo repositorio de pruebas; ninguna escritura de producción.';
 
 function SessionOffice({ repository, campaigns, revision }: { repository: (id: string) => RealIdeaRepository; campaigns?: (id: string) => CampaignRepository; revision: number }) {
   const { user } = useAuth();
-  return <App key={`${user!.id}:${revision}`} ideaRepository={repository} campaignRepository={campaigns} />;
+  return <App showDemo key={`${user!.id}:${revision}`} ideaRepository={repository} campaignRepository={campaigns} />;
 }
 function fixture(options: { campaigns?: boolean; holdCampaignReads?: boolean; unavailable?: boolean } = {}) {
   const workspaceId = (id: string) => options.campaigns ? (id === owner ? 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' : 'dddddddd-dddd-4ddd-8ddd-dddddddddddd') : `workspace-${id}`;
@@ -87,7 +87,14 @@ function fixture(options: { campaigns?: boolean; holdCampaignReads?: boolean; un
     <Route element={<ProtectedRoute />}><Route path="/" element={<SessionOffice repository={repository} campaigns={options.campaigns ? campaignRepository : undefined} revision={revision} />} /></Route>
     <Route path="/login" element={<p>Sesión cerrada</p>} />
   </Routes></MemoryRouter></AuthProvider></StrictMode>;
-  const button = (label: string) => view.root.findAllByType('button').find(node => node.children.join('') === label)!;
+  // The command shell shortened the visible header labels without changing the actions.
+  const aliases: Record<string,string> = {'Campus REAL':'REAL','Campus DEMO · datos ficticios':'DEMO','Cerrar sesión':'Salir'};
+  const button = (label: string) => {
+    const expected=aliases[label] ?? label;
+    const found=view.root.findAllByType('button').find(node => node.children.join('') === expected);
+    assert.ok(found,`UI action missing: ${label}`);
+    return found;
+  };
   const click = async (label: string) => { await act(async () => { button(label).props.onClick(); }); };
   const real = () => view.root.findAllByProps({ 'aria-label': 'Raxi HQ Campus REAL' });
   const store = () => auth.getRealIdeaStore(() => { throw new Error('App should own factory initialization'); });

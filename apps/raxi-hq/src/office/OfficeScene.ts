@@ -6,7 +6,10 @@ import { AgentSprite } from './agents/AgentSprite';
 import { AgentMotion, stationLightKey, syncAgentMotions } from './agents/agentMotion';
 import { applyAgentAnimation } from './agents/agentAnimations';
 import { zones } from './zones';
+import type { ZoneId } from '../domain/agents';
+import { officeZoneAtPoint, officeZoneZoomFactor } from './zoneCamera';
 import { HandoffEffect } from './effects/HandoffEffect';
+import { DeliveryEffect, deliveryRoute } from './effects/DeliveryEffect';
 import { MemoryArchiveEffect } from './effects/MemoryArchiveEffect';
 import { PendingMemoryOrigins } from './effects/memoryOrigins';
 import { advanceCameraFocus, clampCamera, zoomAt, type CameraBounds } from './camera';
@@ -23,7 +26,7 @@ export class OfficeScene {
   private sprites = new Map<string, AgentSprite>();
   private motions = new Map<string, AgentMotion>();
   private hoveredAgentId?: string;
-  private effects: (HandoffEffect | MemoryArchiveEffect)[] = [];
+  private effects: (HandoffEffect | MemoryArchiveEffect | DeliveryEffect)[] = [];
   private seen = new Set<string>();
   private memoryOrigins = new PendingMemoryOrigins();
   private state?: HQState;
@@ -31,6 +34,9 @@ export class OfficeScene {
   private resizeObserver: ResizeObserver;
   private fitScale = 1;
   private drag?: { x: number; y: number };
+  private dragMoved = false;
+  private activeZoneId?: ZoneId;
+  private zoneFocusTarget?: ZoneId;
   private canvas: HTMLCanvasElement;
   private focusTarget?: { x: number; y: number };
   private focusAgentId?: string;
@@ -39,7 +45,7 @@ export class OfficeScene {
   private focusCriticalEvents = false;
   private highlightUntil = 0;
 
-  constructor(private host: HTMLElement, onSelect: (id: string) => void, private onHover: (id?: string) => void = () => {}, private onZoom: (percent: number) => void = () => {}, private onCriticalFocusChange: (enabled: boolean) => void = () => {}) {
+  constructor(private host: HTMLElement, onSelect: (id: string) => void, private onHover: (id?: string) => void = () => {}, private onZoom: (percent: number) => void = () => {}, private onCriticalFocusChange: (enabled: boolean) => void = () => {}, private onZoneFocusChange: (zone?: ZoneId) => void = () => {}) {
     this.reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
     this.app = new Application({ backgroundColor: 0x090d18, antialias: true, resolution: window.devicePixelRatio || 1, autoDensity: true });
     const canvas = this.app.view as HTMLCanvasElement;
@@ -54,14 +60,26 @@ export class OfficeScene {
     this.depthLayer.addChild(...createOfficeFurniture(),...this.stationLights.values());
     this.world.addChild(this.depthLayer,this.zoneHighlight,this.effectLayer);
     this.app.stage.eventMode='static';
-    this.app.stage.on('pointerdown',(event:FederatedPointerEvent)=>{ this.takeCameraControl(); this.drag={x:event.global.x,y:event.global.y}; canvas.style.cursor='grabbing'; });
+    this.app.stage.on('pointerdown',(event:FederatedPointerEvent)=>{
+      this.dragMoved=false;
+      this.drag={x:event.global.x,y:event.global.y};
+    });
     this.app.stage.on('pointermove',(event:FederatedPointerEvent)=>{
       if(!this.drag) return;
-      this.world.x+=event.global.x-this.drag.x; this.world.y+=event.global.y-this.drag.y;
-      this.drag={x:event.global.x,y:event.global.y}; this.constrainCamera();
+      const dx=event.global.x-this.drag.x,dy=event.global.y-this.drag.y;
+      if(!this.dragMoved && Math.hypot(dx,dy)<7)return;
+      if(!this.dragMoved){this.dragMoved=true;this.takeCameraControl();}
+      this.world.x+=dx;this.world.y+=dy;
+      this.drag={x:event.global.x,y:event.global.y};this.constrainCamera();
+      canvas.style.cursor='grabbing';
     });
-    const endDrag=()=>{ this.drag=undefined; canvas.style.cursor='grab'; };
+    const endDrag=()=>{this.drag=undefined;canvas.style.cursor='grab';};
     this.app.stage.on('pointerup',endDrag).on('pointerupoutside',endDrag);
+    this.app.stage.on('pointertap',(event:FederatedPointerEvent)=>{
+      if(this.dragMoved)return;
+      const zone=officeZoneAtPoint(this.world.toLocal(event.global));
+      if(zone)this.focusZone(zone);
+    });
     canvas.style.cursor='grab'; canvas.style.touchAction='none';
     canvas.addEventListener('wheel',this.handleWheel,{passive:false});
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -74,7 +92,10 @@ export class OfficeScene {
   private onSelect: (id: string) => void;
 
   private bindAgentEvents(sprite: AgentSprite, id: string): void {
-    sprite.on('pointertap', () => this.onSelect(id));
+    // AgentSprite stops pointerdown propagation. Remember that gesture here so
+    // a drag ending on the room floor cannot be misread as a department tap.
+    sprite.on('pointerdown',()=>{this.dragMoved=true;});
+    sprite.on('pointertap', (event?:FederatedPointerEvent) => {event?.stopPropagation?.();this.onSelect(id);});
     sprite.on('pointerover',()=>{ sprite.setHovered(true); this.hoveredAgentId=id; this.onHover(id); });
     sprite.on('pointerout',()=>{ sprite.setHovered(false); if (this.hoveredAgentId === id) { this.hoveredAgentId=undefined; this.onHover(); } });
   }
@@ -91,6 +112,7 @@ export class OfficeScene {
   resetCamera():void {
     this.focusTarget=undefined;
     this.focusAgentId=undefined;
+    this.clearZoneFocus();
     this.focusCriticalEvents=false;
     this.onCriticalFocusChange?.(false);
     const {width,height}=this.app.screen;
@@ -104,13 +126,28 @@ export class OfficeScene {
     if (this.destroyed) return;
     this.focusCriticalEvents=enabled;
     this.focusTarget=undefined; this.focusAgentId=undefined;
+    this.clearZoneFocus();
     this.onCriticalFocusChange(enabled);
   }
+  private clearZoneFocus():void {
+    this.zoneFocusTarget=undefined;
+    if(this.activeZoneId){this.activeZoneId=undefined;this.onZoneFocusChange?.(undefined);}
+  }
   /** Manual camera intent wins until the user explicitly enables critical following again. */
-  private takeCameraControl():void {
+  private takeCameraControl(clearZone=true):void {
     this.focusTarget=undefined; this.focusAgentId=undefined;
+    if(clearZone)this.clearZoneFocus();
     this.focusCriticalEvents=false;
     this.onCriticalFocusChange(false);
+  }
+  /** A room can be inspected without an agent, source, task or provider. */
+  focusZone(zoneId:ZoneId):boolean {
+    if(this.destroyed || !Object.hasOwn(zones,zoneId))return false;
+    this.takeCameraControl(false);
+    this.activeZoneId=zoneId;
+    this.zoneFocusTarget=zoneId;
+    this.onZoneFocusChange?.(zoneId);
+    return true;
   }
   focusAgent(id:string):boolean {
     if (this.destroyed || !this.state || !getOwnAgent(this.state.agents,id)) return false;
@@ -157,6 +194,9 @@ export class OfficeScene {
       this.focusTarget=undefined; this.focusAgentId=undefined;
       this.focusCriticalEvents=false; this.onCriticalFocusChange?.(false);
     }
+    // Deliveries play only for events first seen while already watching a connected runtime office (never on cold start).
+    const warmRuntime=this.state?.mode==='LIVE_READ_ONLY' && this.state.sourceHealth.source==='runtime' && this.state.sourceHealth.connection==='CONNECTED' &&
+      state.mode==='LIVE_READ_ONLY' && state.sourceHealth.source==='runtime' && state.sourceHealth.connection==='CONNECTED';
     this.state = state;
     for (const [id,sprite] of this.sprites) {
       if (getOwnAgent(state.agents,id)) continue;
@@ -215,8 +255,21 @@ export class OfficeScene {
           this.highlight(getOwnAgent(state.agents,event.targetId)?.zone ?? 'WAR_ROOM',false);
         }
       }
+      if (warmRuntime && event.type==='HANDOFF_SENT' && event.source==='runtime' && event.verified) this.startDelivery(state,event);
       if(event.type==='AGENT_BLOCKED') this.highlight(getOwnAgent(state.agents,event.actorId)?.zone ?? 'WAR_ROOM',true);
     }
+  }
+
+  private startDelivery(state:HQState,event:HQState['events'][number]):void {
+    if(this.reducedMotion?.matches || !event.actorId || !event.targetId || event.actorId===event.targetId)return;
+    const at=Date.parse(event.timestamp);
+    if(!Number.isFinite(at) || Math.abs(Date.now()-at)>5*60_000)return;
+    const sender=getOwnAgent(state.agents,event.actorId), receiver=getOwnAgent(state.agents,event.targetId);
+    const from=this.motions.get(event.actorId), to=this.motions.get(event.targetId)?.position;
+    if(!sender || !receiver || !from || !to || from.walking)return;
+    if(this.effects.some(effect=>effect instanceof DeliveryEffect && (effect.senderId===sender.id || effect.receiverId===sender.id)))return;
+    this.addEffect(new DeliveryEffect(sender.id,receiver.id,deliveryRoute(from.position,to,sender.zone,receiver.zone),{...to},event.id));
+    this.highlight(receiver.zone,false);
   }
 
   private highlight(zoneId: keyof typeof zones, critical:boolean):void {
@@ -231,7 +284,7 @@ export class OfficeScene {
     }
   }
 
-  private addEffect(effect: HandoffEffect | MemoryArchiveEffect): void {
+  private addEffect(effect: HandoffEffect | MemoryArchiveEffect | DeliveryEffect): void {
     this.effects.push(effect);
     this.effectLayer.addChild(effect);
   }
@@ -254,7 +307,25 @@ export class OfficeScene {
     if (this.destroyed) return;
     if(this.reducedMotion?.matches)this.clearHandoffs(()=>true);
     this.elapsed += deltaMs;
-    if(this.focusTarget) {
+    if(this.zoneFocusTarget) {
+      const zone=zones[this.zoneFocusTarget];
+      const targetScale=this.fitScale*officeZoneZoomFactor(this.app.screen.width);
+      const blend=this.reducedMotion?.matches?1:Math.min(1,Math.max(0,deltaMs)*0.008);
+      const scale=this.world.scale.x+(targetScale-this.world.scale.x)*blend;
+      this.world.scale.set(scale);
+      const target={x:this.app.screen.width/2-zone.anchor.x*scale,
+        y:this.app.screen.height/2-(zone.anchor.y+14)*scale};
+      const moving=advanceCameraFocus(this.world,target,this.cameraBounds(),this.reducedMotion?.matches?250:deltaMs);
+      this.onZoom(Math.round(scale/this.fitScale*100));
+      if(Math.abs(scale-targetScale)<this.fitScale*0.005&&!moving){
+        this.world.scale.set(targetScale);
+        this.world.position.set(this.app.screen.width/2-zone.anchor.x*targetScale,
+          this.app.screen.height/2-(zone.anchor.y+14)*targetScale);
+        this.constrainCamera();
+        this.zoneFocusTarget=undefined;
+        this.onZoom(Math.round(targetScale/this.fitScale*100));
+      }
+    } else if(this.focusTarget) {
       if(!advanceCameraFocus(this.world,this.focusTarget,this.cameraBounds(),this.reducedMotion?.matches ? 250 : deltaMs)) {
         this.focusTarget=undefined; this.focusAgentId=undefined;
       }
@@ -266,13 +337,14 @@ export class OfficeScene {
       motion.update(deltaMs);
       const sprite = this.sprites.get(id)!;
       const handoff=this.effects.find((effect):effect is HandoffEffect=>effect instanceof HandoffEffect && (effect.senderId===id || effect.receiverId===id));
-      const offset=handoff ? (handoff.senderId===id ? handoff.frame.senderOffset : handoff.frame.receiverOffset) : {x:0,y:0};
+      const delivery=this.effects.find((effect):effect is DeliveryEffect=>effect instanceof DeliveryEffect && effect.senderId===id)?.frame;
+      const offset=delivery ? delivery.senderOffset : handoff ? (handoff.senderId===id ? handoff.frame.senderOffset : handoff.frame.receiverOffset) : {x:0,y:0};
       sprite.position.set(motion.position.x+offset.x,motion.position.y+offset.y);
       sprite.zIndex=sprite.y;
-      sprite.faceMovement(motion.position.x-previousX);
+      sprite.faceMovement(delivery ? delivery.direction : motion.position.x-previousX);
       const agent = this.state ? getOwnAgent(this.state.agents,id) : undefined;
       if (agent) {
-        applyAgentAnimation(sprite, motion.walking ? 'WALKING' : agent.status === 'WALKING' ? 'IDLE' : agent.status, this.elapsed);
+        applyAgentAnimation(sprite, motion.walking || delivery?.walking ? 'WALKING' : agent.status === 'WALKING' ? 'IDLE' : agent.status, this.elapsed);
         if(['RUNNING','WORKING','RESEARCHING','QA'].includes(agent.status)) {
           const key=stationLightKey(agent,motion,this.state?.mode === 'LIVE_READ_ONLY');
           const light=key ? this.stationLights.get(key) : undefined;
