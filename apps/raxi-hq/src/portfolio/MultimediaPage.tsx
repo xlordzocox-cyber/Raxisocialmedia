@@ -108,6 +108,6 @@ export function MultimediaPage({ client, ownerId }: { client: SupabaseClient; ow
 function Header() {
   return <header className="hq-command-header foto-header">
     <div className="hq-brand"><h1>Raxi HQ <span>Multimedia</span></h1><p>Todas las fotos archivadas, como en Mis creaciones</p></div>
-    <div className="hq-session-controls"><Link to="/fototeca">Fototeca</Link><Link to="/">Oficina</Link></div>
+    <div className="hq-session-controls"><Link to="/fototeca">Fototeca</Link><Link to="/conexiones">Conexiones</Link><Link to="/">Oficina</Link></div>
   </header>;
 }
