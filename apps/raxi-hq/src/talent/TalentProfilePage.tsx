@@ -42,7 +42,8 @@ export function TalentProfilePage({ client, ownerId, characterId }: { client: Su
       const r = await loadTalent(client, ownerId, characterId);
       const base = r.profile.draft ?? r.profile.locked;
       setText(base?.identityText ?? ''); setMarks((base?.marks ?? []).join('\n')); setAccessories((base?.accessories ?? []).join('\n'));
-      const visible = new Set(r.profile.references.filter((x) => x.angle !== 'SOURCE').map((x) => x.id));
+      // The identity is anchored on the general sheet only; adult references are Fanvue-only and never part of it.
+      const visible = new Set(r.profile.references.filter((x) => x.angle !== 'SOURCE' && x.level === 'GENERAL').map((x) => x.id));
       setSelected((base?.referenceIds ?? [...visible]).filter((id) => visible.has(id)));
       setState({ phase: 'ready', ...r });
     } catch (cause) { setState({ phase: 'error', message: cause instanceof Error ? cause.message : 'No se pudo leer la ficha.' }); }
@@ -88,7 +89,9 @@ export function TalentProfilePage({ client, ownerId, characterId }: { client: Su
             return <li key={a} className="talent-angle"><h3>{ANGLE_LABEL[a]}</h3>
               {refs.length === 0 ? <div className="talent-missing">Falta</div> : refs.map((r) => <label key={r.id} className="talent-ref">
                 {urls[r.objectPath] ? <img src={urls[r.objectPath]} alt={`${profile.name}, ${ANGLE_LABEL[a].toLowerCase()}`} loading="lazy" /> : <div className="talent-missing">Sin vista previa</div>}
-                <span><input type="checkbox" checked={selected.includes(r.id)} onChange={(e) => setSelected((s) => (e.target.checked ? [...s, r.id] : s.filter((x) => x !== r.id)))} /> Usar en la identidad</span>
+                {r.level === 'GENERAL'
+                  ? <span><input type="checkbox" checked={selected.includes(r.id)} onChange={(e) => setSelected((s) => (e.target.checked ? [...s, r.id] : s.filter((x) => x !== r.id)))} /> Usar en la identidad</span>
+                  : <span className="agency-meta">Solo Fanvue · no forma parte de la identidad</span>}
               </label>)}
             </li>;
           })}

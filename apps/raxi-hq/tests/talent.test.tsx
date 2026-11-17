@@ -79,6 +79,24 @@ test('Talento profile: source photos and superseded takes are not shown in the 3
   assert.ok(!shown.some((x) => x.includes('/o1.jpg') || x.includes('/s1.jpg')));
 });
 
+test('Talento profile: adult references are Fanvue-only and never offered for the identity', async () => {
+  const adult = { ...ref('n1', 'BODY_FRONT'), metadata: { character_id: 'raxi-vox', angle: 'BODY_FRONT', content_level: 'NSFW' } };
+  const { client, rpcs } = talentClient([], [ref('r1', 'FRONT'), adult]);
+  const r = await renderProfile(client);
+  await act(async () => { r.root.findByProps({ id: 'nsfw-switch' }).props.onChange({ target: { checked: true } }); });
+  assert.match(JSON.stringify(r.toJSON()), /Solo Fanvue/);
+  assert.equal(r.root.findAll((n) => n.type === 'input' && n.props.type === 'checkbox' && !n.props.id).length, 0, 'no identity checkbox on adult references');
+  await act(async () => { r.root.findByProps({ id: 'identity-text' }).props.onChange({ target: { value: 'A 25-year-old woman named Raxi Vox, warm brown eyes.' } }); });
+  await act(async () => { byText(r, 'Guardar borrador').props.onClick(); await new Promise((res) => setTimeout(res, 10)); });
+  assert.deepEqual((rpcs.find(([n]) => n === 'raxi_identity_save_draft')?.[1] as { p_refs: string[] }).p_refs, ['r1']);
+});
+
+test('identity migration: drafts accept only current general references', () => {
+  const sql = readFileSync(join(process.cwd(), '../../supabase/migrations/20261118020000_raxi_hq_identity_general_only.sql'), 'utf8');
+  assert.match(sql, /a\.metadata->>'content_level' = 'PUBLIC' and not \(a\.metadata \? 'superseded_by'\)/);
+  assert.match(sql, /grant execute on function public\.raxi_identity_save_draft\(text, text, jsonb, jsonb, uuid\[\]\) to authenticated/);
+});
+
 test('talent model: list fields are trimmed lines, max 20', () => {
   assert.deepEqual(splitLines('  uno \n\n dos\n'), ['uno', 'dos']);
   assert.equal(splitLines(Array.from({ length: 30 }, (_, i) => `x${i}`).join('\n')).length, 20);
