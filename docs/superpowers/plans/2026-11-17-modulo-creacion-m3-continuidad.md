@@ -171,6 +171,46 @@ Cada "Otra versión" de una foto se cotiza aparte, con el mismo precio por foto.
   - En ambas: comparar el estimado con el cargo en el panel de WaveSpeed y pasar el Quality Gate de `AGENTS.md`.
 - [ ] Actualiza Supermemory y la sección 8 del spec, y abre el PR hacia `feat/v11-creador`.
 
+
+## Integración con campañas (pedido de Luis, 2026-11-17)
+
+Una serie también nace dentro de una campaña. Ejemplo: una campaña de 4 fotos en la habitación. Aria genera **una** foto base y el motor nuevo genera las otras directamente, sin que Luis tenga que abrir la página de series.
+
+**Hechos verificados en `raxi-agent-runner` y `raxi_pipeline_advance` (rama `feat/claude-team-office`):**
+- El Creativo (DESIGN) entrega `publicaciones` con `posicion`, `escena`, `plano` y `prompt`. Cada foto nueva es un `raxi_portfolio_items` con `payload.kind = 'PHOTO_TO_GENERATE'`.
+- PRODUCTION arma la orden con los precios reales de Aria, sin gastar. El pipeline se detiene en `PRODUCTION_COST` para que Luis apruebe.
+- GENERATE solo genera lo aprobado y nunca supera el monto aprobado. Consulta las fotos pendientes y las archiva en la Fototeca con `raxi-archive-aria`.
+
+**Cómo se integra:**
+1. **DESIGN** puede marcar una publicación como continuidad de otra: `"continuidad_de": 1`. Así, la 1 es la base y las 2..N son el mismo momento con otra pose o encuadre.
+   - El esquema del Creativo lo permite solo si ambas publicaciones van al mismo canal y momento.
+   - El ítem queda como `PHOTO_TO_CONTINUE`, con su escena y la posición de la base.
+2. **PRODUCTION** cotiza las dos partes en una sola orden:
+   - Las bases, con Aria (precio real de Aria).
+   - La continuidad, con WaveSpeed (`raxi_provider_prices`: $0.044 o $0.052 por foto).
+   - La orden muestra ambos totales y su suma.
+3. **Una sola aprobación de Luis** en `PRODUCTION_COST` cubre las dos partes. Esa aprobación es el techo de la serie: nunca se gasta más.
+4. **GENERATE:**
+   - Primero genera y archiva las bases en Aria, como hoy.
+   - Cuando una base tiene `asset_id`, crea su serie con el motor común: `raxi_series_create`, con actor = Luis, que aprobó; techo = la parte aprobada; escenas = las de DESIGN.
+   - Consulta su estado en las siguientes rondas. Cada foto lista se archiva como asset y se asigna a su ítem de la campaña.
+5. **Las fotos de continuidad siguen el mismo camino** que las de Aria: Copy, QA (Quality Gate), aprobación final de Luis y "Rehacer foto" si algo falla.
+
+**Límites:**
+- **Solo canales públicos** (Instagram, Stories, teaser). En una campaña de Fanvue, el Creativo puede pedir continuidad, pero el pipeline la deja como "serie pendiente". Luis escribe las escenas NSFW o EXPLICIT y la lanza desde la página de la serie. Claude no escribe escenas explícitas ni lanza generaciones adultas (`AGENTS.md`).
+- **Requisitos:** la identidad de la modelo tiene que estar bloqueada y la clave de WaveSpeed conectada. Si falta alguna de las dos, PRODUCTION lo indica y la orden sale solo con Aria.
+- **Tope:** el de $10 al mes de WaveSpeed se aplica también aquí. El saldo de Aria se maneja aparte, como hoy.
+
+### Tarea 6b: Continuidad dentro de la campaña
+- [ ] **Pruebas (rojas):**
+  - DESIGN con `continuidad_de` crea ítems `PHOTO_TO_CONTINUE`. Si la base es de otro canal, se rechaza.
+  - PRODUCTION separa los precios de Aria y de WaveSpeed y suma los dos.
+  - Sin identidad bloqueada o sin clave, la orden sale solo con Aria y con la nota correspondiente.
+  - GENERATE no crea la serie hasta que la base tenga `asset_id`. Nunca supera la parte aprobada. Reintentar no cobra dos veces.
+  - Un canal de Fanvue deja la serie pendiente y no envía nada a WaveSpeed.
+  - Las fotos de continuidad listas quedan en sus ítems y avanzan a COPY con el resto.
+- [ ] Implementa los cambios en `raxi-agent-runner` (esquema de DESIGN, PRODUCTION y GENERATE) y en `raxi_pipeline_advance`. GENERATE vuelve a encolarse mientras haya fotos de continuidad pendientes, igual que con Aria. Verde. Commit.
+
 ## Fuera de M3
 - MCP `raxi-creation` (M4): cotizar y preparar borradores de serie, nunca aprobarlos ni lanzar series adultas.
 - Video y cambios de ropa o de lugar dentro de una misma serie: una serie es un solo momento.
