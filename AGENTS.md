@@ -43,8 +43,8 @@ Raxi es una personalidad digital adulta con identidad visual ya establecida dent
 | Superficie | Nivel máximo permitido |
 |---|---|
 | Instagram (feed, carrusel, Reels), Stories, teaser y cualquier red pública | **SFW o spicy ocasional** (sensual, lingerie/sleepwear, sugerente) dentro de las normas de la plataforma. **Nunca NSFW ni desnudez.** |
-| Fanvue feed | **NSFW: desnudez adulta** del personaje virtual, generada solo con Aria Studio (modo adulto/"hot"). Sin actos sexuales gráficos. |
-| Fanvue chatting | **NSFW y explícito sexual gráfico** permitido (nivel EXPLICIT), solo para mensajes privados de pago. |
+| Fanvue feed | **NSFW: desnudez adulta** del personaje virtual, generada con Aria Studio (modo adulto/"hot") o con el Módulo de Creación de Raxi HQ (WaveSpeed directo; modelo por defecto **Seedream 5.5**). Sin actos sexuales gráficos. |
+| Fanvue chatting | **NSFW y explícito sexual gráfico** permitido (nivel EXPLICIT), solo para mensajes privados de pago. En Raxi HQ, modelo por defecto **Seedream 5.5**. |
 
 Reglas que no cambian en ninguna superficie:
 
@@ -53,10 +53,12 @@ Reglas que no cambian en ninguna superficie:
 - **No mezclar, por niveles:** SFW/spicy (público) → NSFW (Fanvue feed) → EXPLICIT (solo Fanvue chatting). Una foto solo puede ir a su nivel o a uno superior, nunca hacia abajo: nada NSFW en público y nada EXPLICIT en el feed de Fanvue ni en público. Cada nivel tiene colecciones separadas y QA rechaza cualquier foto de nivel superior al de la superficie.
 - Cada generación NSFW o EXPLICIT requiere la aprobación de costo explícita de Luis, marcada con su nivel ("NSFW · Fanvue feed" / "EXPLICIT · Fanvue chatting").
 - Antes de la primera publicación en Fanvue se verifican las normas vigentes de Fanvue sobre contenido generado con IA y su etiquetado.
+- **Fichas 360 (decisión de Luis, 2026-11-17):** cada personaje puede tener una ficha general (con ropa) y una ficha adulta (NSFW). La ficha adulta solo se usa como referencia para generaciones de Fanvue; nunca para Instagram ni redes públicas. En Raxi HQ, la vista de fichas tiene un interruptor NSFW que por defecto está apagado.
+- **NSFW en Raxi HQ (decisión de Luis, 2026-11-17):** al activar el modo NSFW, el creador genera por defecto con **Seedream 5.5** (`bytedance/seedream-v5.5/edit` en WaveSpeed). Luis puede elegir otro modelo en cada toma.
 
 ## Aria Studio MCP policy
 
-Aria Studio es el único servicio autorizado para generar nuevas fotografías de Raxi en este proyecto. Una Strategy aprobada no autoriza por sí sola consumir créditos: cada ejecución real requiere una orden concreta y aprobación explícita de Luis tras informar proveedor, modelo y coste verificable.
+Servicios autorizados para generar fotografías de los personajes: **Aria Studio** y el **Módulo de Creación de Raxi HQ** (WaveSpeed directo, con la clave guardada en Conexiones). Luis aprobó usarlos en paralelo el 2026-11-16: Aria para la foto base y el Módulo de Creación para fichas 360 y fotos de continuidad, con las mismas reglas de aprobación, costo verificable y Quality Gate. Una Strategy aprobada no autoriza por sí sola consumir créditos: cada ejecución real requiere una orden concreta y aprobación explícita de Luis tras informar proveedor, modelo y coste verificable.
 
 Antes de generar imágenes, define:
 
