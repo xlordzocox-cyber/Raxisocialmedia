@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { AgencyNav } from '../agency/AgencyNav';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseWorkspace } from '../persistence/supabaseIdeaRepository';
 import { buildConnections, validateProviderKey, type ConnectionView } from './connectionsModel';
@@ -55,7 +55,7 @@ export function ConexionesPage({ client, ownerId }: { client: SupabaseClient; ow
       <p className="conexiones-eyebrow">Raxi HQ</p>
       <h1>Conexiones</h1>
       <p>Las claves se guardan cifradas en el servidor. Nunca vuelven a este navegador.</p>
-      <nav aria-label="Secciones" className="hq-session-controls"><Link to="/fototeca">Fototeca</Link><Link to="/multimedia">Multimedia</Link><Link to="/">Oficina</Link></nav>
+      <AgencyNav />
     </header>
     {state.phase === 'loading' && <p role="status">Cargando conexiones…</p>}
     {state.phase === 'error' && <p role="alert">{state.message}</p>}

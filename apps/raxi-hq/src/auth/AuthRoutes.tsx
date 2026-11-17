@@ -7,6 +7,7 @@ const Office = lazy(() => import('../App'));
 const Fototeca = lazy(() => import('../portfolio/FototecaRoute'));
 const Multimedia = lazy(() => import('../portfolio/MultimediaRoute'));
 const Conexiones = lazy(() => import('../connections/ConexionesRoute'));
+const Agencia = lazy(() => import('../agency/AgenciaRoute'));
 export function safeReturnPath(value: unknown): string {
   return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') && !/[\r\n]/.test(value) && value.split(/[?#]/)[0] !== '/login' ? value : '/';
 }
@@ -122,7 +123,8 @@ export function AuthRoutes() {
     <Route path="/forgot-password" element={<ForgotPassword />} />
     <Route path="/reset-password" element={<ResetPassword />} />
     <Route element={<ProtectedRoute />}>
-      <Route path="/" element={<AuthenticatedOffice />} />
+      <Route path="/" element={<Suspense fallback={<Loading />}><Agencia /></Suspense>} />
+      <Route path="/estudio" element={<AuthenticatedOffice />} />
       <Route path="/fototeca" element={<Suspense fallback={<Loading />}><Fototeca /></Suspense>} />
       <Route path="/multimedia" element={<Suspense fallback={<Loading />}><Multimedia /></Suspense>} />
       <Route path="/conexiones" element={<Suspense fallback={<Loading />}><Conexiones /></Suspense>} />
