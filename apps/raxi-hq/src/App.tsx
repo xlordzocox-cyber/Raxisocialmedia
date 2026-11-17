@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { AgencyNav } from './agency/AgencyNav';
+import './agency/studio.css';
 import { hqStore, useHQState } from './store/hqStore';
 import { OfficeScene } from './office/OfficeScene';
 import { zoneOrder, zones } from './office/zones';
@@ -132,12 +133,12 @@ export default function App({ ideaRepository = defaultIdeaRepository, campaignRe
     else hqStore.selectEvent(id);
   };
   return <main className="hq-command-shell">
-    <header className="hq-command-header">
-      <div className="hq-brand"><h1>Raxi HQ <span>Centro de mando</span></h1><p>{campusMode === 'DEMO' ? 'DEMO · personajes y estados ficticios' : 'REAL · tu workspace y eventos verificados de agentes'}</p></div>
+    <header className="hq-command-header studio-header">
+      <div className="hq-brand"><h1>Raxi HQ <span>Estudio en vivo</span></h1><p>{campusMode === 'DEMO' ? 'DEMO · personajes y estados ficticios' : 'REAL · tu workspace y eventos verificados de agentes'}</p></div>
+      <AgencyNav />
       <div className="hq-session-controls" role="group" aria-label="Seleccionar Campus">
         {showDemo && <button type="button" aria-pressed={campusMode === 'REAL'} onClick={() => { void hqStore.switchMode('LIVE_READ_ONLY'); setCampusMode('REAL'); }}>REAL</button>}
         {showDemo && <button type="button" aria-pressed={campusMode === 'DEMO'} onClick={() => setCampusMode('DEMO')}>DEMO</button>}
-        <AgencyNav />
         <button type="button" onClick={() => { void signOut(); }}>Salir</button>
       </div>
     </header>

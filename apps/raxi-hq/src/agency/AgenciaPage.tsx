@@ -74,7 +74,7 @@ export function AgenciaPage({ client, ownerId }: { client: SupabaseClient; owner
             {state.view.talent.map((t) => <li key={t.id}>
               {t.coverPath && state.urls[t.coverPath]
                 ? <img src={state.urls[t.coverPath]} alt={`Foto reciente de ${t.name}`} className="agency-cover" loading="lazy" />
-                : <div className="agency-cover agency-cover-empty" role="img" aria-label={`${t.name}: sin foto pública archivada`} />}
+                : <div className="agency-cover agency-cover-empty" role="img" aria-label={`${t.name}: sin foto pública archivada`}><span>Sin foto pública todavía</span></div>}
               <h3 className="agency-talent-name">{t.name}</h3>
               <p className="agency-meta">{t.photos} {t.photos === 1 ? 'foto' : 'fotos'} en archivo · {t.campaigns} {t.campaigns === 1 ? 'campaña' : 'campañas'}</p>
             </li>)}

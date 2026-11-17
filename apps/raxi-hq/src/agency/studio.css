@@ -1,0 +1,35 @@
+/* Estudio en vivo: the existing office shell, restyled with design tokens only.
+   Presentation only: the PixiJS scene and every control keep their behavior. */
+.hq-command-shell { background: var(--bg); font-family: var(--font-ui); gap: var(--space-2); }
+
+.studio-header { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: var(--space-2) var(--space-5);
+  min-height: 0; padding: var(--space-2) var(--space-4); background: transparent; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; }
+.studio-header .hq-brand h1 { font-family: var(--font-display); font-weight: 400; font-size: var(--text-xl); line-height: 1.1; }
+.studio-header .hq-brand h1 span { margin-left: var(--space-2); font-family: var(--font-ui); font-size: var(--text-xs); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.studio-header .hq-brand p { font-size: var(--text-xs); color: var(--muted); }
+.studio-header .agency-nav { justify-self: center; }
+.studio-header .hq-session-controls button { min-height: 44px; padding: 0 var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: transparent; color: var(--ink); font-size: var(--text-sm); }
+.studio-header .hq-session-controls button:hover, .studio-header .hq-session-controls button[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); }
+
+.hq-fixed-office, .hq-work-panel, .hq-module-rail { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-md); }
+.hq-office-caption { background: var(--panel); color: var(--ink); border-bottom: 1px solid var(--border); font-size: var(--text-sm); }
+.hq-office-caption > span { color: var(--muted); font-size: var(--text-xs); }
+.hq-fixed-office .office { background: var(--bg); }
+.hq-fixed-office .office-toolbar, .hq-fixed-office .office-zone-nav { background: var(--panel); border-color: var(--border); color: var(--muted); }
+.hq-fixed-office .office-toolbar button, .hq-fixed-office .office-zone-nav button, .hq-fixed-office .office-roster-bridge button {
+  background: transparent; color: var(--ink); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
+.hq-fixed-office .office-zone-nav button[aria-pressed='true'] { background: var(--surface-2); border-color: var(--accent); color: var(--ink); }
+.hq-fixed-office .office-zone-nav button:focus-visible, .hq-module-rail button:focus-visible, .studio-header button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.hq-fixed-office .office-zone-status { background: var(--panel); color: var(--muted); }
+
+.hq-work-heading { border-bottom: 1px solid var(--border); padding: var(--space-3) var(--space-4); }
+.hq-work-heading h2 { font-family: var(--font-display); font-weight: 400; font-size: var(--text-lg); color: var(--ink); }
+.hq-work-heading span { color: var(--muted); font-size: var(--text-xs); }
+.hq-module-rail button { background: transparent; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--muted); }
+.hq-module-rail button[aria-pressed='true'] { background: var(--surface-2); border-color: var(--accent); color: var(--ink); box-shadow: none; }
+
+@media (max-width: 760px) {
+  .studio-header { grid-template-columns: 1fr auto; }
+  .studio-header .agency-nav { grid-column: 1 / -1; grid-row: 2; justify-self: stretch; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .studio-header .hq-brand p { display: none; }
+}

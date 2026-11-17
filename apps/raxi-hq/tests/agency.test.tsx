@@ -102,3 +102,11 @@ test('Agencia page: empty workspace says so instead of inventing content', async
   assert.match(text, /Nada espera tu decisión/);
   assert.match(text, /Aún no hay producciones en curso/);
 });
+
+test('agency model: the talent roster is fixed, even when a model has no data yet', () => {
+  const empty = buildAgency(buildPortfolio(ws, [], [], []), buildMedia(ws, [], [], []));
+  assert.deepEqual(empty.talent, [
+    { id: 'raxi-vox', name: 'Raxi Vox', photos: 0, campaigns: 0, coverPath: null },
+    { id: 'vesper-corvus', name: 'Vesper Corvus', photos: 0, campaigns: 0, coverPath: null },
+  ]);
+});

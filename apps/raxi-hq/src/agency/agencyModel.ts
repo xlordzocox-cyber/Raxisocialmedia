@@ -8,6 +8,8 @@ export interface AgencyTalent { id: string; name: string; photos: number; campai
 export interface AgencyView { pending: AgencyPending[]; productions: AgencyProduction[]; talent: AgencyTalent[] }
 
 const FINISHED = new Set(['PUBLISHED', 'ARCHIVED']);
+/** The agency's talent. A model stays listed even before she has photos or campaigns. */
+export const TALENT_ROSTER = ['raxi-vox', 'vesper-corvus'] as const;
 
 export function buildAgency(portfolio: PortfolioView, media: MediaView): AgencyView {
   const open = portfolio.collections.filter((c) => !FINISHED.has(c.status));
@@ -18,7 +20,7 @@ export function buildAgency(portfolio: PortfolioView, media: MediaView): AgencyV
     return [{ itemId: i.id, kind: blocked ? 'FIX' : 'DECIDE', collectionId: c.id, collectionTitle: c.title, position: i.position, assetPath: i.asset?.objectPath ?? null }];
   }));
   const productions = open.map((c) => ({ id: c.id, title: c.title, channel: c.channel, character: characterLabel(c.characterId), ...progress(c.items) }));
-  const ids = [...new Set([...portfolio.collections.map((c) => c.characterId), ...media.characters])].sort();
+  const ids = [...new Set([...TALENT_ROSTER, ...portfolio.collections.map((c) => c.characterId), ...media.characters])].sort();
   const talent = ids.map((id): AgencyTalent => {
     const photos = media.assets.filter((a) => a.characterId === id);
     return {
