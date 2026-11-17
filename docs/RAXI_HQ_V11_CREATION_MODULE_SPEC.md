@@ -131,7 +131,8 @@ Reglas aplicadas por el servidor:
 
 ### 4.3 Política de referencias
 
-- Solo se cargan como referencias las fichas **con ropa** (rostro y cuerpo). Las versiones sin ropa **no entran** al módulo, por `AGENTS.md` ("Todo contenido maduro debe mantenerse adulto y no explícito").
+- **Corrección (2026-11-17):** la regla anterior citaba el `AGENTS.md` de `main`. El vigente en `feat/claude-team-office` permite NSFW en el feed de Fanvue y EXPLICIT en el chatting (decisión de Luis del 2026-11-15). Cada personaje tiene una **ficha general** (con ropa) y puede tener una **ficha adulta** (NSFW), separadas por nivel. La adulta solo se usa como referencia para Fanvue y se oculta por defecto tras un interruptor NSFW.
+- **NSFW en el creador de Raxi HQ:** modelo por defecto Seedream 5.5 (`bytedance/seedream-v5.5/edit`), decisión de Luis del 2026-11-17.
 - Las referencias viven en un bucket privado. Las fotos finales se sirven con enlaces firmados de corta duración.
 - Ningún texto de identidad cambia sin la aprobación de Luis (ver 2.1).
 
@@ -190,7 +191,7 @@ Reglas aplicadas por el servidor:
 - **Costos.** Mitigación: techo por orden, presupuesto mensual e idempotencia.
 - **Fuga de claves.** Mitigación: solo en el servidor, sin registrarlas en logs.
 - **Términos de uso de Aria/WaveSpeed.** Revisarlos antes de producción.
-- **Contenido.** Las reglas de contenido adulto no explícito de `AGENTS.md` siguen vigentes. Las fichas sin ropa no se usan como referencias (4.3).
+- **Contenido.** Rigen los niveles por superficie de `AGENTS.md` (público, NSFW para el feed de Fanvue, EXPLICIT para el chatting) y nunca se baja de nivel (4.3).
 - **Ficha de Vesper inconsistente** (cabello castaño en los paneles de cuerpo). Mitigación: no bloquear su identidad hasta corregirla (2.1).
 - **El MCP propio como superficie de ataque.** Mitigación: token, reglas en el servidor, registro de llamadas y tope de gasto (4.2).
 
@@ -205,5 +206,8 @@ Reglas aplicadas por el servidor:
 | 2026-11-16 | Corrección de la ficha de Vesper (regenerar o conseguirla de Aria) | Pendiente de decisión de Luis |
 | 2026-11-16 | Ajustes a los textos de identidad (2.1) | Propuesta; pendiente de aprobación |
 | 2026-11-16 | Ejecutor: Claude Fable 5.2 con la metodología Superpowers | Pedido por Luis |
+| 2026-11-17 | Fichas 360 general y adulta, interruptor NSFW apagado por defecto, Seedream 5.5 por defecto para NSFW en Raxi HQ | Aprobada por Luis; aplicada en `AGENTS.md` de `feat/v11-agencia` |
+| 2026-11-17 | Creador de ficha 360 propio en Raxi HQ (M2), inspirado en el flujo de Aria | Pedido por Luis |
+| 2026-11-17 | Vesper mantiene el cabello negro azabache | Decisión de Luis |
 
 Plan de referencia previo (no rector): "Raxi Studio — Plan de creación y MCP propio" en Claude Docs. Donde difiera, manda este spec.

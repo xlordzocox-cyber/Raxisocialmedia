@@ -10,8 +10,9 @@ El módulo se entrega en tres planes. Cada uno deja la app funcionando.
 | Plan | Qué entrega | Gasta dinero | Depende de |
 |---|---|---|---|
 | **M1 (este)** | Página Talento con ficha 360 por modelo, texto de identidad versionado y bloqueo por Luis | No | Conexiones, Rediseño Fase 1 |
-| M2 | Fotos de continuidad con WaveSpeed dentro del pipeline actual: foto base de Aria, fotos 2..N con referencias, orden de serie, libro de costos y tope de $10/mes | Sí, con aprobación por serie | M1 + clave de Conexiones |
-| M3 | MCP `raxi-creation` para que Claude y Codex operen el módulo | Solo a través de M2 | M2 |
+| M2 | Creador de ficha 360 en Raxi HQ (versiones por vista, cambiar con instrucción, otra versión, interruptor NSFW con Seedream 5.5 por defecto), libro de costos y tope de $10/mes | Sí, cada toma muestra su costo y el clic es la aprobación | M1 + clave de Conexiones |
+| M3 | Fotos de continuidad con WaveSpeed dentro del pipeline actual: foto base de Aria, fotos 2..N con referencias y orden de serie | Sí, con aprobación por serie | M2 |
+| M4 | MCP `raxi-creation` para que Claude y Codex operen el módulo | Solo a través de M2 y M3 | M3 |
 
 **Hechos verificados en `feat/claude-team-office` y en staging (2026-11-17) que este plan respeta:**
 - `raxi_assets.kind` ya admite `'REFERENCE'`; hoy todos los assets de staging son `ORIGINAL`.
@@ -21,16 +22,16 @@ El módulo se entrega en tres planes. Cada uno deja la app funcionando.
 
 ## Objetivo de M1
 
-Cada modelo tiene una ficha profesional en `/talento/:id`: referencias 360 subidas por Luis (solo con ropa), texto de identidad, marcas distintivas y accesorios de firma, en versiones. Luis bloquea una versión; al bloquearla, su texto pasa a ser el prompt fijo que Producción ya usa con Aria.
+Cada modelo tiene una ficha profesional en `/talento/:id`: referencias 360 subidas por Luis (ficha general con ropa y ficha adulta NSFW, separadas), texto de identidad, marcas distintivas y accesorios de firma, en versiones. Luis bloquea una versión; al bloquearla, su texto pasa a ser el prompt fijo que Producción ya usa con Aria.
 
-**Arquitectura:** las imágenes se suben por la Edge Function `talent-reference` (sesión obligatoria, valida tipo real y tamaño, calcula sha256, guarda en el bucket privado y registra `raxi_assets` con `kind = 'REFERENCE'`). Las versiones viven en `raxi_identity_versions`; solo se escriben con dos RPCs que comprueban que quien llama es el dueño. Multimedia y la portada excluyen las referencias.
+**Arquitectura:** las imágenes se suben por la Edge Function `talent-reference` (sesión obligatoria, valida tipo real y tamaño, calcula sha256, guarda en el bucket privado y registra `raxi_assets` con `kind = 'REFERENCE'` y su nivel: `PUBLIC` para la ficha general, `NSFW` para la adulta). Las versiones viven en `raxi_identity_versions`; solo se escriben con dos RPCs que comprueban que quien llama es el dueño. Multimedia y la portada excluyen las referencias.
 
 **Stack:** igual que Conexiones (React 19, Supabase, Edge Functions en Deno, `node --test`).
 
 **Rama base:** `feat/v11-agencia`. Rama de trabajo: `feat/v11-talento`.
 
 **Reglas que ninguna tarea puede romper:**
-1. Solo fichas con ropa: la subida exige que Luis lo confirme y `AGENTS.md` (contenido no explícito) sigue vigente.
+1. Cada referencia lleva su nivel (general o adulta), como establece `AGENTS.md` en `feat/claude-team-office` (decisión de Luis del 2026-11-17). La ficha adulta nunca se muestra por defecto (interruptor NSFW apagado) ni sirve para bloquear la identidad, que siempre se ancla en una referencia general de frente.
 2. Nada en este plan llama a WaveSpeed ni a Aria, ni gasta dinero.
 3. Ningún texto de identidad cambia sin que Luis lo guarde y lo bloquee él mismo.
 4. Las pruebas existentes siguen en verde sin tocar sus aserciones, salvo la de `AgencyNav`, que cambia porque se añade la sección Talento.
@@ -115,6 +116,9 @@ test('talent model: lock needs real text and a front reference in the draft', ()
   assert.equal(canLock(noFront), false);
   const shortText = buildTalentProfile(ws, 'raxi-vox', [version(1, 'DRAFT', { identity_text: 'corto' })], [ref('r1', 'FRONT')]);
   assert.equal(canLock(shortText), false);
+  const adultFront = buildTalentProfile(ws, 'raxi-vox', [version(1, 'DRAFT', { reference_asset_ids: ['n1'] })], [{ ...ref('n1', 'FRONT'), metadata: { character_id: 'raxi-vox', angle: 'FRONT', content_level: 'NSFW' } }]);
+  assert.equal(adultFront.references[0].level, 'ADULT');
+  assert.equal(canLock(adultFront), false, 'identity is anchored on a general front reference');
   const none = buildTalentProfile(ws, 'raxi-vox', [], []);
   assert.equal(none.draft, null);
   assert.equal(none.locked, null);
@@ -165,7 +169,8 @@ export const ANGLES = ['FRONT', 'THREE_QUARTER', 'PROFILE', 'BACK', 'FULL_BODY',
 export type Angle = (typeof ANGLES)[number];
 export const ANGLE_LABEL: Record<Angle, string> = { FRONT: 'Frente', THREE_QUARTER: 'Tres cuartos', PROFILE: 'Perfil', BACK: 'Espalda', FULL_BODY: 'Cuerpo completo', SHEET: 'Ficha completa' };
 
-export interface TalentReference { id: string; angle: Angle; objectPath: string; sha256: string; createdAt: string }
+export type RefLevel = 'GENERAL' | 'ADULT';
+export interface TalentReference { id: string; angle: Angle; level: RefLevel; objectPath: string; sha256: string; createdAt: string }
 export interface IdentityVersion { version: number; status: 'DRAFT' | 'LOCKED'; identityText: string; marks: string[]; accessories: string[]; referenceIds: string[]; updatedAt: string; lockedAt: string | null }
 export interface TalentProfile { id: string; name: string; references: TalentReference[]; locked: IdentityVersion | null; draft: IdentityVersion | null; history: IdentityVersion[] }
 
@@ -186,7 +191,9 @@ export function buildTalentProfile(workspaceId: string, characterId: string, raw
     const sha = str(a.sha256, 64);
     if (!/^[0-9a-f]{64}$/.test(sha)) throw new Error('Talento: hash inválido');
     if (!(ANGLES as readonly string[]).includes(meta.angle as string)) continue;
-    references.push({ id: str(a.id, 64), angle: meta.angle as Angle, objectPath: path, sha256: sha, createdAt: str(a.created_at, 64) });
+    const level: RefLevel | null = meta.content_level === 'PUBLIC' ? 'GENERAL' : meta.content_level === 'NSFW' || meta.content_level === 'EXPLICIT' ? 'ADULT' : null;
+    if (!level) continue; // unclassified references are never used
+    references.push({ id: str(a.id, 64), angle: meta.angle as Angle, level, objectPath: path, sha256: sha, createdAt: str(a.created_at, 64) });
   }
   references.sort((x, y) => y.createdAt.localeCompare(x.createdAt));
   const history: IdentityVersion[] = [];
@@ -210,7 +217,7 @@ export function buildTalentProfile(workspaceId: string, characterId: string, raw
 }
 
 export const canLock = (p: TalentProfile): boolean =>
-  !!p.draft && p.draft.identityText.trim().length >= 20 && p.references.some((r) => r.angle === 'FRONT' && p.draft!.referenceIds.includes(r.id));
+  !!p.draft && p.draft.identityText.trim().length >= 20 && p.references.some((r) => r.angle === 'FRONT' && r.level === 'GENERAL' && p.draft!.referenceIds.includes(r.id));
 
 export const splitLines = (s: string): string[] => s.split('\n').map((x) => x.trim()).filter(Boolean).slice(0, 20);
 ```
@@ -285,7 +292,7 @@ test('talent migration: owner-only writes through two RPCs; lock feeds the Aria 
     assert.match(sql, new RegExp(`grant execute on function public\\.${name} to authenticated`), fn);
   }
   assert.match(sql, /a\.kind = 'REFERENCE'/, 'drafts only accept identity references');
-  assert.match(sql, /metadata->>'angle' = 'FRONT'/, 'lock needs a front reference');
+  assert.match(sql, /metadata->>'angle' = 'FRONT' and a\.metadata->>'content_level' = 'PUBLIC'/, 'lock needs a general front reference');
   assert.match(sql, /insert into public\.raxi_character_profiles[\s\S]*on conflict \(workspace_id, character_id\) do update set fixed_prompt = excluded\.fixed_prompt/);
   assert.match(sql, /'IDENTITY_LOCKED'/);
 });
@@ -374,7 +381,7 @@ begin
   if not found or v.status <> 'DRAFT' then raise exception 'not a draft' using errcode = '22023'; end if;
   if length(trim(v.identity_text)) < 20 then raise exception 'identity text required' using errcode = '22023'; end if;
   if not exists (select 1 from public.raxi_assets a where a.id = any (v.reference_asset_ids) and a.workspace_id = v_ws
-                 and a.kind = 'REFERENCE' and a.metadata->>'angle' = 'FRONT')
+                 and a.kind = 'REFERENCE' and a.metadata->>'angle' = 'FRONT' and a.metadata->>'content_level' = 'PUBLIC')
   then raise exception 'front reference required' using errcode = '22023'; end if;
   update public.raxi_identity_versions set status = 'LOCKED', locked_at = now(), locked_by = auth.uid(), updated_at = now()
    where workspace_id = v_ws and character_id = p_character and version = p_version;
@@ -453,7 +460,7 @@ function upload(fields: Record<string, string>, bytes: Uint8Array | null = JPEG,
   if (bytes) fd.set('file', new File([bytes], 'ficha.jpg', { type: 'image/jpeg' }));
   return new Request('https://x/functions/v1/talent-reference', { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
 }
-const okFields = { character: 'raxi-vox', angle: 'FRONT', confirm_safe: 'true' };
+const okFields = { character: 'raxi-vox', angle: 'FRONT', level: 'GENERAL' };
 
 test('reference handler: session required', async () => {
   const { d, calls } = refDeps();
@@ -462,17 +469,21 @@ test('reference handler: session required', async () => {
   assert.deepEqual(calls, []);
 });
 
-test('reference handler: stores a confirmed clothed reference as REFERENCE in the workspace', async () => {
+test('reference handler: stores the reference as REFERENCE with its level', async () => {
   const { d, calls } = refDeps();
   const res = await createReferenceHandler(d)(upload(okFields));
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { assetId: 'new-id', character: 'raxi-vox', angle: 'FRONT', duplicate: false });
   assert.deepEqual(calls, [`upload:${ws}/references/raxi-vox/${sha}.jpg:${JPEG.length}:image/jpeg`, 'register:REFERENCE:raxi-vox:FRONT:PUBLIC']);
+  const adult = refDeps();
+  assert.equal((await createReferenceHandler(adult.d)(upload({ ...okFields, level: 'ADULT' }))).status, 200);
+  assert.equal(adult.calls.at(-1), 'register:REFERENCE:raxi-vox:FRONT:NSFW');
 });
 
-test('reference handler: refuses unconfirmed, unknown model or angle, and non-images', async () => {
+test('reference handler: refuses a missing level, unknown model or angle, and non-images', async () => {
   const h = createReferenceHandler(refDeps().d);
-  assert.equal((await h(upload({ ...okFields, confirm_safe: 'false' }))).status, 400);
+  assert.equal((await h(upload({ character: 'raxi-vox', angle: 'FRONT' }))).status, 400);
+  assert.equal((await h(upload({ ...okFields, level: 'OTRO' }))).status, 400);
   assert.equal((await h(upload({ ...okFields, character: 'nadie' }))).status, 400);
   assert.equal((await h(upload({ ...okFields, angle: 'SIDEWAYS' }))).status, 400);
   assert.equal((await h(upload(okFields, null))).status, 400);
@@ -508,11 +519,11 @@ Esperado: FALLA al compilar (`Could not resolve ".../talent-reference/handler"`)
 
 ```ts
 // talent-reference: stores one identity reference image for the signed-in owner. No Deno or npm imports,
-// so the same file is unit-tested under Node. Only clothed (non-explicit) references, confirmed by the owner.
+// so the same file is unit-tested under Node. Every reference carries its level: GENERAL (clothed) or ADULT (NSFW, Fanvue only).
 
 export interface ReferenceRow {
   id: string; workspace_id: string; kind: 'REFERENCE'; object_path: string; mime_type: string; byte_size: number; sha256: string;
-  metadata: { character_id: string; angle: string; content_level: 'PUBLIC'; source: 'LUIS_UPLOAD' };
+  metadata: { character_id: string; angle: string; content_level: 'PUBLIC' | 'NSFW'; source: 'LUIS_UPLOAD' };
 }
 export interface ReferenceDependencies {
   verifyUser(token: string): Promise<{ id: string; isAnonymous: boolean } | null>;
@@ -527,6 +538,7 @@ export interface ReferenceDependencies {
 
 const ROSTER = new Set(['raxi-vox', 'vesper-corvus']);
 const ANGLES = new Set(['FRONT', 'THREE_QUARTER', 'PROFILE', 'BACK', 'FULL_BODY', 'SHEET']);
+const LEVELS: Record<string, 'PUBLIC' | 'NSFW'> = { GENERAL: 'PUBLIC', ADULT: 'NSFW' };
 const MAX_BYTES = 15 * 1024 * 1024;
 const EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
 
@@ -558,7 +570,8 @@ export function createReferenceHandler(dependencies: ReferenceDependencies) {
       try { form = await request.formData(); } catch { return reply(400, { error: 'Solicitud inválida.' }); }
       const character = form.get('character'); const angle = form.get('angle'); const file = form.get('file');
       if (typeof character !== 'string' || !ROSTER.has(character) || typeof angle !== 'string' || !ANGLES.has(angle)) return reply(400, { error: 'Modelo o ángulo no válido.' });
-      if (form.get('confirm_safe') !== 'true') return reply(400, { error: 'Confirma que la ficha es con ropa (contenido no explícito).' });
+      const level = LEVELS[String(form.get('level'))];
+      if (!level) return reply(400, { error: 'Indica si la ficha es general (con ropa) o adulta (NSFW).' });
       if (!(file instanceof Blob) || file.size < 1) return reply(400, { error: 'Falta la imagen.' });
       if (file.size > MAX_BYTES) return reply(413, { error: 'La imagen supera 15 MB.' });
       const bytes = new Uint8Array(await file.arrayBuffer());
@@ -574,7 +587,7 @@ export function createReferenceHandler(dependencies: ReferenceDependencies) {
       path = `${workspaceId}/references/${character}/${sha256}.${EXT[mime]}`;
       await dependencies.upload(path, bytes, mime);
       await dependencies.register({ id, workspace_id: workspaceId, kind: 'REFERENCE', object_path: path, mime_type: mime, byte_size: bytes.length, sha256,
-        metadata: { character_id: character, angle, content_level: 'PUBLIC', source: 'LUIS_UPLOAD' } });
+        metadata: { character_id: character, angle, content_level: level, source: 'LUIS_UPLOAD' } });
       return reply(200, { assetId: id, character, angle, duplicate: false });
     } catch {
       if (path) { try { await dependencies.removeObject(path); } catch { /* keep the original error */ } }
@@ -639,7 +652,7 @@ Esperado: 1016 pruebas, 0 fallos.
 
 ```bash
 git add supabase/functions/talent-reference supabase/config.toml apps/raxi-hq/tests/talent.test.tsx
-git commit -m "feat(talento): subida segura de referencias 360 con tipo real, sha256 y confirmación de contenido"
+git commit -m "feat(talento): subida segura de referencias 360 con tipo real, sha256 y nivel general o adulto"
 ```
 
 ---
@@ -698,22 +711,33 @@ test('Talento profile: shows each 360 angle, missing ones included, read with RL
   assert.deepEqual(rpcs.map(([n]) => n), ['raxi_get_workspace']);
 });
 
-test('Talento profile: upload sends the file, model, angle and the clothed-content confirmation', async () => {
+test('Talento profile: upload sends the file, model, angle and level', async () => {
   const { client, invokes } = talentClient([], []);
   const r = await renderProfile(client);
   const file = new File([JPEG], 'frente.jpg', { type: 'image/jpeg' });
   await act(async () => { r.root.findByProps({ id: 'ref-file' }).props.onChange({ target: { files: [file] } }); });
-  await act(async () => { r.root.findByProps({ id: 'ref-angle' }).props.onChange({ target: { value: 'FRONT' } }); });
-  const submit = () => act(async () => { r.root.findByProps({ 'aria-label': 'Subir referencia' }).props.onSubmit({ preventDefault() {} }); await new Promise((res) => setTimeout(res, 10)); });
-  await submit();
-  assert.equal(invokes.length, 0, 'nothing is sent without the confirmation');
-  await act(async () => { r.root.findByProps({ id: 'ref-safe' }).props.onChange({ target: { checked: true } }); });
-  await submit();
+  await act(async () => { r.root.findByProps({ id: 'ref-angle' }).props.onChange({ target: { value: 'PROFILE' } }); });
+  await act(async () => { r.root.findByProps({ id: 'ref-level' }).props.onChange({ target: { value: 'ADULT' } }); });
+  await act(async () => { r.root.findByProps({ 'aria-label': 'Subir referencia' }).props.onSubmit({ preventDefault() {} }); await new Promise((res) => setTimeout(res, 10)); });
   assert.equal(invokes.length, 1);
   const [name, body] = invokes[0] as [string, FormData];
   assert.equal(name, 'talent-reference');
-  assert.deepEqual([body.get('character'), body.get('angle'), body.get('confirm_safe')], ['raxi-vox', 'FRONT', 'true']);
+  assert.deepEqual([body.get('character'), body.get('angle'), body.get('level')], ['raxi-vox', 'PROFILE', 'ADULT']);
   assert.ok(body.get('file') instanceof Blob);
+});
+
+test('Talento profile: the adult sheet stays hidden until the NSFW switch is turned on', async () => {
+  const adult = { ...ref('n1', 'FRONT'), metadata: { character_id: 'raxi-vox', angle: 'FRONT', content_level: 'NSFW' } };
+  const { client } = talentClient([], [ref('r1', 'FRONT'), adult]);
+  const r = await renderProfile(client);
+  const shown = () => r.root.findAllByType('img').map((i) => String(i.props.src));
+  assert.ok(shown().some((x) => x.includes('/r1.jpg')));
+  assert.ok(!shown().some((x) => x.includes('/n1.jpg')), 'adult reference hidden by default');
+  const toggle = r.root.findByProps({ id: 'nsfw-switch' });
+  assert.equal(toggle.props.checked, false);
+  await act(async () => { toggle.props.onChange({ target: { checked: true } }); });
+  assert.ok(shown().some((x) => x.includes('/n1.jpg')));
+  assert.ok(!shown().some((x) => x.includes('/r1.jpg')), 'the switch shows one sheet at a time');
 });
 
 test('Talento profile: saving a draft and locking it go through the owner RPCs', async () => {
@@ -776,7 +800,7 @@ import { Link } from 'react-router-dom';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseWorkspace } from '../persistence/supabaseIdeaRepository';
 import { AgencyNav } from '../agency/AgencyNav';
-import { ANGLES, ANGLE_LABEL, buildTalentProfile, canLock, splitLines, type Angle, type TalentProfile } from './talentModel';
+import { ANGLES, ANGLE_LABEL, buildTalentProfile, canLock, splitLines, type Angle, type RefLevel, type TalentProfile } from './talentModel';
 import './talent.css';
 
 const BUCKET = 'raxi-hq-private';
@@ -805,7 +829,8 @@ export function TalentProfilePage({ client, ownerId, characterId }: { client: Su
   const [state, setState] = useState<Load>({ phase: 'loading' });
   const [text, setText] = useState(''); const [marks, setMarks] = useState(''); const [accessories, setAccessories] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
-  const [file, setFile] = useState<Blob | null>(null); const [angle, setAngle] = useState<Angle>('FRONT'); const [safe, setSafe] = useState(false);
+  const [file, setFile] = useState<Blob | null>(null); const [angle, setAngle] = useState<Angle>('FRONT'); const [level, setLevel] = useState<RefLevel>('GENERAL');
+  const [nsfw, setNsfw] = useState(false); // off by default: the adult sheet is only shown when Luis turns it on
   const [busy, setBusy] = useState(false); const [confirmLock, setConfirmLock] = useState(false);
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string }>();
 
@@ -830,11 +855,10 @@ export function TalentProfilePage({ client, ownerId, characterId }: { client: Su
   async function uploadReference(event: FormEvent) {
     event.preventDefault();
     if (!file) { setNotice({ kind: 'error', text: 'Elige una imagen.' }); return; }
-    if (!safe) { setNotice({ kind: 'error', text: 'Confirma que la ficha es con ropa (contenido no explícito).' }); return; }
     const body = new FormData();
-    body.set('character', characterId); body.set('angle', angle); body.set('confirm_safe', 'true'); body.set('file', file);
+    body.set('character', characterId); body.set('angle', angle); body.set('level', level); body.set('file', file);
     await run(() => client.functions.invoke('talent-reference', { body }), 'Referencia guardada.', 'No se pudo guardar la referencia.');
-    setFile(null); setSafe(false);
+    setFile(null);
   }
 
   if (state.phase !== 'ready') return <div className="agency"><header className="agency-header"><Link to="/" className="agency-brand">Raxi HQ</Link><AgencyNav /></header>
@@ -851,10 +875,11 @@ export function TalentProfilePage({ client, ownerId, characterId }: { client: Su
         <p className="agency-lead">{status}{profile.draft ? ` · borrador v${profile.draft.version} sin bloquear` : ''}</p></section>
 
       <section aria-labelledby="t-360" className="agency-section">
-        <h2 id="t-360">Ficha 360</h2>
+        <div className="talent-sheet-head"><h2 id="t-360">Ficha 360 · {nsfw ? 'adulta' : 'general'}</h2>
+          <label className="talent-switch"><input id="nsfw-switch" type="checkbox" role="switch" checked={nsfw} onChange={(e) => setNsfw(e.target.checked)} /> NSFW</label></div>
         <ul className="talent-angles">
           {ANGLES.map((a) => {
-            const refs = profile.references.filter((r) => r.angle === a);
+            const refs = profile.references.filter((r) => r.angle === a && r.level === (nsfw ? 'ADULT' : 'GENERAL'));
             return <li key={a} className="talent-angle"><h3>{ANGLE_LABEL[a]}</h3>
               {refs.length === 0 ? <div className="talent-missing">Falta</div> : refs.map((r) => <label key={r.id} className="talent-ref">
                 {urls[r.objectPath] ? <img src={urls[r.objectPath]} alt={`${profile.name}, ${ANGLE_LABEL[a].toLowerCase()}`} loading="lazy" /> : <div className="talent-missing">Sin vista previa</div>}
@@ -870,7 +895,11 @@ export function TalentProfilePage({ client, ownerId, characterId }: { client: Su
           <select id="ref-angle" value={angle} disabled={busy} onChange={(e) => setAngle(e.target.value as Angle)}>
             {ANGLES.map((a) => <option key={a} value={a}>{ANGLE_LABEL[a]}</option>)}
           </select>
-          <label className="talent-check"><input id="ref-safe" type="checkbox" checked={safe} disabled={busy} onChange={(e) => setSafe(e.target.checked)} /> Confirmo que esta ficha es con ropa (contenido no explícito)</label>
+          <label htmlFor="ref-level">Tipo de ficha</label>
+          <select id="ref-level" value={level} disabled={busy} onChange={(e) => setLevel(e.target.value as RefLevel)}>
+            <option value="GENERAL">General · con ropa</option>
+            <option value="ADULT">Adulta · NSFW, solo Fanvue</option>
+          </select>
           <button type="submit" disabled={busy}>Subir referencia</button>
         </form>
       </section>
@@ -887,7 +916,7 @@ export function TalentProfilePage({ client, ownerId, characterId }: { client: Su
           <button type="button" disabled={busy} onClick={() => { void run(() => client.rpc('raxi_identity_save_draft', { p_character: characterId, p_text: text, p_marks: splitLines(marks), p_accessories: splitLines(accessories), p_refs: selected }), 'Borrador guardado.', 'No se pudo guardar el borrador.'); }}>Guardar borrador</button>
           {profile.draft && <button type="button" disabled={busy || !lockable} onClick={() => setConfirmLock(true)}>{`Bloquear versión ${profile.draft.version}`}</button>}
         </div>
-        {profile.draft && !lockable && <p className="agency-meta">Para bloquear: guarda un texto de al menos 20 caracteres y marca una referencia de frente.</p>}
+        {profile.draft && !lockable && <p className="agency-meta">Para bloquear: guarda un texto de al menos 20 caracteres y marca una referencia general de frente.</p>}
         {confirmLock && profile.draft && <div className="talent-confirm" role="alertdialog" aria-label="Confirmar bloqueo">
           <p>Al bloquear la versión {profile.draft.version}, su texto reemplaza el prompt fijo que Producción usa hoy con Aria para {profile.name}.</p>
           <button type="button" disabled={busy} onClick={() => { void run(() => client.rpc('raxi_identity_lock', { p_character: characterId, p_version: profile.draft!.version }), 'Identidad bloqueada.', 'No se pudo bloquear.'); }}>Sí, bloquear</button>
@@ -941,7 +970,9 @@ export default function TalentoRoute() {
 .talent-upload { display: grid; gap: var(--space-2); max-width: 520px; padding: var(--space-5); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-md); }
 .talent-upload input, .talent-upload select, .agency-section textarea { min-height: 44px; padding: var(--space-2) var(--space-3); background: var(--bg); color: var(--ink); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); }
 .agency-section textarea { width: 100%; resize: vertical; }
-.talent-check { display: flex; gap: var(--space-2); align-items: flex-start; font-size: var(--text-sm); }
+.talent-sheet-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.talent-switch { display: inline-flex; align-items: center; gap: var(--space-2); min-height: 44px; padding: 0 var(--space-4); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); font-weight: 600; font-size: var(--text-sm); }
+.talent-switch input { width: 20px; height: 20px; accent-color: var(--status-danger); }
 .talent-upload button, .talent-actions button, .talent-confirm button { min-height: 44px; padding: 0 var(--space-4); border-radius: var(--radius-sm); border: 1px solid var(--border-strong); background: transparent; color: var(--ink); font-weight: 600; cursor: pointer; }
 .talent-upload button[type='submit'] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .talent-upload button:disabled, .talent-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -957,7 +988,7 @@ export default function TalentoRoute() {
 cd apps/raxi-hq && npm run typecheck && npm test 2>&1 | grep -E "^not ok|^# (pass|fail)"
 ```
 
-Esperado: 1020 pruebas, 0 fallos.
+Esperado: 1021 pruebas, 0 fallos.
 
 - [ ] **Paso 5: Commit**
 
@@ -1036,7 +1067,7 @@ y añade al final de `agency.css`:
 cd apps/raxi-hq && npm run typecheck && npm test 2>&1 | grep -E "^not ok|^# (tests|pass|fail)" && npm run build 2>&1 | tail -2
 ```
 
-Esperado: 1020 pruebas, 0 fallos y build correcto.
+Esperado: 1021 pruebas, 0 fallos y build correcto.
 
 - [ ] **Paso 5: Commit**
 
@@ -1054,7 +1085,7 @@ Nada de esta tarea se ejecuta sin la autorización explícita de Luis. Solo stag
 - [ ] **Paso 1:** aplicar la migración y desplegar `talent-reference` (`verify_jwt = true`).
 - [ ] **Paso 2:** comprobar permisos: `anon` sin acceso a la tabla ni a las funciones; `authenticated` solo `SELECT` en la tabla y `EXECUTE` en las dos RPCs. Revisar los advisors (se espera el mismo aviso que ya tienen las otras RPCs de dueño, como `raxi_portfolio_decide`).
 - [ ] **Paso 3:** probar el ciclo guardar borrador → bloquear dentro de una transacción revertida, como en Conexiones.
-- [ ] **Paso 4:** Luis sube la ficha con ropa de Raxi (frente, perfil, tres cuartos, espalda y la ficha completa) y revisa el texto propuesto abajo antes de bloquear.
+- [ ] **Paso 4:** Luis sube la ficha general de Raxi (frente, perfil, tres cuartos, espalda y la ficha completa) y, si quiere, su ficha adulta; luego revisa el texto propuesto abajo antes de bloquear.
 - [ ] **Paso 5:** cuando Luis tenga la ficha nueva de Vesper, la sube igual. Antes de bloquear su identidad, Luis decide si el texto nuevo reemplaza su prompt fijo actual de 632 caracteres.
 - [ ] **Paso 6:** abrir el PR `feat/v11-talento` → base que corresponda según lo fusionado.
 
@@ -1075,7 +1106,7 @@ Marcas propuestas: "Pecas suaves en nariz y mejillas", "Lunar pequeño junto a l
 ## Autorrevisión del plan
 
 - **Cobertura:** ficha 360 por ángulos, texto de identidad, marcas, accesorios, versiones, bloqueo con confirmación y conexión con el prompt fijo existente. Raxi y Vesper siempre visibles.
-- **Fuera de M1:** generar fichas 360 nuevas con IA, la orden de serie, WaveSpeed, el libro de costos y el MCP (M2 y M3).
+- **Fuera de M1:** el creador de ficha 360 con IA (M2), las series con continuidad (M3) y el MCP (M4). M1 no llama a ningún generador.
 - **Decisión que este plan toma y Luis debe confirmar:** bloquear una identidad **reemplaza** el prompt fijo que hoy usa Producción con Aria. Es lo que da consistencia entre Aria y WaveSpeed; la alternativa sería mantener dos textos separados.
 - **Riesgos:** (1) `supabase.functions.invoke` debe enviar `FormData` como multipart: se verifica en staging en la Tarea 6, y si no, se cambia a `fetch` con el token de sesión; (2) las RPCs de dueño quedan ejecutables por `authenticated`, igual que las existentes, con la comprobación de dueño dentro; (3) los recuentos de pruebas suponen la base `feat/v11-agencia` con 1006 pruebas.
 - **Consistencia de nombres:** `raxi_identity_versions`, `raxi_identity_save_draft`, `raxi_identity_lock`, `talent-reference`, `buildTalentProfile`, `canLock`, `TalentProfilePage`, `TalentoRoute` se usan igual en todas las tareas.

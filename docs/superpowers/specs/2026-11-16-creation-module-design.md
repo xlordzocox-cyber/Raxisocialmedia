@@ -19,7 +19,7 @@
 
 **Fuera (YAGNI):** edición, upscale, video, creación de fichas, generación de la foto base fuera de Aria.
 
-**Contenido:** rige `AGENTS.md` (adulto no explícito). Solo se cargan fichas con ropa como referencias. Cambiar esa regla es decisión de Luis y requiere editar `AGENTS.md` antes; este diseño no la cambia.
+**Contenido (corregido el 2026-11-17):** rigen los niveles por superficie del `AGENTS.md` de `feat/claude-team-office`: público, NSFW (feed de Fanvue) y EXPLICIT (chatting). Las fichas tienen versión general y adulta; la adulta solo se usa para Fanvue. NSFW en Raxi HQ usa Seedream 5.5 por defecto.
 
 **Criterio de éxito:** cada serie piloto tiene 4–6 fotos del mismo momento con rostro consistente, costo real registrado por foto, assets archivados con Asset ID y aprobación final de Luis.
 
