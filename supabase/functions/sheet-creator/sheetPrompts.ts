@@ -9,6 +9,8 @@ const FACE: Partial<Record<View, string>> = {
   THREE_QUARTER: 'Identity reference photo of the same woman as the reference images: head and shoulders, head turned three-quarters to her left, neutral relaxed expression, bra straps visible on the shoulders',
   PROFILE: 'Identity reference photo of the same woman as the reference images: head and shoulders, face in full side profile facing left, neutral relaxed expression, bra straps visible on the shoulders',
 };
+// Every body view, general or adult, is framed the same so the two sheets are comparable (Luis, 2026-11-17).
+export const BODY_FRAME = 'full body from the neck down to the feet, both feet fully visible on the floor, nothing cropped below the neck';
 const BODY_VIEW: Partial<Record<View, string>> = { BODY_FRONT: 'front view', BODY_SIDE: 'side view, facing left', BODY_BACK: 'back view' };
 const GENERAL_BODY = `Full body reference photo, headless, cropped at the neck, standing, natural relaxed pose, arms relaxed at the sides, ${SHEET_WARDROBE}, same body proportions and skin tone as the reference images`;
 export const ADULT_TEMPLATE = 'Nude figure study, artistic anatomical reference, neutral standing pose, non-sexual, headless, cropped at the neck, arms relaxed at the sides, same body proportions and skin tone as the reference images';
@@ -25,7 +27,7 @@ export function buildSheetPrompt(input: { level: Level; view: View; fixedPrompt:
     template = `${FACE[view]}, ${SHEET_WARDROBE}, ${STUDIO}.`;
   } else {
     const base = level === 'ADULT' ? (input.adultTemplate?.trim() ? input.adultTemplate.trim().slice(0, MAX_ADULT_TEMPLATE) : ADULT_TEMPLATE) : GENERAL_BODY;
-    template = `${base.replace(/[.\s]+$/, '')}, ${BODY_VIEW[view]}, ${STUDIO}.`;
+    template = `${base.replace(/[.\s]+$/, '')}, ${BODY_FRAME}, ${BODY_VIEW[view]}, ${STUDIO}.`;
   }
   const parts = [input.fixedPrompt?.trim() || null, template];
   const instruction = input.instruction?.trim().slice(0, MAX_INSTRUCTION);
