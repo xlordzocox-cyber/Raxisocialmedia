@@ -845,7 +845,7 @@ export function TalentProfilePage({ client, ownerId, characterId }: { client: Su
   }, [client, ownerId, characterId]);
   useEffect(() => { void reload(); }, [reload]);
 
-  const run = async (work: () => Promise<{ error: unknown }>, ok: string, fail: string) => {
+  const run = async (work: () => PromiseLike<{ error: unknown }>, ok: string, fail: string) => {
     setBusy(true); setNotice(undefined);
     try { const { error } = await work(); if (error) throw new Error(fail); setNotice({ kind: 'ok', text: ok }); }
     catch { setNotice({ kind: 'error', text: fail }); }
