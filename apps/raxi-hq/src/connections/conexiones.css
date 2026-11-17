@@ -1,0 +1,17 @@
+.conexiones { min-height: 100vh; background: var(--bg); color: var(--ink); padding: 24px 16px 48px; }
+.conexiones-header, .conexion-card { max-width: 640px; margin: 0 auto; }
+.conexiones-eyebrow, .conexion-meta { color: var(--muted); font-size: 13px; margin: 0; }
+.conexiones-header h1 { margin: 4px 0 8px; font-size: 28px; }
+.conexion-card { margin-top: 24px; padding: 20px; background: var(--panel); border: 1px solid var(--muted); border-radius: 12px; display: grid; gap: 12px; }
+.conexion-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+.conexion-head h2 { margin: 0; font-size: 20px; }
+.conexion-status { font-size: 13px; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--muted); }
+.conexion-connected { border-color: var(--accent); color: var(--accent); }
+.conexion-card form { display: grid; gap: 8px; }
+.conexion-card input { min-height: 44px; padding: 10px; background: var(--bg); color: var(--ink); border: 1px solid var(--muted); border-radius: 8px; font: inherit; }
+.conexion-card button { min-height: 44px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--accent); background: transparent; color: var(--accent); font: inherit; cursor: pointer; }
+.conexion-card button[type='submit'] { background: var(--accent); color: var(--bg); font-weight: 600; }
+.conexion-card button:disabled { opacity: 0.5; cursor: not-allowed; }
+.conexion-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.conexion-notice { margin: 0; font-size: 14px; }
+.conexion-notice-ok { color: var(--accent); }
