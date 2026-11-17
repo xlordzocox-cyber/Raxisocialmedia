@@ -58,3 +58,7 @@
 .media-hidden-tab[aria-pressed='true'] { border-color: #b33a3a !important; color: #ff8a8a !important; }
 .media-blur img { filter: blur(18px); transform: scale(1.1); }
 .media-blur[aria-pressed='true'] img { filter: none; transform: none; }
+.fototeca { overflow-x: clip; max-width: 100vw; }
+.foto-header { flex-wrap: wrap; gap: 6px; }
+.foto-header .hq-session-controls { flex: 0 1 auto; flex-wrap: wrap; }
+.foto-detail > *, .foto-detail-body > * { min-width: 0; overflow-wrap: anywhere; }
