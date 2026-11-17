@@ -59,6 +59,11 @@ test('talent model: foreign or malformed rows are rejected', () => {
   assert.deepEqual(buildTalentProfile(ws, 'raxi-vox', [], [ref('r9', 'SIDEWAYS')]).references, [], 'unknown angle is ignored');
 });
 
+test('talent model: body views and source photos of the 360 creator are valid angles', () => {
+  const p = buildTalentProfile(ws, 'raxi-vox', [], [ref('b1', 'BODY_FRONT'), ref('b2', 'BODY_SIDE'), ref('b3', 'BODY_BACK'), ref('s1', 'SOURCE'), ref('h1', 'HEAD')]);
+  assert.deepEqual(p.references.map((r) => r.angle).sort(), ['BODY_BACK', 'BODY_FRONT', 'BODY_SIDE', 'SOURCE']);
+});
+
 test('talent model: list fields are trimmed lines, max 20', () => {
   assert.deepEqual(splitLines('  uno \n\n dos\n'), ['uno', 'dos']);
   assert.equal(splitLines(Array.from({ length: 30 }, (_, i) => `x${i}`).join('\n')).length, 20);
@@ -137,6 +142,8 @@ test('reference handler: refuses a missing level, unknown model or angle, and no
   assert.equal((await h(upload({ ...okFields, level: 'OTRO' }))).status, 400);
   assert.equal((await h(upload({ ...okFields, character: 'nadie' }))).status, 400);
   assert.equal((await h(upload({ ...okFields, angle: 'SIDEWAYS' }))).status, 400);
+  assert.equal((await h(upload({ ...okFields, angle: 'HEAD' }))).status, 400);
+  for (const angle of ['BODY_FRONT', 'BODY_SIDE', 'BODY_BACK', 'SOURCE']) assert.equal((await createReferenceHandler(refDeps().d)(upload({ ...okFields, angle }))).status, 200, angle);
   assert.equal((await h(upload(okFields, null))).status, 400);
   assert.equal((await h(upload(okFields, new TextEncoder().encode('<svg onload=x>')))).status, 415);
 });

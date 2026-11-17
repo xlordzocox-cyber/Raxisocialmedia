@@ -2,9 +2,9 @@
 import { characterLabel } from '../portfolio/mediaModel';
 import { TALENT_ROSTER } from '../agency/agencyModel';
 
-export const ANGLES = ['FRONT', 'THREE_QUARTER', 'PROFILE', 'BACK', 'FULL_BODY', 'SHEET'] as const;
+export const ANGLES = ['FRONT', 'THREE_QUARTER', 'PROFILE', 'BODY_FRONT', 'BODY_SIDE', 'BODY_BACK', 'BACK', 'FULL_BODY', 'SHEET', 'SOURCE'] as const;
 export type Angle = (typeof ANGLES)[number];
-export const ANGLE_LABEL: Record<Angle, string> = { FRONT: 'Frente', THREE_QUARTER: 'Tres cuartos', PROFILE: 'Perfil', BACK: 'Espalda', FULL_BODY: 'Cuerpo completo', SHEET: 'Ficha completa' };
+export const ANGLE_LABEL: Record<Angle, string> = { FRONT: 'Frente', THREE_QUARTER: 'Tres cuartos', PROFILE: 'Perfil', BACK: 'Espalda', FULL_BODY: 'Cuerpo completo', SHEET: 'Ficha completa', BODY_FRONT: 'Cuerpo de frente', BODY_SIDE: 'Cuerpo de lado', BODY_BACK: 'Cuerpo de espalda', SOURCE: 'Foto de la modelo' };
 
 export type RefLevel = 'GENERAL' | 'ADULT';
 export interface TalentReference { id: string; angle: Angle; level: RefLevel; objectPath: string; sha256: string; createdAt: string }

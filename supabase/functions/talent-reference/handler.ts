@@ -17,7 +17,7 @@ export interface ReferenceDependencies {
 }
 
 const ROSTER = new Set(['raxi-vox', 'vesper-corvus']);
-const ANGLES = new Set(['FRONT', 'THREE_QUARTER', 'PROFILE', 'BACK', 'FULL_BODY', 'SHEET']);
+const ANGLES = new Set(['FRONT', 'THREE_QUARTER', 'PROFILE', 'BODY_FRONT', 'BODY_SIDE', 'BODY_BACK', 'BACK', 'FULL_BODY', 'SHEET', 'SOURCE']);
 const LEVELS: Record<string, 'PUBLIC' | 'NSFW'> = { GENERAL: 'PUBLIC', ADULT: 'NSFW' };
 const MAX_BYTES = 15 * 1024 * 1024;
 const EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
