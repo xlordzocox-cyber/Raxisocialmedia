@@ -50,6 +50,12 @@ test('sheet prompts: identity first, headless body views, change instruction las
   assert.ok(p.endsWith('x'.repeat(300)) && !p.includes('x'.repeat(301)));
   const face = buildSheetPrompt({ level: 'GENERAL', view: 'FRONT', fixedPrompt: null });
   assert.doesNotMatch(face, /headless/);
+  for (const view of ['FRONT', 'THREE_QUARTER', 'PROFILE', 'BODY_FRONT', 'BODY_SIDE', 'BODY_BACK'] as const) {
+    const general = buildSheetPrompt({ level: 'GENERAL', view, fixedPrompt: null });
+    assert.match(general, /wearing only a plain black seamless bra and matching plain black briefs, no other clothing/, `same wardrobe in ${view}`);
+    assert.doesNotMatch(general, /fitted plain outfit/);
+  }
+  assert.doesNotMatch(buildSheetPrompt({ level: 'ADULT', view: 'BODY_FRONT', fixedPrompt: null }), /bra/, 'the adult template keeps its own wardrobe');
   assert.match(ADULT_TEMPLATE, /artistic anatomical reference, neutral standing pose, non-sexual/);
   assert.match(buildSheetPrompt({ level: 'ADULT', view: 'BODY_FRONT', fixedPrompt: null }), /non-sexual/);
   assert.match(buildSheetPrompt({ level: 'ADULT', view: 'BODY_FRONT', fixedPrompt: null, adultTemplate: 'Plantilla de Luis.' }), /^Plantilla de Luis, front view/);

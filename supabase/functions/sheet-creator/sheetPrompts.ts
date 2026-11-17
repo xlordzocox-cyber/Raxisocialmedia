@@ -2,13 +2,15 @@
 import type { Level, View } from './sheetPlan.ts';
 
 const STUDIO = 'plain light-grey studio background, soft even lighting, realistic photo, natural skin texture';
+// Same wardrobe in every general view so the sheet never mixes outfits (Luis, 2026-11-17).
+export const SHEET_WARDROBE = 'wearing only a plain black seamless bra and matching plain black briefs, no other clothing, no jacket, no lace';
 const FACE: Partial<Record<View, string>> = {
-  FRONT: 'Identity reference photo of the same woman as the reference images: head and shoulders, facing the camera straight on, neutral relaxed expression, eyes to camera',
-  THREE_QUARTER: 'Identity reference photo of the same woman as the reference images: head and shoulders, head turned three-quarters to her left, neutral relaxed expression',
-  PROFILE: 'Identity reference photo of the same woman as the reference images: head and shoulders, face in full side profile facing left, neutral relaxed expression',
+  FRONT: 'Identity reference photo of the same woman as the reference images: head and shoulders, facing the camera straight on, neutral relaxed expression, eyes to camera, bra straps visible on the shoulders',
+  THREE_QUARTER: 'Identity reference photo of the same woman as the reference images: head and shoulders, head turned three-quarters to her left, neutral relaxed expression, bra straps visible on the shoulders',
+  PROFILE: 'Identity reference photo of the same woman as the reference images: head and shoulders, face in full side profile facing left, neutral relaxed expression, bra straps visible on the shoulders',
 };
 const BODY_VIEW: Partial<Record<View, string>> = { BODY_FRONT: 'front view', BODY_SIDE: 'side view, facing left', BODY_BACK: 'back view' };
-const GENERAL_BODY = 'Full body reference photo, headless, cropped at the neck, standing, natural relaxed pose, arms relaxed at the sides, wearing a simple fitted plain outfit, same body proportions and skin tone as the reference images';
+const GENERAL_BODY = `Full body reference photo, headless, cropped at the neck, standing, natural relaxed pose, arms relaxed at the sides, ${SHEET_WARDROBE}, same body proportions and skin tone as the reference images`;
 export const ADULT_TEMPLATE = 'Nude figure study, artistic anatomical reference, neutral standing pose, non-sexual, headless, cropped at the neck, arms relaxed at the sides, same body proportions and skin tone as the reference images';
 
 export const MAX_PROMPT = 4000;
@@ -20,7 +22,7 @@ export function buildSheetPrompt(input: { level: Level; view: View; fixedPrompt:
   let template: string;
   if (FACE[view]) {
     if (level === 'ADULT') throw new Error('Esa vista no existe en la ficha adulta.');
-    template = `${FACE[view]}, ${STUDIO}.`;
+    template = `${FACE[view]}, ${SHEET_WARDROBE}, ${STUDIO}.`;
   } else {
     const base = level === 'ADULT' ? (input.adultTemplate?.trim() ? input.adultTemplate.trim().slice(0, MAX_ADULT_TEMPLATE) : ADULT_TEMPLATE) : GENERAL_BODY;
     template = `${base.replace(/[.\s]+$/, '')}, ${BODY_VIEW[view]}, ${STUDIO}.`;
