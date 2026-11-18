@@ -56,3 +56,23 @@ test('Multimedia page renders every archived photo read-only (no writes)', async
   await act(async () => { tiles[2].props.onClick(); });
   assert.match(JSON.stringify(view.toJSON()), /Campañas: Noches de archivo/);
 });
+
+test('Multimedia detail offers a continuity series from a loose photo, never from an unclassified one', async () => {
+  const client = {
+    rpc: async () => ({ data: { id: ws, ownerId: owner, name: 'raxi-hq' }, error: null }),
+    from: (name: string) => ({ select: () => ({ eq: async () => ({ data: name === 'raxi_assets' ? assets : name === 'raxi_portfolio_items' ? items : collections, error: null }) }) }),
+    storage: { from: () => ({ createSignedUrls: async (paths: string[]) => ({ data: paths.map((p) => ({ path: p, signedUrl: 'https://signed.example/' + p })), error: null }) }) },
+  } as unknown as SupabaseClient;
+  let view!: ReactTestRenderer;
+  await act(async () => { view = create(<MemoryRouter><MultimediaPage client={client} ownerId={owner} /></MemoryRouter>); await new Promise((r) => setTimeout(r, 20)); });
+  const tile = (file: string) => view.root.find((n) => n.type === 'button' && n.props['aria-label'] === `Foto mcp_seedream-${file}.jpg`);
+  await act(async () => { tile('2').props.onClick(); });
+  const links = view.root.findAll((n) => n.type === 'a' && n.props.href === '/series/nueva?base=a2&modelo=vesper-corvus');
+  assert.equal(links.length, 1, 'loose public photo → series link');
+  const sections = view.root.findAll((n) => n.type === 'button' && /Sin clasificar/.test(String(n.props.children)));
+  await act(async () => { sections[0].props.onClick(); });
+  await act(async () => { tile('5').props.onClick(); });
+  assert.equal(view.root.findAll((n) => n.type === 'a' && String(n.props.href).startsWith('/series/nueva')).length, 0, 'unclassified photo → no series link');
+  assert.match(JSON.stringify(view.toJSON()), /Clasifica su nivel/);
+  act(() => view.unmount());
+});

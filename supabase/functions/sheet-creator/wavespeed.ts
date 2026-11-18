@@ -3,6 +3,9 @@
 // Errors never include the API key or the provider's raw body.
 
 export interface EditBody { prompt: string; images: string[]; resolution: string }
+/** Reference-to-image models take one face image (FLUX-PuLID page, checked 2026-11-18: prompt, image, guidance_scale, output_format). */
+export interface ReferenceBody { prompt: string; image: string; guidance_scale?: number }
+export const REFERENCE_MODELS = new Set(['wavespeed-ai/flux-pulid']);
 export type PollResult = { status: 'PENDING' } | { status: 'SUCCEEDED'; outputUrl: string } | { status: 'FAILED'; error: string };
 
 const BASE = 'https://api.wavespeed.ai/api/v3';
@@ -13,8 +16,10 @@ const FAILED = new Set(['failed', 'cancelled', 'timeout', 'deleted']);
 export function createWaveSpeed(fetchImpl: typeof fetch) {
   const headers = (key: string) => ({ Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' });
   return {
-    async submit(key: string, model: string, body: EditBody): Promise<string> {
-      if (!MODEL.test(model)) throw new Error('Ese modelo no es válido.');
+    async submit(key: string, model: string, body: EditBody | ReferenceBody): Promise<string> {
+      const edit = MODEL.test(model);
+      if (!edit && !REFERENCE_MODELS.has(model)) throw new Error('Ese modelo no es válido.');
+      if (edit !== Array.isArray((body as EditBody).images)) throw new Error('El envío no corresponde a ese modelo.');
       const res = await fetchImpl(`${BASE}/${model}`, { method: 'POST', headers: headers(key), body: JSON.stringify({ ...body, output_format: 'png' }) });
       if (!res.ok) throw new Error(`WaveSpeed rechazó el envío (HTTP ${res.status}).`);
       const json = await res.json().catch(() => null) as { data?: { id?: unknown } } | null;

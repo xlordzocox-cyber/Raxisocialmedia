@@ -3,7 +3,10 @@
 // server-side price check (the click is the approval), $10/month cap, anchor-first chain, key never returned.
 import { anchorOf, chainImages, formatUsd, inputsFor, isLevel, isView, quoteRun, takeCost, viewsFor, CAP_MILLS, type Level, type Price, type Resolution, type View } from './sheetPlan.ts';
 import { buildSheetPrompt, MAX_ADULT_TEMPLATE, MAX_INSTRUCTION } from './sheetPrompts.ts';
-import type { EditBody, PollResult } from './wavespeed.ts';
+import type { EditBody, PollResult, ReferenceBody } from './wavespeed.ts';
+import { handleSeries, SERIES_ACTIONS, type SeriesDependencies } from './series.ts';
+import { handleRecreate, RECREATE_ACTIONS, type RecreateDependencies } from './recreate.ts';
+import { handleModelTest, MODELTEST_ACTIONS, type ModelTestDependencies } from './modelTest.ts';
 
 export type TakeStatus = 'QUEUED' | 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 export interface RunRow {
@@ -41,7 +44,7 @@ export interface SheetDependencies {
   claimTake(takeId: string): Promise<boolean>;
   signedUrl(path: string): Promise<string>;
   secret(actor: string): Promise<string | null>;
-  submit(key: string, model: string, body: EditBody): Promise<string>;
+  submit(key: string, model: string, body: EditBody | ReferenceBody): Promise<string>;
   poll(key: string, predictionId: string): Promise<PollResult>;
   storeOutput(url: string, path: string): Promise<{ path: string; sha256: string; byteSize: number; mime: string }>;
   registerReference(row: CreatorReference): Promise<void>;
@@ -52,11 +55,12 @@ export interface SheetDependencies {
 
 const ROSTER = new Set(['raxi-vox', 'vesper-corvus']);
 const MAX_BODY = 16 * 1024;
+const MAX_UPLOAD_BODY = 6 * 1024 * 1024; // only RECREATE_PROMPT and RECREATE_UPLOAD carry a photo (≤ 3 MB as base64)
 class Reply { constructor(readonly status: number, readonly body: Record<string, unknown>) {} }
 const fail = (status: number, error: string) => new Reply(status, { error });
 const isCap = (e: unknown) => typeof e === 'object' && e !== null && (e as { cap?: unknown }).cap === true;
 
-export function createSheetHandler(d: SheetDependencies) {
+export function createSheetHandler(d: SheetDependencies & SeriesDependencies & RecreateDependencies & ModelTestDependencies) {
   const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Cache-Control': 'no-store' };
   const reply = (r: Reply) => Response.json(r.body, { status: r.status, headers });
 
@@ -119,10 +123,11 @@ export function createSheetHandler(d: SheetDependencies) {
     const ws = await d.workspaceOf(user.id);
     if (!ws) return fail(403, 'No tienes acceso a este workspace.');
     const raw = await request.text();
-    if (raw.length > MAX_BODY) return fail(413, 'Solicitud demasiado grande.');
+    if (raw.length > MAX_UPLOAD_BODY) return fail(413, 'Solicitud demasiado grande.');
     let b: Record<string, unknown>;
     try { b = JSON.parse(raw); } catch { return fail(400, 'Solicitud inválida.'); }
     if (!b || typeof b !== 'object') return fail(400, 'Solicitud inválida.');
+    if (raw.length > MAX_BODY && b.action !== 'RECREATE_PROMPT' && b.action !== 'RECREATE_UPLOAD') return fail(413, 'Solicitud demasiado grande.');
 
     switch (b.action) {
       case 'QUOTE': {
@@ -218,6 +223,7 @@ export function createSheetHandler(d: SheetDependencies) {
         if (typeof b.takeId !== 'string') return fail(400, 'Falta la toma.');
         const take = await d.loadTake(ws, b.takeId);
         if (!take) return fail(404, 'No encontré esa toma.');
+        if (!take.run_id) return fail(409, 'Esa foto es de una serie.');
         if (take.status !== 'SUCCEEDED' || !take.object_path || !take.sha256) return fail(409, 'Esa toma todavía no está lista.');
         if (take.chosen_asset_id) return new Reply(200, { assetId: take.chosen_asset_id, duplicate: true });
         const loaded = await d.loadRun(ws, take.run_id);
@@ -230,8 +236,12 @@ export function createSheetHandler(d: SheetDependencies) {
         await d.supersede(ws, loaded.run.character_id, take.view, level, id);
         return new Reply(200, { assetId: id, duplicate: false });
       }
-      default:
+      default: {
+        if (typeof b.action === 'string' && SERIES_ACTIONS.has(b.action)) { const out = await handleSeries(d, user.id, ws, b); return new Reply(out.status, out.body); }
+        if (typeof b.action === 'string' && RECREATE_ACTIONS.has(b.action)) { const out = await handleRecreate(d, user.id, ws, b); return new Reply(out.status, out.body); }
+        if (typeof b.action === 'string' && MODELTEST_ACTIONS.has(b.action)) { const out = await handleModelTest(d, user.id, ws, b); return new Reply(out.status, out.body); }
         return fail(400, 'Acción no válida.');
+      }
     }
   }
 

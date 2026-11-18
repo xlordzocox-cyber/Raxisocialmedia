@@ -34,7 +34,8 @@ export function CampaignSteps({ client, proposalId, jobs, pipeline, onChange }: 
   const review = latest(jobs, proposalId, 'REVIEW');
   const order = latest(jobs, proposalId, 'PRODUCTION');
   const plan = (order?.status === 'SUCCEEDED' && order.data && typeof order.data === 'object' ? order.data : null) as
-    { modelo_key?: string; modelo_nombre?: string; precio_unitario_usd?: number; calidad?: string; formato?: string; total_usd?: number; fotos?: unknown[]; nota?: string } | null;
+    { modelo_key?: string; modelo_nombre?: string; precio_unitario_usd?: number; calidad?: string; formato?: string; total_usd?: number; fotos?: unknown[]; nota?: string;
+      aria_total_usd?: number; continuidad?: { fotos?: number; precio_por_foto_usd?: number; total_usd?: number; nota?: string } | null } | null;
   const archive = latest(jobs, proposalId, 'ARCHIVE');
   const results = SHOWN.map((k) => latest(jobs, proposalId, k)).filter((j): j is AgentJob => !!j);
 
@@ -60,10 +61,13 @@ export function CampaignSteps({ client, proposalId, jobs, pipeline, onChange }: 
         : pipeline.gate === 'PRODUCTION_COST'
         ? <div><p><b>TE TOCA · Aprobar el costo de producción.</b> Precios reales consultados en Aria. Nada se genera ni se cobra sin tu aprobación, y nunca se gasta más de este total.</p>
             {plan ? <ul className="production-plan">
-              <li><b>Fotos:</b> {plan.fotos?.length ?? 0}</li>
+              <li><b>Fotos nuevas en Aria:</b> {plan.fotos?.length ?? 0}</li>
               <li><b>Modelo:</b> {plan.modelo_nombre} ({plan.modelo_key}) · {plan.calidad} · formato {plan.formato}</li>
               <li><b>Precio por foto:</b> ${Number(plan.precio_unitario_usd).toFixed(4)}</li>
-              <li><b>Total máximo:</b> ${Number(plan.total_usd).toFixed(2)} USD</li>
+              {plan.continuidad && <li><b>Continuidad en Raxi HQ:</b> {plan.continuidad.total_usd
+                ? `${plan.continuidad.fotos} fotos del mismo momento · $${Number(plan.continuidad.precio_por_foto_usd).toFixed(3)} c/u · $${Number(plan.continuidad.total_usd).toFixed(3)} (WaveSpeed, Seedream 5.5)`
+                : `${plan.continuidad.fotos} fotos no incluidas`}{plan.continuidad.nota ? <span className="team-proposal-meta"> — {plan.continuidad.nota}</span> : null}</li>}
+              <li><b>Total máximo:</b> ${Number(plan.total_usd).toFixed(plan.continuidad?.total_usd ? 3 : 2)} USD</li>
               {plan.nota && <li className="team-proposal-meta">{plan.nota}</li>}
             </ul> : <p role="status">Cargando la orden…</p>}</div>
         : <p><b>TE TOCA · Autorizar la publicación.</b> Revisa el paquete final y el reporte de QA abajo, y las fotos en la <Link to="/fototeca">Fototeca</Link>. Nada se publica sin ti.</p>}
