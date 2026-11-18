@@ -17,7 +17,7 @@ function fakeClient(detail?: Record<string, unknown>) {
     functions: { invoke: async (_n: string, opts: { body: Record<string, unknown> }) => {
       calls.push(opts.body);
       const b = opts.body;
-      if (b.action === 'RECREATE_PROMPT') return { data: { objectivePath: 'ws/recreate/drafts/x.jpg', objectiveUrl: 'https://signed/x.jpg', prompt: CINE, summary: 'Listo', observations: [], warnings: ['Solo cara visible'], promptCostMills: 20 }, error: null };
+      if (b.action === 'RECREATE_PROMPT') return { data: { objectivePath: 'ws/recreate/drafts/x.jpg', objectiveUrl: 'https://signed/x.jpg', prompt: CINE, summary: 'Listo', observations: [], warnings: ['Solo cara visible'], checklist: { vestuario: 'black wool coat', luz: 'candle from the left' }, promptCostMills: 20 }, error: null };
       if (b.action === 'RECREATE_QUOTE') return { data: { totalMills: 36 * Number(b.variants), perPhotoMills: 36, spentMills: 1244, capMills: 10000 }, error: null };
       if (b.action === 'RECREATE_START') return { data: { recreationId: 'rc-1' }, error: null };
       return { data: detail, error: null };
@@ -44,6 +44,7 @@ test('Recrear: nothing is spent until a photo, a prepared prompt, the attestatio
   assert.equal(calls[0].action, 'RECREATE_PROMPT'); assert.equal(calls[0].image, 'data:image/png;base64,AAAA');
   assert.equal(byId(r, 'rc-prompt').props.value, CINE);
   assert.match(text(r), /Solo cara visible/);
+  assert.match(text(r), /Detalles que define el prompt/); assert.match(text(r), /black wool coat/); assert.match(text(r), /candle from the left/);
   assert.match(text(r), /Prompter en esta foto: \$0\.02/);
   assert.equal(byId(r, 'rc-start').props.disabled, true, 'attestation required');
   await act(async () => { byId(r, 'rc-variants').props.onChange({ target: { value: '3' } }); await settle(); });

@@ -76,7 +76,8 @@ export function quoteRecreate(input: { variants: number; price: Price; resolutio
 // Image roles are stated explicitly (pilot 2026-11-17: without roles the model mixed outfits and duplicated the woman).
 export const RECREATE_RULE = 'Image 1 shows who she is: keep her exact face, hair and body. ' +
   'Image 2 is only the scene reference (pose, outfit, place, light and framing): never copy the face, hair or identity of the person in image 2. ' +
-  'Only one woman in the photo; if a mirror is visible, it shows only her own reflection. She is clearly an adult.';
+  'Only one woman in the photo; if a mirror is visible, it shows only her own reflection. She is clearly an adult. ' +
+  'Never use the clothing visible in image 1.';
 
 /** Image roles for Fanvue: face, optional adult body, target last. The outfit comes from Luis's text, not from the target. */
 export function recreateRule(level: ContentLevel, refs: number): string {

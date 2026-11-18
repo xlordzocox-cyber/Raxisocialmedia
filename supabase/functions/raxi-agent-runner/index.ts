@@ -9,6 +9,7 @@ import { continuityBlocked, continuityGroups, continuityOf, continuationScene, c
 import { makeCreatorDeps } from "../sheet-creator/deps.ts";
 import { handleSeries } from "../sheet-creator/series.ts";
 import { quoteSeries, seriesRefs, SERIES_RESOLUTION } from "../sheet-creator/seriesPlan.ts";
+import { PHOTO_SPEC_ES, PUBLIC_OUTFIT_GUARD } from "../sheet-creator/photoSpec.ts";
 const CONTINUITY_MODEL = "bytedance/seedream-v5.5/edit"; // AGENTS.md: Raxi HQ creator default
 
 const MODELS = {
@@ -432,8 +433,10 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       // Luis's fixed prompt for this character always goes first; the scene from the design goes below it.
       const { data: fixedRow } = await db.from("raxi_character_profiles").select("fixed_prompt").eq("workspace_id", job.workspace_id).eq("character_id", character).maybeSingle();
       const fixed = txt(fixedRow?.fixed_prompt, 4000);
+      // Public channels only: never borrow the reference's clothing (pilot 2026-11-18). Fanvue wardrobe stays Luis's.
+      const publicChannel = ["INSTAGRAM", "INSTAGRAM_STORY", "TEASER"].includes(String(proposal?.channel ?? ""));
       const fotos = todo.map((i) => { const scene = String((i.payload as Record<string, unknown>).prompt ?? "").slice(0, 4000);
-        return { item_id: i.id, posicion: i.position, prompt: fixed ? `${fixed}\n\nSCENE:\n${scene}` : scene }; });
+        return { item_id: i.id, posicion: i.position, prompt: `${fixed ? `${fixed}\n\nSCENE:\n` : ''}${scene}${publicChannel ? `\n\n${PUBLIC_OUTFIT_GUARD}` : ''}` }; });
       const ariaTotal = Number((unit * fotos.length).toFixed(4));
       const plan = { modelo_key: key, modelo_nombre: m.nombre, precio_unitario_usd: unit, calidad: "std", formato, personaje, fotos,
         aria_total_usd: ariaTotal, continuidad,
@@ -641,7 +644,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
           `Investigación (JSON): ${JSON.stringify(research?.data ?? {}).slice(0, 5000)}\n\nDiseño del Director Creativo (JSON): ${JSON.stringify(design?.data ?? {}).slice(0, 20000)}\n\n` +
           `Fotos que ya existen en la Fototeca:\n${archive}\n\n` +
           `Usa mis_personajes de Aria para comprobar la identidad exacta del personaje, y modelos/saldo para costo y saldo reales. ` +
-          `Revisa: cumplimiento de la estrategia, identidad y edad adulta, prompts autónomos y sin contradicciones (POV, luz, vestuario), que las fotos citadas existan, textos, riesgos de plataforma (etiqueta de IA, nada explícito en Instagram), costo vs. tope de $2. ` +
+          `Revisa: cumplimiento de la estrategia, identidad y edad adulta, prompts autónomos y sin contradicciones (POV, luz, vestuario), que cada prompt de foto nueva sea completo (${PHOTO_SPEC_ES} Si a un prompt le falta un punto, sobre todo el vestuario, es FALLA y lo corriges en "correcciones"), que las fotos citadas existan, textos, riesgos de plataforma (etiqueta de IA, nada explícito en Instagram), costo vs. tope de $2. ` +
           `NO reescribas el diseño: si apruebas, lista solo las correcciones menores en "correcciones" (campo y valor nuevo) y define "campana". Si hay problemas de fondo, veredicto CAMBIOS con "cambios_requeridos" concretos y "campana" en null. "revision": máx. 8 puntos.\n${COMPACT}\nForma: ${SCHEMAS.REVIEW}` });
     } else {
       model = "sonnet";
@@ -659,7 +662,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
           `Fotos que ya existen en la Fototeca (colección → posición: descripción):\n${archive}\n\n` +
           `Usa mis_personajes de Aria para respetar la identidad exacta del personaje y modelos para el precio real por imagen. ` +
           `Diseña concepto, microhistoria y publicaciones. Si es un Reel con fotos ya existentes: kit de montaje sin generar nada, "coleccion_existente" = id de la colección y "posicion" = número de foto en ella; "publicaciones" vacío. ` +
-          `Si requiere fotos nuevas: un prompt en inglés por foto con SOLO la escena (acción, lugar, vestuario, cámara/POV, luz, realismo; máx. 120 palabras): Producción antepone automáticamente el prompt fijo del personaje (identidad, anatomía, collar, @Image1), así que no lo repitas ni lo contradigas. Texto ES/EN breve y alt. Por defecto cada publicación es una foto única con su propio momento (decisión de Luis, 2026-11-17). Continuidad solo de forma esporádica, cuando la idea de verdad sea una serie: si varias fotos son el MISMO momento (mismo lugar, ropa y luz; cambia solo la pose, el gesto o el encuadre), haz nueva solo la primera y marca las demás con "continuidad_de" = posición de esa primera foto (máx. 6 por base; la base nunca es continuidad de otra). En ellas escribe en "escena" y "plano" solo qué cambia (pose, gesto, encuadre) en inglés, sin repetir lugar ni ropa. Producción las hace con el creador de Raxi HQ usando la foto base, más barato y con la misma ropa y lugar. Solo para Instagram, Stories y teaser. ` +
+          `Si requiere fotos nuevas: un prompt en inglés por foto con SOLO la escena, muy específico. ${PHOTO_SPEC_ES} Máx. 180 palabras por prompt. Producción antepone automáticamente el prompt fijo del personaje (identidad, anatomía, collar, @Image1), así que no lo repitas ni lo contradigas. Texto ES/EN breve y alt. Por defecto cada publicación es una foto única con su propio momento (decisión de Luis, 2026-11-17). Continuidad solo de forma esporádica, cuando la idea de verdad sea una serie: si varias fotos son el MISMO momento (mismo lugar, ropa y luz; cambia solo la pose, el gesto o el encuadre), haz nueva solo la primera y marca las demás con "continuidad_de" = posición de esa primera foto (máx. 6 por base; la base nunca es continuidad de otra). En ellas escribe en "escena" y "plano" solo qué cambia (pose, gesto, encuadre) en inglés, sin repetir lugar ni ropa. Producción las hace con el creador de Raxi HQ usando la foto base, más barato y con la misma ropa y lugar. Solo para Instagram, Stories y teaser. ` +
           `Modelo de Aria recomendado y costo estimado con precios reales.\n${COMPACT} (Los prompts pueden superar las 25 palabras.)\nForma: ${SCHEMAS.DESIGN}` });
     }
     const output: Record<string, unknown> = { markdown: result.text.slice(0, 60000), data: ["FINAL", "PRODUCTION", "GENERATE"].includes(kind) ? JSON.parse(result.text) : lastJson(result.text), sources: result.sources, model: MODELS[model].id };

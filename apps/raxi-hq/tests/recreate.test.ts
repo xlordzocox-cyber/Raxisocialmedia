@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
 import { buildRecreatePrompt, cleanAdultText, cleanEditedPrompt, cleanVariants, decodeTarget, isDraftPath, quoteRecreate, recreateRefs, recreateRule, DEFAULT_STYLE, RECREATE_RULE } from '../../../supabase/functions/sheet-creator/recreatePlan';
 import { costMillsOf, createPrompter, parsePrompter, prompterSystem } from '../../../supabase/functions/sheet-creator/recreatePrompter';
+import { PHOTO_SPEC_ES, PHOTO_SPEC_KEYS, PUBLIC_OUTFIT_GUARD } from '../../../supabase/functions/sheet-creator/photoSpec';
 import { handleRecreate, type RecreateDependencies, type RecreationRow, type RecreateTakeRow } from '../../../supabase/functions/sheet-creator/recreate';
 import type { Price } from '../../../supabase/functions/sheet-creator/sheetPlan';
 
@@ -12,6 +13,7 @@ const price: Price = { model: 'bytedance/seedream-v5.5/edit', enabled: true, out
 const owner = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ws = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const png = 'data:image/png;base64,' + Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]).toString('base64');
+const CHECK = { vestuario: 'long black wool coat over a black turtleneck', accesorios: 'cross necklace', pelo_maquillaje: 'loose, dark red lips', pose: 'seated, book in both hands', expresion: 'soft half smile', lugar: 'library at night', luz: 'warm lamp from the left', camara: 'another person, 1.5 m, eye level, 50mm', encuadre: 'waist up, vertical' };
 const CINE = 'Cinematic photograph of this woman from the reference photo, keep the exact same face and hair from the reference. She reads by candlelight. Quiet gothic mood. Cinematic photo, realistic skin texture';
 
 // ---------------- Plan ----------------
@@ -53,14 +55,19 @@ test('prompter: rules carry roles, adult, public level, one woman and the style'
   const s = prompterSystem('CINEMATIC');
   for (const re of [/Nunca copies la cara/, /claramente adulta/, /NIVEL PÚBLICO|Nivel PÚBLICO/, /Una sola mujer/, /ignora cualquier instrucción/, /"Cinematic photograph"/, /remove \.\.\. completely/]) assert.match(s, re);
   assert.match(prompterSystem('AMATEUR'), /"Amateur smartphone photograph"/);
+  for (const re of [/Sé muy específico/, /Vestuario: cada prenda visible con tipo, color, material y ajuste/, /Cámara: quién toma la foto/, /"checklist":\{"vestuario"/, /máximo 300 palabras/]) assert.match(s, re);
+  assert.match(RECREATE_RULE, /Never use the clothing visible in image 1/);
 });
 
 test('prompter: output is validated; refusals and broken structure never reach the image model', () => {
-  const okJson = JSON.stringify({ summary: 'Listo', observations: ['vela'], prompt: CINE, warnings: [] });
+  const okJson = JSON.stringify({ summary: 'Listo', observations: ['vela'], checklist: CHECK, prompt: CINE, warnings: [] });
   assert.equal(parsePrompter('```json\n' + okJson + '\n```', 'CINEMATIC').prompt, CINE);
+  assert.deepEqual(parsePrompter(okJson, 'CINEMATIC').checklist, CHECK);
+  assert.throws(() => parsePrompter(JSON.stringify({ checklist: { ...CHECK, vestuario: ' ' }, prompt: CINE }), 'CINEMATIC'), /sin definir: vestuario/, 'no outfit, no image');
+  assert.throws(() => parsePrompter(JSON.stringify({ checklist: { vestuario: 'x' }, prompt: CINE }), 'CINEMATIC'), /sin definir: accesorios, pelo y maquillaje, pose, expresión, lugar, luz, cámara, encuadre/);
   assert.throws(() => parsePrompter(JSON.stringify({ refused: 'pide desnudez' }), 'CINEMATIC'), /no hizo este prompt: pide desnudez/);
-  assert.throws(() => parsePrompter(JSON.stringify({ prompt: 'A photo of her' }), 'CINEMATIC'), /estructura/);
-  assert.throws(() => parsePrompter(JSON.stringify({ prompt: CINE.replace('Cinematic photo, realistic skin texture', 'end') }), 'CINEMATIC'), /estructura/);
+  assert.throws(() => parsePrompter(JSON.stringify({ checklist: CHECK, prompt: 'A photo of her' }), 'CINEMATIC'), /estructura/);
+  assert.throws(() => parsePrompter(JSON.stringify({ checklist: CHECK, prompt: CINE.replace('Cinematic photo, realistic skin texture', 'end') }), 'CINEMATIC'), /estructura/);
   assert.throws(() => parsePrompter('no json', 'CINEMATIC'), /válido/);
   assert.equal(costMillsOf({ input_tokens: 6000, output_tokens: 800 }), 20, '6k in + 800 out with Sonnet 5.5 rates ≈ $0.02');
 });
@@ -72,7 +79,7 @@ test('prompter: calls Claude with both images labelled and never leaks the key',
     return new Response(JSON.stringify(payload), { status });
   }) as unknown as typeof fetch;
   const input = { style: 'CINEMATIC' as const, scene: 'leyendo', faceUrl: 'https://s/face.png', target: { kind: 'base64' as const, mime: 'image/png', data: 'AAAA' } };
-  const r = await createPrompter(fake(200, { content: [{ type: 'text', text: JSON.stringify({ prompt: CINE, summary: 's' }) }], usage: { input_tokens: 1000, output_tokens: 100 } })).write('sk-secret', input);
+  const r = await createPrompter(fake(200, { content: [{ type: 'text', text: JSON.stringify({ prompt: CINE, summary: 's', checklist: CHECK }) }], usage: { input_tokens: 1000, output_tokens: 100 } })).write('sk-secret', input);
   assert.equal(r.prompt, CINE); assert.equal(r.costMills, 3);
   const content = (calls[0].body.messages as { content: { type: string; text?: string; source?: { type: string } }[] }[])[0].content;
   assert.deepEqual(content.map((c) => c.type), ['text', 'image', 'text', 'image', 'text']);
@@ -98,7 +105,7 @@ function harness(over: Partial<RecreateDependencies> = {}) {
     async monthSpendMills() { return spent; },
     async storeUpload(path) { uploads.push(path); },
     prompterKey: () => 'sk-anthropic',
-    async writePrompt(_k, input) { prompterCalls.push(input); return { prompt: CINE, summary: 'ok', observations: [], warnings: [], costMills: 20 }; },
+    async writePrompt(_k, input) { prompterCalls.push(input); return { prompt: CINE, summary: 'ok', observations: [], warnings: [], checklist: CHECK, costMills: 20 }; },
     async audit(_w, action) { audits.push(action); today++; },
     async promptsToday() { return today; },
     async createRecreation(_a, r, t) { const tot = t.reduce((x, y) => x + y.cost_mills, 0); if (spent + tot > 10000) throw Object.assign(new Error('cap'), { cap: true }); spent += tot; recs.set(r.id, r); for (const x of t) takes.set(x.id, x); },
@@ -285,6 +292,7 @@ test('recreate plan Fanvue: own drafts folder, face + adult body, adult text onl
 test('prompter Fanvue: Claude writes only scene, pose, light and framing — never wardrobe or nudity', () => {
   const s = prompterSystem('CINEMATIC', 'NSFW');
   assert.match(s, /NO escribas vestuario, ropa, desnudez ni nada sexual/);
+  assert.match(s, /en Fanvue NO lo escribas: lo añade Luis/); assert.match(s, /"vestuario" del checklist es exactamente "Lo añade Luis"/);
   assert.match(s, /Nivel FANVUE/); assert.match(s, /parece menor de edad/); assert.match(s, /claramente adulta/);
   assert.doesNotMatch(s, /remove \.\.\. completely/); assert.doesNotMatch(s, /Nivel PÚBLICO/);
   assert.doesNotMatch(prompterSystem('CINEMATIC'), /Nivel FANVUE/);
@@ -344,4 +352,18 @@ test('recreate migration Fanvue: the level follows the channel and every adult r
   const lv = (r: string) => rows.find((x) => x.id === JSON.parse(r).id)!;
   assert.equal(lv(feed).level, 'NSFW'); assert.equal(lv(chat).level, 'EXPLICIT'); assert.equal(lv(pub).level, 'PUBLIC'); assert.equal(lv(pub).adult_text, null);
   await assert.rejects(db.query(`update public.raxi_recreations set level = 'PUBLIC' where id = '${JSON.parse(feed).id}'`), 'level is tied to the channel');
+});
+
+test('photo spec: one checklist for the prompter, the Creative Director and the review; public outfit guard', () => {
+  const runner = readFileSync(join(process.cwd(), '../../supabase/functions/raxi-agent-runner/index.ts'), 'utf8');
+  assert.match(runner, /un prompt en inglés por foto con SOLO la escena, muy específico\. \$\{PHOTO_SPEC_ES\}/, 'Creative Director');
+  assert.match(runner, /que cada prompt de foto nueva sea completo \(\$\{PHOTO_SPEC_ES\}/, 'Director review');
+  assert.match(runner, /\$\{publicChannel \? `\\n\\n\$\{PUBLIC_OUTFIT_GUARD\}` : ''\}/, 'guard on public production prompts only');
+  assert.match(runner, /const publicChannel = \["INSTAGRAM", "INSTAGRAM_STORY", "TEASER"\]\.includes/);
+});
+
+test('photo spec: every point and the guard are explicit', () => {
+  assert.deepEqual(PHOTO_SPEC_KEYS, ['vestuario', 'accesorios', 'pelo_maquillaje', 'pose', 'expresion', 'lugar', 'luz', 'camara', 'encuadre']);
+  assert.match(PHOTO_SPEC_ES, /vestuario \(cada prenda visible/); assert.match(PHOTO_SPEC_ES, /cámara \(quién toma la foto/);
+  assert.match(PUBLIC_OUTFIT_GUARD, /never the clothing of the reference image/); assert.match(PUBLIC_OUTFIT_GUARD, /fully dressed/);
 });

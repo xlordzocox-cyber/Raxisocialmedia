@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AgencyNav } from '../agency/AgencyNav';
 import { callSheet, DEFAULT_MODEL, STATUS_LABEL, usd } from '../creator/creatorModel';
-import { CHANNEL_LABEL, CHANNEL_LEVEL, DEFAULT_STYLE, levelTag, PROMPTER_ESTIMATE, readTarget, recreateBusy, STYLE_LABEL,
+import { CHANNEL_LABEL, CHANNEL_LEVEL, CHECKLIST_LABEL, DEFAULT_STYLE, levelTag, PROMPTER_ESTIMATE, readTarget, recreateBusy, STYLE_LABEL,
   type Channel, type Prepared, type RecreateQuote, type RecreateView, type Style } from './recreateModel';
 import '../talent/talent.css';
 import '../creator/creator.css';
@@ -94,6 +94,8 @@ export function NewRecreatePage({ client, characterId, read = readTarget }: { cl
       {prepared && <div>
         <p className="agency-meta">{prepared.summary}</p>
         {prepared.warnings.map((w) => <p key={w} className="agency-meta">⚠️ {w}</p>)}
+        {prepared.checklist && <details open><summary>Detalles que define el prompt</summary>
+          <dl className="agency-meta">{CHECKLIST_LABEL.map(([k, label]) => <div key={k}><dt>{label}</dt><dd>{prepared.checklist![k] ?? '—'}</dd></div>)}</dl></details>}
         <label htmlFor="rc-prompt">{adult ? 'Ambiente, pose, luz y encuadre (prompter; puedes editarlo)' : 'Prompt (puedes editarlo)'}</label>
         <textarea id="rc-prompt" rows={8} maxLength={3000} value={prompt} disabled={busy} onChange={(e) => setPrompt(e.target.value)} />
         {adult && <>

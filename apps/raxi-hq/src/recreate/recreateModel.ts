@@ -14,7 +14,10 @@ export const STYLE_LABEL: Record<Style, string> = { CINEMATIC: 'Cinematográfico
 export const DEFAULT_STYLE: Record<string, Style> = { 'vesper-corvus': 'CINEMATIC', 'raxi-vox': 'AMATEUR' };
 export const PROMPTER_ESTIMATE = 'unos $0.02'; // Sonnet 5.5 with two images; the real cost is shown after each call
 
-export interface Prepared { objectivePath: string; objectiveUrl: string; prompt: string; summary: string; observations: string[]; warnings: string[]; promptCostMills: number }
+export interface Prepared { objectivePath: string; objectiveUrl: string; prompt: string; summary: string; observations: string[]; warnings: string[]; checklist?: Record<string, string>; promptCostMills: number }
+/** Same points as the server checklist (photoSpec.ts), in display order. */
+export const CHECKLIST_LABEL: [string, string][] = [['vestuario', 'Vestuario'], ['accesorios', 'Accesorios'], ['pelo_maquillaje', 'Pelo y maquillaje'], ['pose', 'Pose'],
+  ['expresion', 'Expresión'], ['lugar', 'Lugar'], ['luz', 'Luz'], ['camara', 'Cámara'], ['encuadre', 'Encuadre']];
 export interface RecreateQuote { totalMills: number; perPhotoMills: number; spentMills: number; capMills: number }
 export interface RecreateTake { id: string; variant: number; takeNo: number; status: TakeStatus; costMills: number; error: string | null; chosen: boolean; previewUrl: string | null }
 export interface RecreateView { recreationId: string; character: string; channel: Channel; level?: ContentLevel; style: Style; prompt: string; variants: number; objectiveUrl: string; takes: RecreateTake[] }

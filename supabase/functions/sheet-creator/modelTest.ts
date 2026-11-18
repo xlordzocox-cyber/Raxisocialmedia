@@ -4,6 +4,7 @@
 import { CAP_MILLS, formatUsd, takeCost, type Price } from './sheetPlan.ts';
 import { SERIES_RESOLUTION, type Ref } from './seriesPlan.ts';
 import { MAX_PROMPT } from './sheetPrompts.ts';
+import { PUBLIC_OUTFIT_GUARD } from './photoSpec.ts';
 import type { EditBody, PollResult, ReferenceBody } from './wavespeed.ts';
 
 export const TEST_MODELS = ['bytedance/seedream-v5.5/edit', 'wavespeed-ai/flux-pulid'] as const;
@@ -65,7 +66,7 @@ export function quoteTest(input: { scenes: number; seedream: Price; pulid: Price
   return { perArm, perSceneMills: perArm[0] + perArm[1], totalMills: (perArm[0] + perArm[1]) * input.scenes };
 }
 export function buildTestPrompt(fixedPrompt: string | null, scene: string): string {
-  const out = [fixedPrompt?.trim() || null, `${TEST_RULE} ${scene.trim()}`].filter(Boolean).join('\n\n');
+  const out = [fixedPrompt?.trim() || null, `${TEST_RULE} ${scene.trim()}`, PUBLIC_OUTFIT_GUARD].filter(Boolean).join('\n\n');
   if (out.length > MAX_PROMPT) throw new Error('El prompt es demasiado largo (máximo 4000 caracteres).');
   return out;
 }

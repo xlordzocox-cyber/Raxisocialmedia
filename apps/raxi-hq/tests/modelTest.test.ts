@@ -20,7 +20,7 @@ test('model test plan: 1-3 scenes, same text for both models, priced per arm in 
   assert.throws(() => cleanTestScenes(['x'.repeat(301)]), /300/);
   assert.deepEqual(quoteTest({ scenes: 3, seedream, pulid }), { perArm: [28, 20], perSceneMills: 48, totalMills: 144 });
   const p = buildTestPrompt('Vesper Corvus, a clearly adult woman.', 'reading');
-  assert.ok(p.startsWith('Vesper Corvus') && p.includes(TEST_RULE) && p.endsWith('reading'));
+  assert.ok(p.startsWith('Vesper Corvus') && p.includes(TEST_RULE) && p.includes('reading') && p.endsWith('fit the scene.'), 'public outfit guard last');
   assert.match(TEST_RULE, /ignore its clothing/); assert.match(TEST_RULE, /clearly an adult/);
 });
 
@@ -155,4 +155,9 @@ test('model test migration: rules, ledger and blind table are enforced by the da
   assert.match(sql, /revoke all on public\.raxi_model_tests from anon, authenticated;/);
   assert.doesNotMatch(sql, /grant select on public\.raxi_model_tests/, 'the shuffle is never readable by the client');
   assert.match(sql, /grant execute on function public\.raxi_model_test_create\(uuid, jsonb, jsonb\) to service_role/);
+});
+
+test('FLUX-PuLID is disabled after the 2026-11-18 A/B result', () => {
+  const sql = readFileSync(join(process.cwd(), '../../supabase/migrations/20261118070000_raxi_hq_disable_flux_pulid.sql'), 'utf8');
+  assert.match(sql, /update public\.raxi_provider_prices set enabled = false where model = 'wavespeed-ai\/flux-pulid'/);
 });
