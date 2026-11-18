@@ -8,6 +8,8 @@ import { PHOTO_SPEC, PHOTO_SPEC_KEYS } from './photoSpec.ts';
 export const PROMPTER_MODEL = 'claude-sonnet-5-5';
 // Same rates the campaign runner uses for Sonnet 5.5 (USD per million tokens).
 const IN_PER_M = 2; const OUT_PER_M = 10;
+// 1500 was too small once the checklist grew to 10 points (2026-11-18: two replies cut mid-JSON at exactly 1500 tokens).
+export const MAX_OUTPUT_TOKENS = 3000;
 
 const STYLE_RULES: Record<Style, string> = {
   CINEMATIC: `Estilo CINEMÁTICO: el prompt empieza exactamente con "Cinematic photograph" y termina exactamente con "${STYLE_CLOSE.CINEMATIC}". Luz con intención, profundidad de campo, color cuidado, sin apariencia de plástico.`,
@@ -54,7 +56,7 @@ ${PHOTO_SPEC.map(([k, label, what]) => `  - ${label}: ${what}${k === 'vestuario'
 - ${STYLE_RULES[style]}
 
 Responde SOLO con un objeto JSON válido, sin texto alrededor:
-{"summary":"frase breve en español","observations":["máx. 5 hechos visibles"],"checklist":{${PHOTO_SPEC_KEYS.map((k) => `"${k}":"qué escribiste, en español"`).join(",")}},"prompt":"...","warnings":["limitaciones concretas; vacío si no hay"],"refused":null}
+{"summary":"frase breve en español","observations":["máx. 5 hechos visibles"],"checklist":{${PHOTO_SPEC_KEYS.map((k) => `"${k}":"qué escribiste, en español, máx. 12 palabras"`).join(",")}},"prompt":"...","warnings":["limitaciones concretas; vacío si no hay"],"refused":null}
 ${lv === 'FANVUE' ? 'En Fanvue, "vestuario" del checklist es exactamente "Lo añade Luis".' : ''}
 Si no debes hacer el prompt: {"refused":"motivo breve en español"}.`;
 }
@@ -106,7 +108,7 @@ export function createPrompter(fetchImpl: typeof fetch) {
       const res = await fetchImpl('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: PROMPTER_MODEL, max_tokens: 1500, system: prompterSystem(input.style, input.level ?? 'PUBLIC'), messages: [{ role: 'user', content: [
+        body: JSON.stringify({ model: PROMPTER_MODEL, max_tokens: MAX_OUTPUT_TOKENS, system: prompterSystem(input.style, input.level ?? 'PUBLIC'), messages: [{ role: 'user', content: [
           { type: 'text', text: 'REFERENCIA DE IDENTIDAD (cara de la modelo):' },
           { type: 'image', source: { type: 'url', url: input.faceUrl } },
           { type: 'text', text: input.level && input.level !== 'PUBLIC' ? 'FOTO OBJETIVO (solo pose, lugar, luz y encuadre):' : 'FOTO OBJETIVO (solo pose, ropa, lugar, luz y encuadre):' },
@@ -115,9 +117,10 @@ export function createPrompter(fetchImpl: typeof fetch) {
         ] }] }),
       });
       if (!res.ok) throw new Error(`El prompter no respondió (HTTP ${res.status}).`);
-      const json = await res.json().catch(() => null) as { content?: { type: string; text?: string }[]; usage?: { input_tokens?: number; output_tokens?: number } } | null;
+      const json = await res.json().catch(() => null) as { content?: { type: string; text?: string }[]; stop_reason?: string; usage?: { input_tokens?: number; output_tokens?: number } } | null;
       const text = (json?.content ?? []).filter((c) => c.type === 'text').map((c) => c.text ?? '').join('');
       const costMills = costMillsOf(json?.usage);
+      if (json?.stop_reason === 'max_tokens') throw Object.assign(new Error('El prompter se quedó sin espacio antes de terminar. Acorta las indicaciones e inténtalo de nuevo.'), { costMills });
       try { return { ...parsePrompter(text, input.style), costMills }; }
       catch (e) { throw Object.assign(e as Error, { costMills }); }
     },
