@@ -3,8 +3,8 @@ import { Link, useNavigate } from 'react-router-dom';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { AgencyNav } from '../agency/AgencyNav';
 import { callSheet, DEFAULT_MODEL, STATUS_LABEL, usd } from '../creator/creatorModel';
-import { CHANNEL_LABEL, CHANNEL_LEVEL, CHECKLIST_LABEL, DEFAULT_STYLE, levelTag, PROMPTER_ESTIMATE, readTarget, recreateBusy, STYLE_LABEL,
-  type Channel, type Prepared, type RecreateQuote, type RecreateView, type Style } from './recreateModel';
+import { CHANNEL_LABEL, CHANNEL_LEVEL, CHECKLIST_LABEL, DEFAULT_STYLE, levelTag, PROMPTER_ESTIMATE, readTarget, recreateBusy, STYLE_LABEL, STYLE_TEMPLATE,
+  type Channel, type Prepared, type PromptMode, type RecreateQuote, type RecreateView, type Style } from './recreateModel';
 import '../talent/talent.css';
 import '../creator/creator.css';
 
@@ -31,6 +31,8 @@ export function NewRecreatePage({ client, characterId, read = readTarget }: { cl
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string>();
   const [promptSpent, setPromptSpent] = useState(0);
+  const [mode, setMode] = useState<PromptMode>('PROMPTER');
+  const manual = mode === 'MANUAL';
 
   useEffect(() => {
     if (!prepared) { setQuote(null); return; }
@@ -48,6 +50,13 @@ export function NewRecreatePage({ client, characterId, read = readTarget }: { cl
     const r = await callSheet<Prepared>(client, { action: 'RECREATE_PROMPT', character: characterId, channel, style, scene, ...extra });
     setPrepared(r); setPrompt(r.prompt); setPromptSpent((s) => s + r.promptCostMills);
   });
+  // Manual mode: the photo is stored without calling the prompter (no cost); Luis writes the whole prompt.
+  const upload = () => act(async () => {
+    const r = await callSheet<{ objectivePath: string; objectiveUrl: string }>(client, { action: 'RECREATE_UPLOAD', character: characterId, channel, image });
+    setPrepared({ ...r, prompt: '', summary: '', observations: [], warnings: [], promptCostMills: 0 });
+    setPrompt((p) => (p.trim() ? p : STYLE_TEMPLATE[style]));
+  });
+  const onMode = (m: PromptMode) => { setMode(m); setPrepared(null); setPrompt(''); };
   const onFile = async (file: File | undefined) => {
     if (!file) return;
     try { setImage(await read(file)); setPrepared(null); setPrompt(''); setNotice(undefined); } catch (e) { setNotice((e as Error).message); }
@@ -74,11 +83,18 @@ export function NewRecreatePage({ client, characterId, read = readTarget }: { cl
       <label htmlFor="rc-file">Foto objetivo</label>
       <input id="rc-file" type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={(e) => { void onFile(e.target.files?.[0]); }} />
       {(prepared?.objectiveUrl ?? image) && <img src={prepared?.objectiveUrl ?? image!} alt="Foto objetivo" style={{ maxWidth: 240, borderRadius: 12 }} />}
-      <label htmlFor="rc-scene">Indicaciones (opcional)</label>
-      <textarea id="rc-scene" rows={2} maxLength={1000} value={scene} disabled={busy} onChange={(e) => setScene(e.target.value)} placeholder="Ej.: de noche, con su collar de cruz, en una biblioteca" />
+      <label htmlFor="rc-mode">Prompt</label>
+      <select id="rc-mode" value={mode} disabled={busy} onChange={(e) => onMode(e.target.value as PromptMode)}>
+        <option value="PROMPTER">Con el prompter ({PROMPTER_ESTIMATE})</option>
+        <option value="MANUAL">Lo escribo yo (sin coste de prompter)</option>
+      </select>
+      {!manual && <>
+        <label htmlFor="rc-scene">Indicaciones (opcional; mandan sobre la foto)</label>
+        <textarea id="rc-scene" rows={2} maxLength={1000} value={scene} disabled={busy} onChange={(e) => setScene(e.target.value)} placeholder="Ej.: de noche, con su collar de cruz, en una biblioteca" />
+      </>}
       <div className="talent-actions">
         <label htmlFor="rc-style">Estilo</label>
-        <select id="rc-style" value={style} disabled={busy} onChange={(e) => { setStyle(e.target.value as Style); setPrepared(null); }}>
+        <select id="rc-style" value={style} disabled={busy} onChange={(e) => { setStyle(e.target.value as Style); setPrepared(null); setPrompt(''); }}>
           {(Object.keys(STYLE_LABEL) as Style[]).map((s) => <option key={s} value={s}>{STYLE_LABEL[s]}</option>)}
         </select>
         <label htmlFor="rc-channel">Canal</label>
@@ -87,26 +103,29 @@ export function NewRecreatePage({ client, characterId, read = readTarget }: { cl
         </select>
       </div>
       <div className="talent-actions">
-        <button type="button" id="rc-prepare" disabled={busy || (!image && !prepared)} onClick={() => { void ask(prepared ? { objectivePath: prepared.objectivePath } : { image }); }}>
-          {`${prepared ? 'Rehacer prompt' : 'Preparar prompt'} · ${PROMPTER_ESTIMATE}`}</button>
+        {manual
+          ? <button type="button" id="rc-upload" disabled={busy || !image || Boolean(prepared)} onClick={() => { void upload(); }}>Usar esta foto</button>
+          : <button type="button" id="rc-prepare" disabled={busy || (!image && !prepared)} onClick={() => { void ask(prepared ? { objectivePath: prepared.objectivePath } : { image }); }}>
+            {`${prepared ? 'Rehacer prompt' : 'Preparar prompt'} · ${PROMPTER_ESTIMATE}`}</button>}
         {promptSpent > 0 && <span className="creator-meter">{`Prompter en esta foto: ${usd(promptSpent)}`}</span>}
       </div>
       {prepared && <div>
-        <p className="agency-meta">{prepared.summary}</p>
+        {!manual && <p className="agency-meta">{prepared.summary}</p>}
         {prepared.warnings.map((w) => <p key={w} className="agency-meta">⚠️ {w}</p>)}
+        {manual && <p className="agency-meta">Escribe entre la apertura y el cierre: vestuario, accesorios, pelo y maquillaje, pose, expresión, lugar, luz, cámara, encuadre y piel. La foto objetivo solo da la pose y el encuadre si no dices otra cosa.</p>}
         {prepared.checklist && <details open><summary>Detalles que define el prompt</summary>
           <dl className="agency-meta">{CHECKLIST_LABEL.map(([k, label]) => <div key={k}><dt>{label}</dt><dd>{prepared.checklist![k] ?? '—'}</dd></div>)}</dl></details>}
-        <label htmlFor="rc-prompt">{adult ? 'Ambiente, pose, luz y encuadre (prompter; puedes editarlo)' : 'Prompt (puedes editarlo)'}</label>
+        <label htmlFor="rc-prompt">{manual ? (adult ? 'Ambiente, pose, luz y encuadre (lo escribes tú)' : 'Prompt (lo escribes tú)') : adult ? 'Ambiente, pose, luz y encuadre (prompter; puedes editarlo)' : 'Prompt (puedes editarlo)'}</label>
         <textarea id="rc-prompt" rows={8} maxLength={3000} value={prompt} disabled={busy} onChange={(e) => setPrompt(e.target.value)} />
         {adult && <>
           <label htmlFor="rc-adult">Vestuario y parte adulta (lo escribes tú)</label>
           <textarea id="rc-adult" rows={4} maxLength={1500} value={adultText} disabled={busy} onChange={(e) => setAdultText(e.target.value)} />
           <p className="agency-meta">Se añade después del prompt del prompter. Solo se usa en {CHANNEL_LABEL[channel]} y la foto nunca baja a Instagram.</p>
         </>}
-        <div className="talent-actions">
+        {!manual && <div className="talent-actions">
           <input aria-label="Corrección del prompt" maxLength={300} placeholder="Corregir: describe el ajuste" value={fix} disabled={busy} onChange={(e) => setFix(e.target.value)} />
           <button type="button" disabled={busy || !fix.trim()} onClick={() => { void ask({ objectivePath: prepared.objectivePath, previousPrompt: prompt, fix }).then(() => setFix('')); }}>{`Corregir · ${PROMPTER_ESTIMATE}`}</button>
-        </div>
+        </div>}
         <label htmlFor="rc-variants">Versiones</label>
         <select id="rc-variants" value={variants} disabled={busy} onChange={(e) => setVariants(Number(e.target.value))}>
           {[1, 2, 3, 4].map((n) => <option key={n} value={n}>{n}</option>)}

@@ -380,3 +380,20 @@ test('skin realism: cinematic close and the prompter rule name real texture and 
   assert.match(sys, /- Piel: textura real \(poros, pecas, vello fino\)/);
   assert.match(PHOTO_SPEC_ES, /nunca "flawless"/);
 });
+
+test('recreate handler manual mode: upload stores the target in drafts without calling the prompter, then start works', async () => {
+  const h = harness();
+  const up = await h.call({ action: 'RECREATE_UPLOAD', ...base, image: png });
+  assert.equal(up.status, 200); assert.ok(isDraftPath(ws, up.body.objectivePath));
+  assert.equal(h.prompterCalls.length, 0); assert.deepEqual(h.audits, []); assert.equal(h.submitted.length, 0);
+  assert.match(String((await h.call({ action: 'RECREATE_UPLOAD', ...base, image: 'data:text/plain;base64,AAAA' })).body.error), /JPG, PNG o WebP/);
+  assert.match(String((await h.call({ action: 'RECREATE_UPLOAD', ...base, character: 'raxi-vox', image: png })).body.error), /bloquea la identidad/);
+  const fan = await h.call({ action: 'RECREATE_UPLOAD', ...base, channel: 'FANVUE_FEED', image: png });
+  assert.ok(isDraftPath(ws, fan.body.objectivePath, 'NSFW'), 'Fanvue uploads go to the adult drafts folder');
+  const r = await h.call({ action: 'RECREATE_START', ...base, objectivePath: up.body.objectivePath, prompt: CINE, promptCostMills: 0, variants: 1, attestNotReal: true, expectedTotalMills: 36 });
+  assert.equal(r.status, 200); assert.equal(h.submitted.length, 1);
+});
+
+test('prompter: the written description wins over the target photo', () => {
+  assert.match(prompterSystem('CINEMATIC'), /manda la descripción/);
+});

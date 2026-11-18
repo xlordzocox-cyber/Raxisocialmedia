@@ -55,7 +55,7 @@ type Out = { status: number; body: Record<string, unknown> };
 const fail = (status: number, error: string): Out => ({ status, body: { error } });
 const ok = (body: Record<string, unknown>): Out => ({ status: 200, body });
 const isCap = (e: unknown) => typeof e === 'object' && e !== null && (e as { cap?: unknown }).cap === true;
-export const RECREATE_ACTIONS = new Set(['RECREATE_PROMPT', 'RECREATE_QUOTE', 'RECREATE_START', 'RECREATE_STATUS', 'RECREATE_RETAKE', 'RECREATE_CHOOSE']);
+export const RECREATE_ACTIONS = new Set(['RECREATE_UPLOAD', 'RECREATE_PROMPT', 'RECREATE_QUOTE', 'RECREATE_START', 'RECREATE_STATUS', 'RECREATE_RETAKE', 'RECREATE_CHOOSE']);
 const MAX_DAILY_PROMPTS = 40; // prompter calls cost Claude tokens; a hard daily ceiling per workspace
 
 export async function handleRecreate(d: RecreateDependencies, actor: string, ws: string, b: Record<string, unknown>): Promise<Out> {
@@ -108,6 +108,18 @@ export async function handleRecreate(d: RecreateDependencies, actor: string, ws:
   }
 
   switch (b.action) {
+    // Manual mode (Luis, 2026-11-18): store the target photo without calling the prompter; Luis writes the prompt himself.
+    case 'RECREATE_UPLOAD': {
+      const id = await identity(b.character);
+      if ('status' in id) return id;
+      const level = levelOf(b.channel);
+      if (!level) return fail(400, 'Canal no válido.');
+      let img;
+      try { img = decodeTarget(b.image); } catch (e) { return fail(400, (e as Error).message); }
+      const objectivePath = `${ws}/recreate/${draftFolder(level)}/${d.newId()}.${img.ext}`;
+      await d.storeUpload(objectivePath, img.bytes, img.mime);
+      return ok({ objectivePath, objectiveUrl: await d.signedUrl(objectivePath) });
+    }
     case 'RECREATE_PROMPT': {
       const id = await identity(b.character);
       if ('status' in id) return id;

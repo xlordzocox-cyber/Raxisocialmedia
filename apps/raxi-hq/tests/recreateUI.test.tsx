@@ -18,6 +18,7 @@ function fakeClient(detail?: Record<string, unknown>) {
       calls.push(opts.body);
       const b = opts.body;
       if (b.action === 'RECREATE_PROMPT') return { data: { objectivePath: 'ws/recreate/drafts/x.jpg', objectiveUrl: 'https://signed/x.jpg', prompt: CINE, summary: 'Listo', observations: [], warnings: ['Solo cara visible'], checklist: { vestuario: 'black wool coat', luz: 'candle from the left' }, promptCostMills: 20 }, error: null };
+      if (b.action === 'RECREATE_UPLOAD') return { data: { objectivePath: 'ws/recreate/drafts/m.jpg', objectiveUrl: 'https://signed/m.jpg' }, error: null };
       if (b.action === 'RECREATE_QUOTE') return { data: { totalMills: 36 * Number(b.variants), perPhotoMills: 36, spentMills: 1244, capMills: 10000 }, error: null };
       if (b.action === 'RECREATE_START') return { data: { recreationId: 'rc-1' }, error: null };
       return { data: detail, error: null };
@@ -102,4 +103,23 @@ test('Recrear detail: versions, another version at the shown price, and choose',
   const choose = r.root.findAll((n) => n.type === 'button' && n.props.children === 'Elegir');
   await act(async () => { choose[0].props.onClick(); await settle(); });
   assert.ok(calls.some((c) => c.action === 'RECREATE_CHOOSE' && c.takeId === 't1'));
+});
+
+test('Recrear manual mode: no prompter call, the photo is uploaded for free and Luis writes the prompt', async () => {
+  const { client, calls } = fakeClient();
+  const r = await render(<NewRecreatePage client={client} characterId="vesper-corvus" read={async () => 'data:image/png;base64,AAAA'} />);
+  await act(async () => { byId(r, 'rc-mode').props.onChange({ target: { value: 'MANUAL' } }); await settle(); });
+  assert.throws(() => byId(r, 'rc-prepare')); assert.throws(() => byId(r, 'rc-scene'));
+  assert.equal(byId(r, 'rc-upload').props.disabled, true, 'no photo yet');
+  await act(async () => { byId(r, 'rc-file').props.onChange({ target: { files: [{ type: 'image/png' }] } }); await settle(); });
+  await act(async () => { byId(r, 'rc-upload').props.onClick(); await settle(); });
+  assert.equal(calls[0].action, 'RECREATE_UPLOAD');
+  assert.ok(!calls.some((c) => c.action === 'RECREATE_PROMPT'));
+  assert.match(String(byId(r, 'rc-prompt').props.value), /^Cinematic photograph of this woman[\s\S]*never airbrushed or beauty-filtered$/);
+  assert.match(text(r), /Prompt \(lo escribes tú\)/);
+  await act(async () => { byId(r, 'rc-prompt').props.onChange({ target: { value: CINE } }); await settle(); });
+  await act(async () => { byId(r, 'rc-attest').props.onChange({ target: { checked: true } }); await settle(); });
+  await act(async () => { byId(r, 'rc-start').props.onClick(); await settle(); });
+  const start = calls.find((c) => c.action === 'RECREATE_START')!;
+  assert.equal(start.objectivePath, 'ws/recreate/drafts/m.jpg'); assert.equal(start.prompt, CINE); assert.equal(start.promptCostMills, 0);
 });

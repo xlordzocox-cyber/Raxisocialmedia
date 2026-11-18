@@ -55,7 +55,7 @@ export interface SheetDependencies {
 
 const ROSTER = new Set(['raxi-vox', 'vesper-corvus']);
 const MAX_BODY = 16 * 1024;
-const MAX_UPLOAD_BODY = 6 * 1024 * 1024; // only RECREATE_PROMPT carries a photo (≤ 3 MB as base64)
+const MAX_UPLOAD_BODY = 6 * 1024 * 1024; // only RECREATE_PROMPT and RECREATE_UPLOAD carry a photo (≤ 3 MB as base64)
 class Reply { constructor(readonly status: number, readonly body: Record<string, unknown>) {} }
 const fail = (status: number, error: string) => new Reply(status, { error });
 const isCap = (e: unknown) => typeof e === 'object' && e !== null && (e as { cap?: unknown }).cap === true;
@@ -127,7 +127,7 @@ export function createSheetHandler(d: SheetDependencies & SeriesDependencies & R
     let b: Record<string, unknown>;
     try { b = JSON.parse(raw); } catch { return fail(400, 'Solicitud inválida.'); }
     if (!b || typeof b !== 'object') return fail(400, 'Solicitud inválida.');
-    if (raw.length > MAX_BODY && b.action !== 'RECREATE_PROMPT') return fail(413, 'Solicitud demasiado grande.');
+    if (raw.length > MAX_BODY && b.action !== 'RECREATE_PROMPT' && b.action !== 'RECREATE_UPLOAD') return fail(413, 'Solicitud demasiado grande.');
 
     switch (b.action) {
       case 'QUOTE': {

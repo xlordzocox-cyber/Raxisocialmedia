@@ -12,6 +12,12 @@ export const levelTag = (c: Channel) => (CHANNEL_LEVEL[c] === 'PUBLIC' ? null : 
 export const STYLE_LABEL: Record<Style, string> = { CINEMATIC: 'Cinematográfico', AMATEUR: 'Amateur de móvil' };
 /** Same defaults as the server (recreatePlan.ts): Vesper cinematic gothic, Raxi phone-casual. */
 export const DEFAULT_STYLE: Record<string, Style> = { 'vesper-corvus': 'CINEMATIC', 'raxi-vox': 'AMATEUR' };
+export type PromptMode = 'PROMPTER' | 'MANUAL';
+/** Manual mode (Luis, 2026-11-18): the prompt starts with the style opening the server requires and ends with the style close. */
+export const STYLE_TEMPLATE: Record<Style, string> = {
+  CINEMATIC: 'Cinematic photograph of this woman from the reference photo, keep the exact same face and hair from the reference. \n\nCinematic photo, 35mm, soft film grain, natural skin with visible pores, never airbrushed or beauty-filtered',
+  AMATEUR: 'Amateur smartphone photograph of this woman from the reference photo, keep the exact same face and hair from the reference. \n\nAmateur smartphone photo',
+};
 export const PROMPTER_ESTIMATE = 'unos $0.02'; // Sonnet 5.5 with two images; the real cost is shown after each call
 
 export interface Prepared { objectivePath: string; objectiveUrl: string; prompt: string; summary: string; observations: string[]; warnings: string[]; checklist?: Record<string, string>; promptCostMills: number }
