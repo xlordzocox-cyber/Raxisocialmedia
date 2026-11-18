@@ -138,7 +138,6 @@ const TITLES: Record<string, string> = { BRIEF: "Brief del Director", RESEARCH: 
   PRODUCTION: "Orden de producción en Aria", GENERATE: "Generar fotos en Aria", ARCHIVE: "Archivar campaña" };
 const CHANNELS = new Set(["INSTAGRAM", "INSTAGRAM_STORY", "TEASER", "FANVUE_FEED", "FANVUE_CHAT"]);
 const txt = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
-
 /** Short, factual list of what already exists in the Fototeca, so the Creative can reuse real photos. */
 async function archiveSummary(db: SupabaseClient, ws: string): Promise<string> {
   const { data: cols } = await db.from("raxi_portfolio_collections").select("id, external_id, title").eq("workspace_id", ws).limit(20);
