@@ -3,9 +3,10 @@
 // server-side price check (the click is the approval), $10/month cap, anchor-first chain, key never returned.
 import { anchorOf, chainImages, formatUsd, inputsFor, isLevel, isView, quoteRun, takeCost, viewsFor, CAP_MILLS, type Level, type Price, type Resolution, type View } from './sheetPlan.ts';
 import { buildSheetPrompt, MAX_ADULT_TEMPLATE, MAX_INSTRUCTION } from './sheetPrompts.ts';
-import type { EditBody, PollResult } from './wavespeed.ts';
+import type { EditBody, PollResult, ReferenceBody } from './wavespeed.ts';
 import { handleSeries, SERIES_ACTIONS, type SeriesDependencies } from './series.ts';
 import { handleRecreate, RECREATE_ACTIONS, type RecreateDependencies } from './recreate.ts';
+import { handleModelTest, MODELTEST_ACTIONS, type ModelTestDependencies } from './modelTest.ts';
 
 export type TakeStatus = 'QUEUED' | 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 export interface RunRow {
@@ -43,7 +44,7 @@ export interface SheetDependencies {
   claimTake(takeId: string): Promise<boolean>;
   signedUrl(path: string): Promise<string>;
   secret(actor: string): Promise<string | null>;
-  submit(key: string, model: string, body: EditBody): Promise<string>;
+  submit(key: string, model: string, body: EditBody | ReferenceBody): Promise<string>;
   poll(key: string, predictionId: string): Promise<PollResult>;
   storeOutput(url: string, path: string): Promise<{ path: string; sha256: string; byteSize: number; mime: string }>;
   registerReference(row: CreatorReference): Promise<void>;
@@ -59,7 +60,7 @@ class Reply { constructor(readonly status: number, readonly body: Record<string,
 const fail = (status: number, error: string) => new Reply(status, { error });
 const isCap = (e: unknown) => typeof e === 'object' && e !== null && (e as { cap?: unknown }).cap === true;
 
-export function createSheetHandler(d: SheetDependencies & SeriesDependencies & RecreateDependencies) {
+export function createSheetHandler(d: SheetDependencies & SeriesDependencies & RecreateDependencies & ModelTestDependencies) {
   const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Cache-Control': 'no-store' };
   const reply = (r: Reply) => Response.json(r.body, { status: r.status, headers });
 
@@ -238,6 +239,7 @@ export function createSheetHandler(d: SheetDependencies & SeriesDependencies & R
       default: {
         if (typeof b.action === 'string' && SERIES_ACTIONS.has(b.action)) { const out = await handleSeries(d, user.id, ws, b); return new Reply(out.status, out.body); }
         if (typeof b.action === 'string' && RECREATE_ACTIONS.has(b.action)) { const out = await handleRecreate(d, user.id, ws, b); return new Reply(out.status, out.body); }
+        if (typeof b.action === 'string' && MODELTEST_ACTIONS.has(b.action)) { const out = await handleModelTest(d, user.id, ws, b); return new Reply(out.status, out.body); }
         return fail(400, 'Acción no válida.');
       }
     }

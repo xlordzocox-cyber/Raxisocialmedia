@@ -4,6 +4,7 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0';
 import type { RunRow, SheetDependencies, TakeRow } from './handler.ts';
 import type { SeriesDependencies, SeriesRow, SeriesTakeRow } from './series.ts';
 import type { RecreateDependencies, RecreationRow, RecreateTakeRow } from './recreate.ts';
+import type { ModelTestDependencies, ModelTestRow, TestTakeRow } from './modelTest.ts';
 import { createPrompter } from './recreatePrompter.ts';
 import { createWaveSpeed } from './wavespeed.ts';
 import type { Price } from './sheetPlan.ts';
@@ -14,7 +15,7 @@ const hex = (buf: ArrayBuffer) => [...new Uint8Array(buf)].map((b) => b.toString
 const capError = (e: { message?: string } | null) => (e?.message ?? '').includes('monthly cap') ? Object.assign(new Error('cap'), { cap: true }) : new Error('db');
 const MAX_OUTPUT = 30 * 1024 * 1024;
 
-export function makeCreatorDeps(auth: SupabaseClient, server: SupabaseClient): SheetDependencies & SeriesDependencies & RecreateDependencies {
+export function makeCreatorDeps(auth: SupabaseClient, server: SupabaseClient): SheetDependencies & SeriesDependencies & RecreateDependencies & ModelTestDependencies {
   const wavespeed = createWaveSpeed(fetch);
   const prompter = createPrompter(fetch);
   // Server-only secret already used by the campaign runner; never returned or logged.
@@ -220,6 +221,24 @@ export function makeCreatorDeps(auth: SupabaseClient, server: SupabaseClient): S
     const { error } = await server.from('raxi_assets').insert({ ...row, bucket_id: BUCKET });
     if (error) throw new Error('register');
   },
+  // ---- Prueba A/B de identidad (same engine) ----
+  async createModelTest(actor, test, takes) {
+    const { error } = await server.rpc('raxi_model_test_create', { p_actor: actor, p_test: test, p_takes: takes });
+    if (error) throw capError(error);
+  },
+  async loadModelTest(ws, id) {
+    const { data: test, error } = await server.from('raxi_model_tests').select('*').eq('workspace_id', ws).eq('id', id).maybeSingle();
+    if (error) throw new Error('test');
+    if (!test) return null;
+    const { data: takes, error: e2 } = await server.from('raxi_sheet_takes').select('*').eq('workspace_id', ws).eq('test_id', id);
+    if (e2) throw new Error('takes');
+    return { test: test as ModelTestRow, takes: (takes ?? []) as TestTakeRow[] };
+  },
+  async updateModelTest(id, patch) {
+    const { error } = await server.from('raxi_model_tests').update(patch).eq('id', id);
+    if (error) throw new Error('test');
+  },
+  coin: () => crypto.getRandomValues(new Uint8Array(1))[0] & 1,
   newId: () => crypto.randomUUID(),
 };
 }
