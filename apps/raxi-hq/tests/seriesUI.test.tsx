@@ -48,7 +48,7 @@ test('new series: price shown, button off until scenes and attestation, then sen
   await act(async () => { start().props.onClick(); await settle(); });
   const sent = calls.find((c) => c.action === 'SERIES_START')!;
   assert.deepEqual({ ...sent, title: undefined }, { action: 'SERIES_START', character: 'vesper-corvus', baseAssetId: 'base-1', channel: 'INSTAGRAM',
-    scenes: ['sentada en la cama', 'de pie junto a la ventana', 'frente al espejo'], model: 'bytedance/seedream-v5.5/edit', resolution: '1k', title: undefined, attestNotReal: true, expectedTotalMills: 132 });
+    scenes: ['sentada en la cama', 'de pie junto a la ventana', 'frente al espejo'], model: 'bytedance/seedream-v5.5/edit', resolution: '1.5k', title: undefined, attestNotReal: true, expectedTotalMills: 132 });
 });
 
 test('new series: Fanvue scenes are hidden until NSFW is on, and the series cannot start without it', async () => {

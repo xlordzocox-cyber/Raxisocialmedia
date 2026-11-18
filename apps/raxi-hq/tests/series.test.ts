@@ -20,10 +20,10 @@ test('series plan: channel decides the level; a base never feeds a lower level',
 
 test('series plan: references by level — never an adult reference in a public series', () => {
   const all = { face: ref('f'), body: ref('b'), adultBody: ref('a') };
-  assert.deepEqual(seriesRefs('PUBLIC', all).map((r) => r.id), ['f', 'b']);
-  assert.deepEqual(seriesRefs('NSFW', all).map((r) => r.id), ['f', 'b', 'a']);
-  assert.deepEqual(seriesRefs('EXPLICIT', { face: ref('f'), body: ref('b') }).map((r) => r.id), ['f', 'b']);
-  assert.throws(() => seriesRefs('PUBLIC', { face: ref('f') }), /cara y el cuerpo/);
+  assert.deepEqual(seriesRefs('PUBLIC', all).map((r) => r.id), ['f'], 'public: face only, the clothed body would compete with the base outfit');
+  assert.deepEqual(seriesRefs('NSFW', all).map((r) => r.id), ['f', 'a']);
+  assert.deepEqual(seriesRefs('EXPLICIT', { face: ref('f'), body: ref('b') }).map((r) => r.id), ['f']);
+  assert.throws(() => seriesRefs('PUBLIC', { body: ref('b') }), /cara de frente/);
 });
 
 test('series plan: scenes and cost in mills', () => {
@@ -40,7 +40,9 @@ test('series prompts: identity first, continuity rule, scene, then the change in
   const p = buildSeriesPrompt({ fixedPrompt: 'Vesper Corvus, a clearly adult 29-year-old woman.', scene: 'sentada en la cama mirando el teléfono', instruction: 'x'.repeat(400) });
   assert.ok(p.startsWith('Vesper Corvus, a clearly adult'));
   assert.ok(p.includes(`${CONTINUITY} sentada en la cama mirando el teléfono`));
-  assert.match(CONTINUITY, /Same outfit, hairstyle, makeup, location and lighting as image 1/);
+  assert.match(CONTINUITY, /keep exactly the same outfit, hairstyle, makeup, jewelry, location and lighting as image 1/);
+  assert.match(CONTINUITY, /ignore their clothing/);
+  assert.match(CONTINUITY, /Only one woman/);
   assert.ok(p.endsWith('x'.repeat(300)) && !p.includes('x'.repeat(301)));
   assert.throws(() => buildSeriesPrompt({ fixedPrompt: 'y'.repeat(4000), scene: 'z' }), /largo/);
 });
@@ -81,7 +83,7 @@ function harness(over: Partial<SeriesDependencies> = {}) {
   return { d, series, takes, submitted, assets, placed, polls, call, setSpent: (v: number) => { spent = v; }, getSpent: () => spent };
 }
 const start = { action: 'SERIES_START', character: 'vesper-corvus', baseAssetId: 'base-1', channel: 'INSTAGRAM', model: price.model, resolution: '1k',
-  scenes: ['sentada en la cama mirando el teléfono', 'de pie junto a la ventana', 'acomodándose el pelo frente al espejo'], attestNotReal: true, expectedTotalMills: 132 };
+  scenes: ['sentada en la cama mirando el teléfono', 'de pie junto a la ventana', 'acomodándose el pelo frente al espejo'], attestNotReal: true, expectedTotalMills: 108 };
 
 test('series handler: identity, base, level and attestation are checked before any spend', async () => {
   const h = harness();
@@ -99,17 +101,17 @@ test('series handler: QUOTE shows the allowed channels and spends nothing', asyn
   const r = await h.call({ ...start, action: 'SERIES_QUOTE', baseAssetId: 'base-nsfw', channel: 'FANVUE_FEED' });
   assert.equal(r.status, 200);
   assert.deepEqual(r.body.channels, ['FANVUE_FEED', 'FANVUE_CHAT']);
-  assert.equal(r.body.totalMills, 3 * (20 + 8 * 4), 'Fanvue adds the adult body: base + 3 references');
+  assert.equal(r.body.totalMills, 3 * (20 + 8 * 3), 'Fanvue adds the adult body: base + face + adult body');
   assert.equal(h.submitted.length, 0);
 });
 
-test('series handler: a public series sends base + general face + general body only, every photo at once', async () => {
+test('series handler: a public series sends base + general face only, every photo at once', async () => {
   const h = harness();
   const r = await h.call(start);
   assert.equal(r.status, 200);
-  assert.equal(h.getSpent(), 132);
+  assert.equal(h.getSpent(), 108);
   assert.equal(h.submitted.length, 3);
-  for (const s of h.submitted) assert.deepEqual(s.images, [`signed:${ws}/base-1.jpg`, 'signed:ws/references/face.png', 'signed:ws/references/body.png']);
+  for (const s of h.submitted) assert.deepEqual(s.images, [`signed:${ws}/base-1.jpg`, 'signed:ws/references/face.png']);
   assert.ok(h.submitted.every((s) => !s.images.some((i) => i.includes('adult'))), 'no adult reference in a public series');
   assert.match(h.submitted[1].prompt, /de pie junto a la ventana$/);
   assert.ok(!JSON.stringify(r.body).includes(KEY));
@@ -117,7 +119,7 @@ test('series handler: a public series sends base + general face + general body o
 
 test('series handler: a Fanvue series may add the adult body reference', async () => {
   const h = harness();
-  const r = await h.call({ ...start, baseAssetId: 'base-nsfw', channel: 'FANVUE_FEED', expectedTotalMills: 156 });
+  const r = await h.call({ ...start, baseAssetId: 'base-nsfw', channel: 'FANVUE_FEED', expectedTotalMills: 132 });
   assert.equal(r.status, 200);
   assert.ok(h.submitted[0].images.includes('signed:ws/references/adult.png'));
 });
@@ -134,7 +136,7 @@ test('series handler: cap, status, retake and choose', async () => {
   assert.deepEqual(shots.map((t) => [t.shot, t.status]), [[1, 'SUCCEEDED'], [2, 'FAILED'], [3, 'PENDING']]);
   assert.equal(shots[0].previewUrl, `signed:${ws}/series/${seriesId}/1/1.png`);
   assert.equal((await h.call({ action: 'SERIES_RETAKE', seriesId, shot: 2, expectedCostMills: 40 })).status, 409);
-  const rt = await h.call({ action: 'SERIES_RETAKE', seriesId, shot: 2, instruction: 'sin el teléfono', expectedCostMills: 44 });
+  const rt = await h.call({ action: 'SERIES_RETAKE', seriesId, shot: 2, instruction: 'sin el teléfono', expectedCostMills: 36 });
   assert.equal(rt.status, 200);
   assert.match(h.submitted.at(-1)!.prompt, /sin el teléfono$/);
   const first = [...h.takes.values()].find((t) => t.shot_no === 1)!;

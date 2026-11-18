@@ -13,11 +13,14 @@ export const levelOf = (v: unknown): ContentLevel => (v === 'NSFW' || v === 'EXP
 export const channelsFor = (baseLevel: ContentLevel): Channel[] => CHANNELS.filter((c) => RANK[CHANNEL_LEVEL[c]] >= RANK[baseLevel]);
 
 export interface Ref { id: string; objectPath: string }
-/** General face + general body always; the adult body only for Fanvue series. Never an adult reference in a public series. */
+/** Identity references for a series. The base photo (image 1) already carries outfit, place and light, so a clothed
+ *  body reference would compete with the base outfit (pilot 2026-11-17: the sheet's black underwear replaced the base outfit).
+ *  Public: general face only. Fanvue: general face + adult body when it exists. Never an adult reference in a public series. */
 export function seriesRefs(level: ContentLevel, refs: { face?: Ref; body?: Ref; adultBody?: Ref }): Ref[] {
-  if (!refs.face || !refs.body) throw new Error('Primero elige la cara y el cuerpo de frente de la ficha general.');
-  return level === 'PUBLIC' || !refs.adultBody ? [refs.face, refs.body] : [refs.face, refs.body, refs.adultBody];
+  if (!refs.face) throw new Error('Primero elige la cara de frente de la ficha general.');
+  return level === 'PUBLIC' || !refs.adultBody ? [refs.face] : [refs.face, refs.adultBody];
 }
+export const SERIES_RESOLUTION = '1.5k'; // same verified price as 1k on WaveSpeed (2026-11-17), more detail
 
 export const MAX_SCENE = 300;
 export function cleanScenes(raw: unknown): string[] {

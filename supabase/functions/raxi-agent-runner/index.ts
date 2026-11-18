@@ -8,7 +8,7 @@ import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { continuityBlocked, continuityGroups, continuityOf, continuationScene, continuityOrder, type CampaignItem } from "./continuity.ts";
 import { makeCreatorDeps } from "../sheet-creator/deps.ts";
 import { handleSeries } from "../sheet-creator/series.ts";
-import { quoteSeries } from "../sheet-creator/seriesPlan.ts";
+import { quoteSeries, seriesRefs, SERIES_RESOLUTION } from "../sheet-creator/seriesPlan.ts";
 const CONTINUITY_MODEL = "bytedance/seedream-v5.5/edit"; // AGENTS.md: Raxi HQ creator default
 
 const MODELS = {
@@ -409,8 +409,8 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
       const cRefs = await creator.currentRefs(String(job.workspace_id), cChar);
       const { data: ownerRow } = await db.from("raxi_workspaces").select("owner_user_id").eq("id", job.workspace_id).maybeSingle();
       const blocked = groups.length ? continuityBlocked({ channel: String(col.channel), identityLocked: await creator.identityLocked(String(job.workspace_id), cChar),
-        hasGeneralRefs: Boolean(cRefs.face && cRefs.body), keyConnected: Boolean(ownerRow && await creator.secret(String(ownerRow.owner_user_id))), priceEnabled: Boolean(cPrice?.enabled) }) : null;
-      const perPhoto = cPrice?.enabled ? quoteSeries({ shots: 1, refs: 2, resolution: "1k", price: cPrice }).perPhotoMills : 0;
+        hasGeneralRefs: Boolean(cRefs.face), keyConnected: Boolean(ownerRow && await creator.secret(String(ownerRow.owner_user_id))), priceEnabled: Boolean(cPrice?.enabled) }) : null;
+      const perPhoto = cPrice?.enabled ? quoteSeries({ shots: 1, refs: cRefs.face ? seriesRefs("PUBLIC", cRefs).length : 1, resolution: SERIES_RESOLUTION, price: cPrice }).perPhotoMills : 0;
       const continuidad = continuityOrder(groups, perPhoto, blocked);
       const catalog = ((await aria("modelos")).modelos as Record<string, unknown>[] | undefined ?? []).filter((m) => Number(m.usd_std) > 0);
       if (!catalog.length) throw new Error("Aria no devolvió modelos disponibles.");
@@ -509,7 +509,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
             // Luis approved this exact amount at PRODUCTION_COST; the creator re-quotes and refuses if the price changed.
             const out = await handleSeries(creator, actor, String(job.workspace_id), { action: "SERIES_START", character: String(proposal?.character_id ?? ""),
               baseAssetId: String(base.asset_id), channel: String(genCol.channel),
-              scenes: g.escenas, model: CONTINUITY_MODEL, resolution: "1k", attestNotReal: true, expectedTotalMills: g.total_mills,
+              scenes: g.escenas, model: CONTINUITY_MODEL, resolution: SERIES_RESOLUTION, attestNotReal: true, expectedTotalMills: g.total_mills,
               proposalId: String(job.proposal_id), title: `Continuidad de la foto ${g.base_posicion}` });
             if (out.status !== 200) throw new Error(`Continuidad de la foto ${g.base_posicion}: ${String(out.body.error ?? out.status)}`);
             seriesId = String(out.body.seriesId);
@@ -659,7 +659,7 @@ async function runJob(db: SupabaseClient, job: Record<string, unknown>) {
           `Fotos que ya existen en la Fototeca (colección → posición: descripción):\n${archive}\n\n` +
           `Usa mis_personajes de Aria para respetar la identidad exacta del personaje y modelos para el precio real por imagen. ` +
           `Diseña concepto, microhistoria y publicaciones. Si es un Reel con fotos ya existentes: kit de montaje sin generar nada, "coleccion_existente" = id de la colección y "posicion" = número de foto en ella; "publicaciones" vacío. ` +
-          `Si requiere fotos nuevas: un prompt en inglés por foto con SOLO la escena (acción, lugar, vestuario, cámara/POV, luz, realismo; máx. 120 palabras): Producción antepone automáticamente el prompt fijo del personaje (identidad, anatomía, collar, @Image1), así que no lo repitas ni lo contradigas. Texto ES/EN breve y alt. Continuidad: si varias fotos son el MISMO momento (mismo lugar, ropa y luz; cambia solo la pose, el gesto o el encuadre), haz nueva solo la primera y marca las demás con "continuidad_de" = posición de esa primera foto (máx. 6 por base; la base nunca es continuidad de otra). En ellas escribe en "escena" y "plano" solo qué cambia (pose, gesto, encuadre) en inglés, sin repetir lugar ni ropa. Producción las hace con el creador de Raxi HQ usando la foto base, más barato y con la misma ropa y lugar. Solo para Instagram, Stories y teaser. ` +
+          `Si requiere fotos nuevas: un prompt en inglés por foto con SOLO la escena (acción, lugar, vestuario, cámara/POV, luz, realismo; máx. 120 palabras): Producción antepone automáticamente el prompt fijo del personaje (identidad, anatomía, collar, @Image1), así que no lo repitas ni lo contradigas. Texto ES/EN breve y alt. Por defecto cada publicación es una foto única con su propio momento (decisión de Luis, 2026-11-17). Continuidad solo de forma esporádica, cuando la idea de verdad sea una serie: si varias fotos son el MISMO momento (mismo lugar, ropa y luz; cambia solo la pose, el gesto o el encuadre), haz nueva solo la primera y marca las demás con "continuidad_de" = posición de esa primera foto (máx. 6 por base; la base nunca es continuidad de otra). En ellas escribe en "escena" y "plano" solo qué cambia (pose, gesto, encuadre) en inglés, sin repetir lugar ni ropa. Producción las hace con el creador de Raxi HQ usando la foto base, más barato y con la misma ropa y lugar. Solo para Instagram, Stories y teaser. ` +
           `Modelo de Aria recomendado y costo estimado con precios reales.\n${COMPACT} (Los prompts pueden superar las 25 palabras.)\nForma: ${SCHEMAS.DESIGN}` });
     }
     const output: Record<string, unknown> = { markdown: result.text.slice(0, 60000), data: ["FINAL", "PRODUCTION", "GENERATE"].includes(kind) ? JSON.parse(result.text) : lastJson(result.text), sources: result.sources, model: MODELS[model].id };

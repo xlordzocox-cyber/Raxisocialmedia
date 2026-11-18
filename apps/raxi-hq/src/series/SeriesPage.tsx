@@ -23,7 +23,7 @@ export function NewSeriesPage({ client, characterId, baseAssetId }: { client: Su
   const [quote, setQuote] = useState<SeriesQuote | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string>();
-  const body = { character: characterId, baseAssetId, channel, scenes: scenes.map((s) => s.trim()), model: DEFAULT_MODEL, resolution: '1k' };
+  const body = { character: characterId, baseAssetId, channel, scenes: scenes.map((s) => s.trim()), model: DEFAULT_MODEL, resolution: '1.5k' };
   const adult = isAdultChannel(channel);
 
   useEffect(() => {
@@ -53,7 +53,8 @@ export function NewSeriesPage({ client, characterId, baseAssetId }: { client: Su
   return <Shell>
     <section className="agency-hero"><p className="agency-eyebrow"><Link to="/fototeca">Fototeca</Link></p>
       <h1>Nueva serie de continuidad</h1>
-      <p className="agency-lead">Mismo momento que la foto base: misma ropa, peinado, maquillaje, lugar y luz. Cada escena es una foto nueva.</p></section>
+      <p className="agency-lead">Mismo momento que la foto base: misma ropa, peinado, maquillaje, lugar y luz. Cada escena es una foto nueva.</p>
+      <p className="agency-meta">Escribe solo qué cambia (pose, gesto, encuadre). Si la base es una selfie en espejo, dilo: «misma selfie en el espejo, ahora sentada en la cama» o «sin espejo, foto tomada por otra persona».</p></section>
     <section className="agency-section creator" aria-label="Serie nueva">
       <div className="creator-sources">{baseUrl ? <img src={baseUrl} alt="Foto base de la serie" style={{ maxWidth: 240, borderRadius: 12 }} /> : <p className="agency-meta">Cargando la foto base…</p>}</div>
       <label htmlFor="series-title">Nombre de la serie</label>

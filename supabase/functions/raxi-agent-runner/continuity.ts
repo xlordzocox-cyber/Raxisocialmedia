@@ -47,13 +47,13 @@ export interface ContinuityReadiness { channel: string; identityLocked: boolean;
 export function continuityBlocked(r: ContinuityReadiness): string | null {
   if (!PUBLIC_CHANNELS.has(r.channel)) return 'Campaña de Fanvue: las fotos de continuidad quedan como serie pendiente. Tú escribes sus escenas y la lanzas desde la Fototeca.';
   if (!r.identityLocked) return 'La modelo no tiene identidad bloqueada en Talento; la continuidad no se genera.';
-  if (!r.hasGeneralRefs) return 'Falta elegir la cara y el cuerpo de frente de la ficha general; la continuidad no se genera.';
+  if (!r.hasGeneralRefs) return 'Falta elegir la cara de frente de la ficha general; la continuidad no se genera.';
   if (!r.keyConnected) return 'La clave de WaveSpeed no está conectada en Conexiones; la continuidad no se genera.';
   if (!r.priceEnabled) return 'El modelo de continuidad no tiene precio verificado; la continuidad no se genera.';
   return null;
 }
 
-/** Order lines for the continuity part. Each photo sends base + general face + general body (public channels only). */
+/** Order lines for the continuity part. Each photo sends base + general face (public channels only). */
 export function continuityOrder(groups: Group[], perPhotoMills: number, blocked: string | null) {
   const photos = groups.reduce((n, g) => n + g.items.length, 0);
   if (!photos) return null;
