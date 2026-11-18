@@ -78,7 +78,7 @@ export function TalentProfilePage({ client, ownerId, characterId }: { client: Su
     <main className="agency-main">
       <section className="agency-hero"><p className="agency-eyebrow"><Link to="/talento">Talento</Link></p><h1>{profile.name}</h1>
         <p className="agency-lead">{status}{profile.draft ? ` · borrador v${profile.draft.version} sin bloquear` : ''}</p>
-        <p><Link className="talent-create" to={`/talento/${characterId}/creador`}>Crear ficha 360</Link></p></section>
+        <p><Link className="talent-create" to={`/talento/${characterId}/creador`}>Crear ficha 360</Link> <Link className="talent-create" to={`/recrear?modelo=${characterId}`}>Recrear una foto</Link></p></section>
 
       <section aria-labelledby="t-360" className="agency-section">
         <div className="talent-sheet-head"><h2 id="t-360">Ficha 360 · {nsfw ? 'adulta' : 'general'}</h2>

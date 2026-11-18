@@ -3,6 +3,8 @@
 import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0';
 import type { RunRow, SheetDependencies, TakeRow } from './handler.ts';
 import type { SeriesDependencies, SeriesRow, SeriesTakeRow } from './series.ts';
+import type { RecreateDependencies, RecreationRow, RecreateTakeRow } from './recreate.ts';
+import { createPrompter } from './recreatePrompter.ts';
 import { createWaveSpeed } from './wavespeed.ts';
 import type { Price } from './sheetPlan.ts';
 
@@ -12,8 +14,11 @@ const hex = (buf: ArrayBuffer) => [...new Uint8Array(buf)].map((b) => b.toString
 const capError = (e: { message?: string } | null) => (e?.message ?? '').includes('monthly cap') ? Object.assign(new Error('cap'), { cap: true }) : new Error('db');
 const MAX_OUTPUT = 30 * 1024 * 1024;
 
-export function makeCreatorDeps(auth: SupabaseClient, server: SupabaseClient): SheetDependencies & SeriesDependencies {
+export function makeCreatorDeps(auth: SupabaseClient, server: SupabaseClient): SheetDependencies & SeriesDependencies & RecreateDependencies {
   const wavespeed = createWaveSpeed(fetch);
+  const prompter = createPrompter(fetch);
+  // Server-only secret already used by the campaign runner; never returned or logged.
+  const env = (globalThis as { Deno?: { env: { get(k: string): string | undefined } } }).Deno?.env;
   return {
   async verifyUser(token) { const { data, error } = await auth.auth.getUser(token); return error || !data.user ? null : { id: data.user.id, isAnonymous: data.user.is_anonymous === true }; },
   async workspaceOf(userId) {
@@ -171,6 +176,49 @@ export function makeCreatorDeps(auth: SupabaseClient, server: SupabaseClient): S
     const { error } = await server.from('raxi_portfolio_items').upsert({ workspace_id: ws, collection_id: collectionId, position, asset_id: assetId, payload,
       qa_status: 'VISUAL_REVIEW_REQUIRED', human_decision: 'PENDING', status: 'DRAFT', updated_at: new Date().toISOString() }, { onConflict: 'workspace_id,collection_id,position' });
     if (error) throw new Error('collection');
+  },
+  // ---- Recrear (same engine) ----
+  async storeUpload(path, bytes, mime) {
+    const { error } = await server.storage.from(BUCKET).upload(path, bytes, { contentType: mime, upsert: false });
+    if (error) throw new Error('upload');
+  },
+  prompterKey: () => env?.get('ANTHROPIC_API_KEY') ?? null,
+  writePrompt: (key, input) => prompter.write(key, input),
+  async audit(ws, action, details) {
+    const now = new Date().toISOString();
+    await server.from('raxi_audit_events').insert({ workspace_id: ws, action, actor_kind: 'SYSTEM', resource_kind: 'raxi_recreations', source_ref: 'sheet-creator',
+      details, occurred_at: now, recorded_at: now });
+  },
+  async promptsToday(ws) {
+    const since = new Date(); since.setUTCHours(0, 0, 0, 0);
+    const { count, error } = await server.from('raxi_audit_events').select('id', { count: 'exact', head: true }).eq('workspace_id', ws)
+      .in('action', ['RECREATE_PROMPT', 'RECREATE_PROMPT_FAILED']).gte('occurred_at', since.toISOString());
+    if (error) throw new Error('audit');
+    return count ?? 0;
+  },
+  async createRecreation(actor, rec, takes) {
+    const { error } = await server.rpc('raxi_recreation_create', { p_actor: actor, p_rec: rec, p_takes: takes });
+    if (error) throw capError(error);
+  },
+  async addRecreationTake(actor, take) {
+    const { error } = await server.rpc('raxi_sheet_add_take', { p_actor: actor, p_take: take });
+    if (error) throw capError(error);
+  },
+  async loadRecreation(ws, id) {
+    const { data: rec, error } = await server.from('raxi_recreations').select('*').eq('workspace_id', ws).eq('id', id).maybeSingle();
+    if (error) throw new Error('recreation');
+    if (!rec) return null;
+    const { data: takes, error: e2 } = await server.from('raxi_sheet_takes').select('*').eq('workspace_id', ws).eq('recreation_id', id);
+    if (e2) throw new Error('takes');
+    return { rec: rec as RecreationRow, takes: (takes ?? []) as RecreateTakeRow[] };
+  },
+  async loadRecreationTake(ws, takeId) {
+    const { data } = await server.from('raxi_sheet_takes').select('*').eq('workspace_id', ws).eq('id', takeId).not('recreation_id', 'is', null).maybeSingle();
+    return (data as RecreateTakeRow | null) ?? null;
+  },
+  async registerRecreatePhoto(row) {
+    const { error } = await server.from('raxi_assets').insert({ ...row, bucket_id: BUCKET });
+    if (error) throw new Error('register');
   },
   newId: () => crypto.randomUUID(),
 };

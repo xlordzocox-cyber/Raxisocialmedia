@@ -5,6 +5,7 @@ import { anchorOf, chainImages, formatUsd, inputsFor, isLevel, isView, quoteRun,
 import { buildSheetPrompt, MAX_ADULT_TEMPLATE, MAX_INSTRUCTION } from './sheetPrompts.ts';
 import type { EditBody, PollResult } from './wavespeed.ts';
 import { handleSeries, SERIES_ACTIONS, type SeriesDependencies } from './series.ts';
+import { handleRecreate, RECREATE_ACTIONS, type RecreateDependencies } from './recreate.ts';
 
 export type TakeStatus = 'QUEUED' | 'PENDING' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 export interface RunRow {
@@ -53,11 +54,12 @@ export interface SheetDependencies {
 
 const ROSTER = new Set(['raxi-vox', 'vesper-corvus']);
 const MAX_BODY = 16 * 1024;
+const MAX_UPLOAD_BODY = 6 * 1024 * 1024; // only RECREATE_PROMPT carries a photo (≤ 3 MB as base64)
 class Reply { constructor(readonly status: number, readonly body: Record<string, unknown>) {} }
 const fail = (status: number, error: string) => new Reply(status, { error });
 const isCap = (e: unknown) => typeof e === 'object' && e !== null && (e as { cap?: unknown }).cap === true;
 
-export function createSheetHandler(d: SheetDependencies & SeriesDependencies) {
+export function createSheetHandler(d: SheetDependencies & SeriesDependencies & RecreateDependencies) {
   const headers = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, apikey, content-type, x-client-info', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Cache-Control': 'no-store' };
   const reply = (r: Reply) => Response.json(r.body, { status: r.status, headers });
 
@@ -120,10 +122,11 @@ export function createSheetHandler(d: SheetDependencies & SeriesDependencies) {
     const ws = await d.workspaceOf(user.id);
     if (!ws) return fail(403, 'No tienes acceso a este workspace.');
     const raw = await request.text();
-    if (raw.length > MAX_BODY) return fail(413, 'Solicitud demasiado grande.');
+    if (raw.length > MAX_UPLOAD_BODY) return fail(413, 'Solicitud demasiado grande.');
     let b: Record<string, unknown>;
     try { b = JSON.parse(raw); } catch { return fail(400, 'Solicitud inválida.'); }
     if (!b || typeof b !== 'object') return fail(400, 'Solicitud inválida.');
+    if (raw.length > MAX_BODY && b.action !== 'RECREATE_PROMPT') return fail(413, 'Solicitud demasiado grande.');
 
     switch (b.action) {
       case 'QUOTE': {
@@ -234,6 +237,7 @@ export function createSheetHandler(d: SheetDependencies & SeriesDependencies) {
       }
       default: {
         if (typeof b.action === 'string' && SERIES_ACTIONS.has(b.action)) { const out = await handleSeries(d, user.id, ws, b); return new Reply(out.status, out.body); }
+        if (typeof b.action === 'string' && RECREATE_ACTIONS.has(b.action)) { const out = await handleRecreate(d, user.id, ws, b); return new Reply(out.status, out.body); }
         return fail(400, 'Acción no válida.');
       }
     }

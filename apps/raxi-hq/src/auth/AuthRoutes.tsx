@@ -11,6 +11,7 @@ const Agencia = lazy(() => import('../agency/AgenciaRoute'));
 const Talento = lazy(() => import('../talent/TalentoRoute'));
 const Creador = lazy(() => import('../creator/CreadorRoute'));
 const Series = lazy(() => import('../series/SeriesRoute'));
+const Recreate = lazy(() => import('../recreate/RecreateRoute'));
 export function safeReturnPath(value: unknown): string {
   return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') && !/[\r\n]/.test(value) && value.split(/[?#]/)[0] !== '/login' ? value : '/';
 }
@@ -132,6 +133,8 @@ export function AuthRoutes() {
       <Route path="/talento/:id" element={<Suspense fallback={<Loading />}><Talento /></Suspense>} />
       <Route path="/talento/:id/creador" element={<Suspense fallback={<Loading />}><Creador /></Suspense>} />
       <Route path="/series/:id" element={<Suspense fallback={<Loading />}><Series /></Suspense>} />
+      <Route path="/recrear" element={<Suspense fallback={<Loading />}><Recreate /></Suspense>} />
+      <Route path="/recrear/:id" element={<Suspense fallback={<Loading />}><Recreate /></Suspense>} />
       <Route path="/fototeca" element={<Suspense fallback={<Loading />}><Fototeca /></Suspense>} />
       <Route path="/multimedia" element={<Suspense fallback={<Loading />}><Multimedia /></Suspense>} />
       <Route path="/conexiones" element={<Suspense fallback={<Loading />}><Conexiones /></Suspense>} />
