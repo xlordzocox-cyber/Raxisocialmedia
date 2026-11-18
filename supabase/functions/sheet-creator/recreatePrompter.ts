@@ -10,6 +10,10 @@ export const PROMPTER_MODEL = 'claude-sonnet-5-5';
 const IN_PER_M = 2; const OUT_PER_M = 10;
 // 1500 was too small once the checklist grew to 10 points (2026-11-18: two replies cut mid-JSON at exactly 1500 tokens).
 export const MAX_OUTPUT_TOKENS = 3000;
+// Sonnet 5.5 thinks by default and that thinking counts toward max_tokens (2026-11-18: thinking + ~1000-token JSON hit 3000).
+// "disabled" is a 400 on this model; "between_tools" turns off up-front thinking at high effort or below (platform.claude.com/docs, checked 2026-11-18).
+export const PROMPTER_THINKING = { type: 'between_tools' } as const;
+export const PROMPTER_EFFORT = 'medium';
 
 const STYLE_RULES: Record<Style, string> = {
   CINEMATIC: `Estilo CINEMÁTICO: el prompt empieza exactamente con "Cinematic photograph" y termina exactamente con "${STYLE_CLOSE.CINEMATIC}". Luz con intención, profundidad de campo, color cuidado, sin apariencia de plástico.`,
@@ -108,7 +112,7 @@ export function createPrompter(fetchImpl: typeof fetch) {
       const res = await fetchImpl('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-        body: JSON.stringify({ model: PROMPTER_MODEL, max_tokens: MAX_OUTPUT_TOKENS, system: prompterSystem(input.style, input.level ?? 'PUBLIC'), messages: [{ role: 'user', content: [
+        body: JSON.stringify({ model: PROMPTER_MODEL, max_tokens: MAX_OUTPUT_TOKENS, thinking: PROMPTER_THINKING, output_config: { effort: PROMPTER_EFFORT }, system: prompterSystem(input.style, input.level ?? 'PUBLIC'), messages: [{ role: 'user', content: [
           { type: 'text', text: 'REFERENCIA DE IDENTIDAD (cara de la modelo):' },
           { type: 'image', source: { type: 'url', url: input.faceUrl } },
           { type: 'text', text: input.level && input.level !== 'PUBLIC' ? 'FOTO OBJETIVO (solo pose, lugar, luz y encuadre):' : 'FOTO OBJETIVO (solo pose, ropa, lugar, luz y encuadre):' },

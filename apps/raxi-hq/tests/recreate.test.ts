@@ -88,6 +88,8 @@ test('prompter: calls Claude with both images labelled and never leaks the key',
   const err = await createPrompter(fake(500, { error: { message: 'sk-secret leaked?' } })).write('sk-secret', input).catch((e: Error) => e);
   assert.ok(err instanceof Error && !err.message.includes('sk-secret'));
   assert.equal(calls[0].body.max_tokens, 3000);
+  assert.deepEqual(calls[0].body.thinking, { type: 'between_tools' });
+  assert.deepEqual(calls[0].body.output_config, { effort: 'medium' });
   const cut = await createPrompter(fake(200, { content: [{ type: 'text', text: '{"summary":"s","checklist":{"vestuario":"x' }], stop_reason: 'max_tokens', usage: { input_tokens: 1000, output_tokens: 3000 } })).write('sk-secret', input).catch((e: Error & { costMills?: number }) => e);
   assert.ok(cut instanceof Error && /sin espacio/.test(cut.message) && (cut as { costMills?: number }).costMills === 32);
 });
