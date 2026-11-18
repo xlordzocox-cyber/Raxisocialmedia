@@ -136,7 +136,7 @@ export async function handleRecreate(d: RecreateDependencies, actor: string, ws:
         return ok({ objectivePath, objectiveUrl: await d.signedUrl(objectivePath), prompt: r.prompt, summary: r.summary, observations: r.observations, warnings: r.warnings, checklist: r.checklist, promptCostMills: r.costMills });
       } catch (e) {
         const cost = (e as { costMills?: number }).costMills ?? 0;
-        await d.audit(ws, 'RECREATE_PROMPT_FAILED', { character: id.character, level, style: b.style, cost_mills: cost });
+        await d.audit(ws, 'RECREATE_PROMPT_FAILED', { character: id.character, level, style: b.style, cost_mills: cost, diag: (e as { diag?: unknown }).diag ?? null });
         return fail((e as { refused?: boolean }).refused ? 422 : 502, (e as Error).message);
       }
     }

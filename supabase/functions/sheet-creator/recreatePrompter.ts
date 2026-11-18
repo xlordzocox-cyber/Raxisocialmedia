@@ -120,9 +120,12 @@ export function createPrompter(fetchImpl: typeof fetch) {
       const json = await res.json().catch(() => null) as { content?: { type: string; text?: string }[]; stop_reason?: string; usage?: { input_tokens?: number; output_tokens?: number } } | null;
       const text = (json?.content ?? []).filter((c) => c.type === 'text').map((c) => c.text ?? '').join('');
       const costMills = costMillsOf(json?.usage);
-      if (json?.stop_reason === 'max_tokens') throw Object.assign(new Error('El prompter se quedó sin espacio antes de terminar. Acorta las indicaciones e inténtalo de nuevo.'), { costMills });
+      // Diagnostics for failed calls only (2026-11-18: replies used the whole token budget). No key, no images: just the shape of the reply.
+      const diag = { stop: json?.stop_reason ?? null, outputTokens: json?.usage?.output_tokens ?? null, blocks: (json?.content ?? []).map((c) => c.type),
+        textLength: text.length, head: text.slice(0, 300), tail: text.slice(-300) };
+      if (json?.stop_reason === 'max_tokens') throw Object.assign(new Error('El prompter se quedó sin espacio antes de terminar. Acorta las indicaciones e inténtalo de nuevo.'), { costMills, diag });
       try { return { ...parsePrompter(text, input.style), costMills }; }
-      catch (e) { throw Object.assign(e as Error, { costMills }); }
+      catch (e) { throw Object.assign(e as Error, { costMills, diag }); }
     },
   };
 }
