@@ -12,7 +12,7 @@ export const isStyle = (v: unknown): v is Style => v === 'CINEMATIC' || v === 'A
 /** Each model's look (Luis, 2026-11-17): Vesper works best cinematic gothic-romantic; Raxi stays phone-casual. */
 export const DEFAULT_STYLE: Record<string, Style> = { 'vesper-corvus': 'CINEMATIC', 'raxi-vox': 'AMATEUR' };
 export const STYLE_OPEN: Record<Style, RegExp> = { CINEMATIC: /^Cinematic photograph\b/, AMATEUR: /^Amateur smartphone (photograph|selfie)\b/ };
-export const STYLE_CLOSE: Record<Style, string> = { CINEMATIC: 'Cinematic photo, realistic skin texture', AMATEUR: 'Amateur smartphone photo' };
+export const STYLE_CLOSE: Record<Style, string> = { CINEMATIC: 'Cinematic photo, 35mm, soft film grain, natural skin with visible pores, never airbrushed or beauty-filtered', AMATEUR: 'Amateur smartphone photo' };
 
 export const MAX_TARGET_BYTES = 3 * 1024 * 1024;
 export const MAX_SCENE_TEXT = 1000;

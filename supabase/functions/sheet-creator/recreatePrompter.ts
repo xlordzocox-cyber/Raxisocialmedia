@@ -10,7 +10,7 @@ export const PROMPTER_MODEL = 'claude-sonnet-5-5';
 const IN_PER_M = 2; const OUT_PER_M = 10;
 
 const STYLE_RULES: Record<Style, string> = {
-  CINEMATIC: 'Estilo CINEMÁTICO: el prompt empieza exactamente con "Cinematic photograph" y termina exactamente con "Cinematic photo, realistic skin texture". Luz con intención, profundidad de campo, color cuidado, sin apariencia de plástico.',
+  CINEMATIC: `Estilo CINEMÁTICO: el prompt empieza exactamente con "Cinematic photograph" y termina exactamente con "${STYLE_CLOSE.CINEMATIC}". Luz con intención, profundidad de campo, color cuidado, sin apariencia de plástico.`,
   AMATEUR: 'Estilo AMATEUR: el prompt empieza exactamente con "Amateur smartphone photograph" (o "Amateur smartphone selfie" si es selfie) y termina exactamente con "Amateur smartphone photo". Añade pequeñas imperfecciones creíbles de cámara de móvil.',
 };
 

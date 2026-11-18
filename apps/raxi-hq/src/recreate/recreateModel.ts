@@ -17,7 +17,7 @@ export const PROMPTER_ESTIMATE = 'unos $0.02'; // Sonnet 5.5 with two images; th
 export interface Prepared { objectivePath: string; objectiveUrl: string; prompt: string; summary: string; observations: string[]; warnings: string[]; checklist?: Record<string, string>; promptCostMills: number }
 /** Same points as the server checklist (photoSpec.ts), in display order. */
 export const CHECKLIST_LABEL: [string, string][] = [['vestuario', 'Vestuario'], ['accesorios', 'Accesorios'], ['pelo_maquillaje', 'Pelo y maquillaje'], ['pose', 'Pose'],
-  ['expresion', 'Expresión'], ['lugar', 'Lugar'], ['luz', 'Luz'], ['camara', 'Cámara'], ['encuadre', 'Encuadre']];
+  ['expresion', 'Expresión'], ['lugar', 'Lugar'], ['luz', 'Luz'], ['camara', 'Cámara'], ['encuadre', 'Encuadre'], ['piel', 'Piel']];
 export interface RecreateQuote { totalMills: number; perPhotoMills: number; spentMills: number; capMills: number }
 export interface RecreateTake { id: string; variant: number; takeNo: number; status: TakeStatus; costMills: number; error: string | null; chosen: boolean; previewUrl: string | null }
 export interface RecreateView { recreationId: string; character: string; channel: Channel; level?: ContentLevel; style: Style; prompt: string; variants: number; objectiveUrl: string; takes: RecreateTake[] }

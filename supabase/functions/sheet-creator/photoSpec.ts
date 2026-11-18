@@ -14,6 +14,9 @@ export const PHOTO_SPEC: readonly (readonly [string, string, string])[] = [
   ['luz', 'Luz', 'fuente, dirección, dureza y color o temperatura'],
   ['camara', 'Cámara', 'quién toma la foto (selfie, espejo, otra persona o trípode), distancia, ángulo y altura, lente o focal aproximada y profundidad de campo'],
   ['encuadre', 'Encuadre', 'qué partes del cuerpo entran en cuadro y si es vertical u horizontal'],
+  // Realismo de piel (Luis, 2026-11-18; guía de OpenArt del 26-oct-2026): nombrar la textura real y evitar
+  // flawless/perfect/porcelain/ultra smooth/8K/HDR/masterpiece, que empujan al modelo a una piel de plástico.
+  ['piel', 'Piel', 'textura real (poros, pecas, vello fino), el mismo tono en cara, cuello y manos, y dónde cae el brillo según la luz; nunca "flawless", "perfect", "porcelain", "ultra smooth", "8K", "HDR" ni "masterpiece"'],
 ];
 export const PHOTO_SPEC_KEYS = PHOTO_SPEC.map(([k]) => k);
 

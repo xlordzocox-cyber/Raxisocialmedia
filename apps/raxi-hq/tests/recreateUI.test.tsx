@@ -9,7 +9,7 @@ Object.defineProperty(globalThis, 'IS_REACT_ACT_ENVIRONMENT', { value: true, con
 const mounted: ReactTestRenderer[] = [];
 after(() => { for (const r of mounted) act(() => r.unmount()); });
 const settle = () => new Promise((res) => setTimeout(res, 20));
-const CINE = 'Cinematic photograph of this woman from the reference photo, keep the exact same face and hair from the reference. Cinematic photo, realistic skin texture';
+const CINE = 'Cinematic photograph of this woman from the reference photo, keep the exact same face and hair from the reference. Cinematic photo, 35mm, soft film grain, natural skin with visible pores, never airbrushed or beauty-filtered';
 
 function fakeClient(detail?: Record<string, unknown>) {
   const calls: Record<string, unknown>[] = [];

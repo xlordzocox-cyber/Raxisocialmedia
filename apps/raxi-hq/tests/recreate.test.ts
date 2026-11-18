@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
-import { buildRecreatePrompt, cleanAdultText, cleanEditedPrompt, cleanVariants, decodeTarget, isDraftPath, quoteRecreate, recreateRefs, recreateRule, DEFAULT_STYLE, RECREATE_RULE } from '../../../supabase/functions/sheet-creator/recreatePlan';
+import { buildRecreatePrompt, cleanAdultText, cleanEditedPrompt, cleanVariants, decodeTarget, isDraftPath, quoteRecreate, recreateRefs, recreateRule, DEFAULT_STYLE, RECREATE_RULE, STYLE_CLOSE } from '../../../supabase/functions/sheet-creator/recreatePlan';
 import { costMillsOf, createPrompter, parsePrompter, prompterSystem } from '../../../supabase/functions/sheet-creator/recreatePrompter';
 import { PHOTO_SPEC_ES, PHOTO_SPEC_KEYS, PUBLIC_OUTFIT_GUARD } from '../../../supabase/functions/sheet-creator/photoSpec';
 import { handleRecreate, type RecreateDependencies, type RecreationRow, type RecreateTakeRow } from '../../../supabase/functions/sheet-creator/recreate';
@@ -13,8 +13,8 @@ const price: Price = { model: 'bytedance/seedream-v5.5/edit', enabled: true, out
 const owner = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const ws = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const png = 'data:image/png;base64,' + Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]).toString('base64');
-const CHECK = { vestuario: 'long black wool coat over a black turtleneck', accesorios: 'cross necklace', pelo_maquillaje: 'loose, dark red lips', pose: 'seated, book in both hands', expresion: 'soft half smile', lugar: 'library at night', luz: 'warm lamp from the left', camara: 'another person, 1.5 m, eye level, 50mm', encuadre: 'waist up, vertical' };
-const CINE = 'Cinematic photograph of this woman from the reference photo, keep the exact same face and hair from the reference. She reads by candlelight. Quiet gothic mood. Cinematic photo, realistic skin texture';
+const CHECK = { vestuario: 'long black wool coat over a black turtleneck', accesorios: 'cross necklace', pelo_maquillaje: 'loose, dark red lips', pose: 'seated, book in both hands', expresion: 'soft half smile', lugar: 'library at night', luz: 'warm lamp from the left', camara: 'another person, 1.5 m, eye level, 50mm', encuadre: 'waist up, vertical', piel: 'fair cool-neutral skin, visible pores, light freckles, lamp glow on the cheekbone' };
+const CINE = 'Cinematic photograph of this woman from the reference photo, keep the exact same face and hair from the reference. She reads by candlelight. Quiet gothic mood. Cinematic photo, 35mm, soft film grain, natural skin with visible pores, never airbrushed or beauty-filtered';
 
 // ---------------- Plan ----------------
 test('recreate plan: target photo is checked by its real header, size and type', () => {
@@ -64,10 +64,10 @@ test('prompter: output is validated; refusals and broken structure never reach t
   assert.equal(parsePrompter('```json\n' + okJson + '\n```', 'CINEMATIC').prompt, CINE);
   assert.deepEqual(parsePrompter(okJson, 'CINEMATIC').checklist, CHECK);
   assert.throws(() => parsePrompter(JSON.stringify({ checklist: { ...CHECK, vestuario: ' ' }, prompt: CINE }), 'CINEMATIC'), /sin definir: vestuario/, 'no outfit, no image');
-  assert.throws(() => parsePrompter(JSON.stringify({ checklist: { vestuario: 'x' }, prompt: CINE }), 'CINEMATIC'), /sin definir: accesorios, pelo y maquillaje, pose, expresión, lugar, luz, cámara, encuadre/);
+  assert.throws(() => parsePrompter(JSON.stringify({ checklist: { vestuario: 'x' }, prompt: CINE }), 'CINEMATIC'), /sin definir: accesorios, pelo y maquillaje, pose, expresión, lugar, luz, cámara, encuadre, piel/);
   assert.throws(() => parsePrompter(JSON.stringify({ refused: 'pide desnudez' }), 'CINEMATIC'), /no hizo este prompt: pide desnudez/);
   assert.throws(() => parsePrompter(JSON.stringify({ checklist: CHECK, prompt: 'A photo of her' }), 'CINEMATIC'), /estructura/);
-  assert.throws(() => parsePrompter(JSON.stringify({ checklist: CHECK, prompt: CINE.replace('Cinematic photo, realistic skin texture', 'end') }), 'CINEMATIC'), /estructura/);
+  assert.throws(() => parsePrompter(JSON.stringify({ checklist: CHECK, prompt: CINE.replace('Cinematic photo, 35mm, soft film grain, natural skin with visible pores, never airbrushed or beauty-filtered', 'end') }), 'CINEMATIC'), /estructura/);
   assert.throws(() => parsePrompter('no json', 'CINEMATIC'), /válido/);
   assert.equal(costMillsOf({ input_tokens: 6000, output_tokens: 800 }), 20, '6k in + 800 out with Sonnet 5.5 rates ≈ $0.02');
 });
@@ -363,7 +363,15 @@ test('photo spec: one checklist for the prompter, the Creative Director and the 
 });
 
 test('photo spec: every point and the guard are explicit', () => {
-  assert.deepEqual(PHOTO_SPEC_KEYS, ['vestuario', 'accesorios', 'pelo_maquillaje', 'pose', 'expresion', 'lugar', 'luz', 'camara', 'encuadre']);
+  assert.deepEqual(PHOTO_SPEC_KEYS, ['vestuario', 'accesorios', 'pelo_maquillaje', 'pose', 'expresion', 'lugar', 'luz', 'camara', 'encuadre', 'piel']);
   assert.match(PHOTO_SPEC_ES, /vestuario \(cada prenda visible/); assert.match(PHOTO_SPEC_ES, /cámara \(quién toma la foto/);
   assert.match(PUBLIC_OUTFIT_GUARD, /never the clothing of the reference image/); assert.match(PUBLIC_OUTFIT_GUARD, /fully dressed/);
+});
+
+test('skin realism: cinematic close and the prompter rule name real texture and ban smoothing words', () => {
+  assert.match(STYLE_CLOSE.CINEMATIC, /visible pores, never airbrushed or beauty-filtered$/);
+  const sys = prompterSystem('CINEMATIC');
+  assert.ok(sys.includes(`termina exactamente con "${STYLE_CLOSE.CINEMATIC}"`));
+  assert.match(sys, /- Piel: textura real \(poros, pecas, vello fino\)/);
+  assert.match(PHOTO_SPEC_ES, /nunca "flawless"/);
 });
