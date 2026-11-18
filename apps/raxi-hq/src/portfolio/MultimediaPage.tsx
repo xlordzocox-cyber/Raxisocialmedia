@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AgencyNav } from '../agency/AgencyNav';
+import { Link } from 'react-router-dom';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseWorkspace } from '../persistence/supabaseIdeaRepository';
 import { buildMedia, characterLabel, countBySection, filterMedia, groupByDay, LEVEL_LABEL, type MediaAsset, type MediaFilter, type MediaSection, type MediaView } from './mediaModel';
@@ -89,6 +90,9 @@ export function MultimediaPage({ client, ownerId }: { client: SupabaseClient; ow
           <p>{current.campaigns.length ? `Campañas: ${current.campaigns.join(', ')}` : 'Sin campaña en la Fototeca'}</p>
           <p className="foto-meta">{`SHA-256 ${current.sha256.slice(0, 12)}… · ${(current.byteSize / 1024).toFixed(0)} KB`}</p>
           {urls[current.objectPath] && <a className="foto-download" href={urls[current.objectPath]} download target="_blank" rel="noreferrer">Abrir original</a>}
+          {/* Only classified photos of a model can be a series base: an unclassified photo is never assumed public. */}
+          {current.characterId && current.level && <Link className="foto-download" to={`/series/nueva?base=${current.id}&modelo=${current.characterId}`}>Crear serie de continuidad</Link>}
+          {current.characterId && !current.level && <p className="foto-meta">Clasifica su nivel para poder crear una serie con esta foto.</p>}
           <button type="button" onClick={() => setFocus(undefined)}>Cerrar</button>
         </div>
       </article>}
