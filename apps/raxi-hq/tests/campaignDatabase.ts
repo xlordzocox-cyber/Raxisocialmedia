@@ -49,6 +49,7 @@ export async function campaignDatabase(includeCampaignProposal = true, dataDir?:
     // Series de continuidad (M3): depends on the post-freeze portfolio and identity schema; covered by series.test.ts.
     '20261118030000_raxi_hq_continuity_series.sql',
     '20261118040000_raxi_hq_recreate.sql',
+    '20261118050000_raxi_hq_recreate_fanvue.sql',
   ]);
   for (const file of readdirSync('../../supabase/migrations').filter(f =>
     f.endsWith('.sql') && f !== stagedRuntimeOnly && !postFreezeProduct.has(f) &&

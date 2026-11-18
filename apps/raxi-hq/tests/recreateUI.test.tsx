@@ -60,12 +60,31 @@ test('Recrear: nothing is spent until a photo, a prepared prompt, the attestatio
   assert.equal(start.objectivePath, 'ws/recreate/drafts/x.jpg'); assert.equal(start.channel, 'INSTAGRAM');
 });
 
-test('Recrear: Raxi defaults to amateur; only public channels are offered', async () => {
+test('Recrear: Raxi defaults to amateur; public and Fanvue channels are offered', async () => {
   const { client } = fakeClient();
   const r = await render(<NewRecreatePage client={client} characterId="raxi-vox" read={async () => 'x'} />);
   assert.equal(byId(r, 'rc-style').props.value, 'AMATEUR');
   const options = r.root.findAll((n) => n.type === 'option' && ['INSTAGRAM', 'INSTAGRAM_STORY', 'TEASER', 'FANVUE_FEED', 'FANVUE_CHAT'].includes(n.props.value)).map((n) => n.props.value);
-  assert.deepEqual(options, ['INSTAGRAM', 'INSTAGRAM_STORY', 'TEASER']);
+  assert.deepEqual(options, ['INSTAGRAM', 'INSTAGRAM_STORY', 'TEASER', 'FANVUE_FEED', 'FANVUE_CHAT']);
+});
+
+test('Recrear Fanvue: Luis writes the adult part; the priced click carries the level tag', async () => {
+  const { client, calls } = fakeClient();
+  const r = await render(<NewRecreatePage client={client} characterId="vesper-corvus" read={async () => 'data:image/png;base64,AAAA'} />);
+  await act(async () => { byId(r, 'rc-channel').props.onChange({ target: { value: 'FANVUE_FEED' } }); await settle(); });
+  await act(async () => { byId(r, 'rc-file').props.onChange({ target: { files: [{ type: 'image/png' }] } }); await settle(); });
+  await act(async () => { byId(r, 'rc-prepare').props.onClick(); await settle(); });
+  assert.equal(calls[0].channel, 'FANVUE_FEED');
+  await act(async () => { byId(r, 'rc-attest').props.onChange({ target: { checked: true } }); await settle(); });
+  assert.equal(byId(r, 'rc-start').props.disabled, true, 'adult part required');
+  await act(async () => { byId(r, 'rc-adult').props.onChange({ target: { value: 'texto de Luis' } }); await settle(); });
+  assert.match(String(byId(r, 'rc-start').props.children), /Crear 2 fotos · \$0\.072 · NSFW · Fanvue feed/);
+  await act(async () => { byId(r, 'rc-start').props.onClick(); await settle(); });
+  const start = calls.find((c) => c.action === 'RECREATE_START')!;
+  assert.equal(start.adultText, 'texto de Luis'); assert.equal(start.channel, 'FANVUE_FEED');
+  // Switching back to a public channel prepares the prompt again (separate target folders).
+  await act(async () => { byId(r, 'rc-channel').props.onChange({ target: { value: 'INSTAGRAM' } }); await settle(); });
+  assert.equal(r.root.findAll((n) => n.props.id === 'rc-prompt').length, 0);
 });
 
 test('Recrear detail: versions, another version at the shown price, and choose', async () => {

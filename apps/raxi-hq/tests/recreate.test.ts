@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
-import { buildRecreatePrompt, cleanEditedPrompt, cleanVariants, decodeTarget, isDraftPath, quoteRecreate, DEFAULT_STYLE, RECREATE_RULE } from '../../../supabase/functions/sheet-creator/recreatePlan';
+import { buildRecreatePrompt, cleanAdultText, cleanEditedPrompt, cleanVariants, decodeTarget, isDraftPath, quoteRecreate, recreateRefs, recreateRule, DEFAULT_STYLE, RECREATE_RULE } from '../../../supabase/functions/sheet-creator/recreatePlan';
 import { costMillsOf, createPrompter, parsePrompter, prompterSystem } from '../../../supabase/functions/sheet-creator/recreatePrompter';
 import { handleRecreate, type RecreateDependencies, type RecreationRow, type RecreateTakeRow } from '../../../supabase/functions/sheet-creator/recreate';
 import type { Price } from '../../../supabase/functions/sheet-creator/sheetPlan';
@@ -153,7 +153,8 @@ test('recreate handler: start is public only, attested, priced, and sends face +
   const h = harness();
   const draft = (await h.call({ action: 'RECREATE_PROMPT', ...base, image: png })).body.objectivePath as string;
   const start = { action: 'RECREATE_START', ...base, objectivePath: draft, prompt: CINE, promptCostMills: 20, variants: 2, attestNotReal: true, expectedTotalMills: 72 };
-  assert.match(String((await h.call({ ...start, channel: 'FANVUE_FEED' })).body.error), /solo para Instagram/);
+  assert.match(String((await h.call({ ...start, channel: 'FANVUE_FEED', adultText: 'x' })).body.error), /para este canal/, 'a public target never feeds Fanvue (separate folder)');
+  assert.match(String((await h.call({ ...start, adultText: 'algo' })).body.error), /no llevan parte adulta/);
   assert.match(String((await h.call({ ...start, attestNotReal: false })).body.error), /identidad de la persona/);
   assert.equal((await h.call({ ...start, expectedTotalMills: 70 })).status, 409);
   assert.match(String((await h.call({ ...start, objectivePath: `${ws}/references/face.png` })).body.error), /prepara el prompt/);
@@ -212,11 +213,11 @@ async function migrated() {
     create table public.raxi_portfolio_collections(id uuid primary key, workspace_id uuid, external_id text, character_id text, title text, channel text, status text, concept text, payload jsonb);
     create table public.raxi_portfolio_items(workspace_id uuid, collection_id uuid, position int, asset_id uuid, payload jsonb);
     insert into public.raxi_workspaces values ('${ws}', '${owner}', 'raxi-hq');`);
-  for (const f of ['20261118000000_raxi_hq_sheet_creator.sql', '20261118030000_raxi_hq_continuity_series.sql', '20261118040000_raxi_hq_recreate.sql'])
+  for (const f of ['20261118000000_raxi_hq_sheet_creator.sql', '20261118030000_raxi_hq_continuity_series.sql', '20261118040000_raxi_hq_recreate.sql', '20261118050000_raxi_hq_recreate_fanvue.sql'])
     await db.exec(readFileSync(join(process.cwd(), `../../supabase/migrations/${f}`), 'utf8'));
-  const a = (id: string, lvl: string, extra = '') => `('${id}', '${ws}', 'REFERENCE', '${ws}/${id}.png', '{"character_id":"vesper-corvus","content_level":"${lvl}","angle":"FRONT"${extra}}')`;
+  const a = (id: string, lvl: string, extra = '', angle = 'FRONT') => `('${id}', '${ws}', 'REFERENCE', '${ws}/${id}.png', '{"character_id":"vesper-corvus","content_level":"${lvl}","angle":"${angle}"${extra}}')`;
   await db.exec(`insert into public.raxi_assets (id, workspace_id, kind, object_path, metadata) values
-    ${a('20000000-0000-4000-8000-000000000001', 'PUBLIC')}, ${a('20000000-0000-4000-8000-000000000002', 'NSFW')}, ${a('20000000-0000-4000-8000-000000000003', 'PUBLIC', ',"superseded_by":"x"')}`);
+    ${a('20000000-0000-4000-8000-000000000001', 'PUBLIC')}, ${a('20000000-0000-4000-8000-000000000002', 'NSFW')}, ${a('20000000-0000-4000-8000-000000000003', 'PUBLIC', ',"superseded_by":"x"')}, ${a('20000000-0000-4000-8000-000000000004', 'NSFW', '', 'BODY_FRONT')}`);
   return db;
 }
 const DRAFT = `${ws}/recreate/drafts/12345678-1234-4234-8234-123456789abc.jpg`;
@@ -255,4 +256,92 @@ test('recreate migration: clients can only read', () => {
   assert.match(sql, /grant select on public\.raxi_recreations to authenticated/);
   assert.match(sql, /revoke all on function public\.raxi_recreation_create\(uuid, jsonb, jsonb\) from public, anon, authenticated/);
   assert.match(sql, /grant execute on function public\.raxi_recreation_create\(uuid, jsonb, jsonb\) to service_role/);
+});
+
+// ---------------- Fanvue (hybrid: Claude writes the scene, Luis writes the adult part) ----------------
+const ADULT_TEXT = 'Texto de Luis para Fanvue';
+test('recreate plan Fanvue: own drafts folder, face + adult body, adult text only on Fanvue, roles put the target last', () => {
+  const id = '12345678-1234-4234-8234-123456789abc';
+  assert.ok(isDraftPath(ws, `${ws}/recreate/drafts-adult/${id}.jpg`, 'NSFW'));
+  assert.ok(!isDraftPath(ws, `${ws}/recreate/drafts-adult/${id}.jpg`), 'an adult target never feeds a public recreation');
+  assert.ok(!isDraftPath(ws, `${ws}/recreate/drafts/${id}.jpg`, 'NSFW'));
+  const face = { id: 'face', objectPath: 'f' }; const adultBody = { id: 'ab', objectPath: 'b' };
+  assert.deepEqual(recreateRefs('PUBLIC', { face, adultBody }), [face], 'never an adult reference in public');
+  assert.deepEqual(recreateRefs('NSFW', { face, adultBody }), [face, adultBody]);
+  assert.deepEqual(recreateRefs('NSFW', { face }), [face]);
+  assert.deepEqual(quoteRecreate({ variants: 2, price, resolution: '1.5k', refs: 2 }), { perPhotoMills: 44, totalMills: 88, inputs: 3 });
+  assert.equal(cleanAdultText(' x ', 'NSFW'), 'x');
+  assert.throws(() => cleanAdultText('', 'NSFW'), /Escribe el vestuario/);
+  assert.throws(() => cleanAdultText('x', 'PUBLIC'), /no llevan parte adulta/);
+  assert.equal(cleanAdultText('', 'PUBLIC'), null);
+  assert.throws(() => cleanAdultText('a'.repeat(1501), 'EXPLICIT'), /1500/);
+  const rule = recreateRule('NSFW', 2);
+  assert.match(rule, /Image 2 shows her body/); assert.match(rule, /image 3/); assert.match(rule, /outfit from the text below/); assert.match(rule, /clearly an adult/);
+  assert.equal(recreateRule('PUBLIC', 1), RECREATE_RULE);
+  const p = buildRecreatePrompt({ fixedPrompt: 'Vesper', rule, prompt: CINE, adultText: ADULT_TEXT, instruction: 'más luz' });
+  assert.ok(p.indexOf(CINE) < p.indexOf(ADULT_TEXT) && p.endsWith('más luz'));
+});
+
+test('prompter Fanvue: Claude writes only scene, pose, light and framing — never wardrobe or nudity', () => {
+  const s = prompterSystem('CINEMATIC', 'NSFW');
+  assert.match(s, /NO escribas vestuario, ropa, desnudez ni nada sexual/);
+  assert.match(s, /Nivel FANVUE/); assert.match(s, /parece menor de edad/); assert.match(s, /claramente adulta/);
+  assert.doesNotMatch(s, /remove \.\.\. completely/); assert.doesNotMatch(s, /Nivel PÚBLICO/);
+  assert.doesNotMatch(prompterSystem('CINEMATIC'), /Nivel FANVUE/);
+});
+
+test('recreate handler Fanvue: adult folder, face + adult body + target, Luis text appended, NSFW asset', async () => {
+  const h = harness({ async currentRefs() { return { face: { id: 'face', objectPath: `${ws}/references/face.png` }, adultBody: { id: 'ab', objectPath: `${ws}/references/adult-body.png` } }; } });
+  const fan = { ...base, channel: 'FANVUE_FEED' };
+  const prep = await h.call({ action: 'RECREATE_PROMPT', ...fan, image: png });
+  const draft = prep.body.objectivePath as string;
+  assert.ok(isDraftPath(ws, draft, 'NSFW'));
+  assert.equal((h.prompterCalls[0] as { level: string }).level, 'NSFW');
+  // An adult draft cannot be reused for a public prompt or start.
+  assert.equal((await h.call({ action: 'RECREATE_PROMPT', ...base, objectivePath: draft })).status, 400);
+  const start = { action: 'RECREATE_START', ...fan, objectivePath: draft, prompt: CINE, variants: 2, attestNotReal: true, expectedTotalMills: 88 };
+  assert.match(String((await h.call({ ...start, channel: 'INSTAGRAM', expectedTotalMills: 72 })).body.error), /para este canal/);
+  assert.match(String((await h.call(start)).body.error), /Escribe el vestuario/);
+  assert.equal(h.submitted.length, 0);
+  const q = await h.call({ action: 'RECREATE_QUOTE', ...fan, variants: 2 });
+  assert.equal(q.body.totalMills, 88); assert.equal(q.body.level, 'NSFW');
+  const r = await h.call({ ...start, adultText: ADULT_TEXT });
+  assert.equal(r.status, 200); assert.equal(r.body.level, 'NSFW');
+  for (const s of h.submitted) {
+    assert.deepEqual(s.images, [`signed:${ws}/references/face.png`, `signed:${ws}/references/adult-body.png`, `signed:${draft}`]);
+    assert.ok(s.prompt.indexOf(CINE) < s.prompt.indexOf(ADULT_TEXT));
+  }
+  const rec = [...h.recs.values()][0];
+  assert.equal(rec.level, 'NSFW'); assert.equal(rec.adult_text, ADULT_TEXT); assert.deepEqual(rec.ref_asset_ids, ['face', 'ab']);
+  h.polls.set('pred-1', { status: 'SUCCEEDED', outputUrl: 'https://cdn/1.png' });
+  await h.call({ action: 'RECREATE_STATUS', recreationId: rec.id });
+  const rt = await h.call({ action: 'RECREATE_RETAKE', recreationId: rec.id, variant: 2, expectedCostMills: 44 });
+  assert.equal(rt.status, 200); assert.ok(h.submitted.at(-1)!.prompt.includes(ADULT_TEXT), 'retakes keep Luis text');
+  const t1 = [...h.takes.values()].find((t) => t.variant_no === 1)!;
+  const ch = await h.call({ action: 'RECREATE_CHOOSE', takeId: t1.id });
+  assert.equal(ch.body.level, 'NSFW');
+  assert.equal((h.assets[0].metadata as Record<string, unknown>).content_level, 'NSFW', 'never registered as public');
+});
+
+test('recreate migration Fanvue: the level follows the channel and every adult rule is in the database', async () => {
+  const db = await migrated();
+  await db.exec(`insert into public.raxi_identity_versions values ('${ws}', 'vesper-corvus', 3, 'LOCKED')`);
+  const create = (r: string, t = TK(r)) => db.query(`select public.raxi_recreation_create($1::uuid, $2::jsonb, $3::jsonb)`, [owner, r, t]);
+  const ADRAFT = `${ws}/recreate/drafts-adult/12345678-1234-4234-8234-123456789abc.jpg`;
+  const F = (o: Record<string, unknown> = {}) => R({ channel: 'FANVUE_FEED', objective_path: ADRAFT, adult_text: 'texto de Luis',
+    ref_asset_ids: ['20000000-0000-4000-8000-000000000001', '20000000-0000-4000-8000-000000000004'], ...o });
+  await assert.rejects(create(F({ adult_text: null })), /adult text required/);
+  await assert.rejects(create(F({ objective_path: DRAFT })), /invalid target/, 'public draft folder');
+  await assert.rejects(create(R({ objective_path: ADRAFT })), /invalid target/, 'adult target never public');
+  await assert.rejects(create(R({ adult_text: 'x' })), /adult text not allowed/);
+  await assert.rejects(create(R({ ref_asset_ids: ['20000000-0000-4000-8000-000000000004'] })), /invalid reference/, 'adult body never in public');
+  await assert.rejects(create(F({ ref_asset_ids: ['20000000-0000-4000-8000-000000000002'] })), /invalid reference/, 'only the adult BODY_FRONT');
+  await assert.rejects(create(F({ channel: 'FANVUE_DM' })), /invalid channel/);
+  const feed = F(); await create(feed);
+  const chat = F({ channel: 'FANVUE_CHAT' }); await create(chat);
+  const pub = R(); await create(pub);
+  const rows = (await db.query<{ id: string; level: string; adult_text: string | null }>(`select id, level, adult_text from public.raxi_recreations`)).rows;
+  const lv = (r: string) => rows.find((x) => x.id === JSON.parse(r).id)!;
+  assert.equal(lv(feed).level, 'NSFW'); assert.equal(lv(chat).level, 'EXPLICIT'); assert.equal(lv(pub).level, 'PUBLIC'); assert.equal(lv(pub).adult_text, null);
+  await assert.rejects(db.query(`update public.raxi_recreations set level = 'PUBLIC' where id = '${JSON.parse(feed).id}'`), 'level is tied to the channel');
 });

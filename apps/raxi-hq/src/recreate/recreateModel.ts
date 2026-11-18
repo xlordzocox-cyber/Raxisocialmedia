@@ -1,8 +1,14 @@
 import type { TakeStatus } from '../creator/creatorModel';
 
 export type Style = 'CINEMATIC' | 'AMATEUR';
-export type PublicChannel = 'INSTAGRAM' | 'INSTAGRAM_STORY' | 'TEASER';
-export const PUBLIC_CHANNEL_LABEL: Record<PublicChannel, string> = { INSTAGRAM: 'Instagram (feed)', INSTAGRAM_STORY: 'Instagram Stories', TEASER: 'Teaser' };
+export type Channel = 'INSTAGRAM' | 'INSTAGRAM_STORY' | 'TEASER' | 'FANVUE_FEED' | 'FANVUE_CHAT';
+export type ContentLevel = 'PUBLIC' | 'NSFW' | 'EXPLICIT';
+export const CHANNEL_LABEL: Record<Channel, string> = { INSTAGRAM: 'Instagram (feed)', INSTAGRAM_STORY: 'Instagram Stories', TEASER: 'Teaser',
+  FANVUE_FEED: 'Fanvue feed', FANVUE_CHAT: 'Fanvue chatting' };
+/** Same mapping as the server (seriesPlan.ts); the server decides, this only labels. */
+export const CHANNEL_LEVEL: Record<Channel, ContentLevel> = { INSTAGRAM: 'PUBLIC', INSTAGRAM_STORY: 'PUBLIC', TEASER: 'PUBLIC', FANVUE_FEED: 'NSFW', FANVUE_CHAT: 'EXPLICIT' };
+/** Label on every adult approval (AGENTS.md): "NSFW · Fanvue feed" / "EXPLICIT · Fanvue chatting". */
+export const levelTag = (c: Channel) => (CHANNEL_LEVEL[c] === 'PUBLIC' ? null : `${CHANNEL_LEVEL[c]} · ${CHANNEL_LABEL[c]}`);
 export const STYLE_LABEL: Record<Style, string> = { CINEMATIC: 'Cinematográfico', AMATEUR: 'Amateur de móvil' };
 /** Same defaults as the server (recreatePlan.ts): Vesper cinematic gothic, Raxi phone-casual. */
 export const DEFAULT_STYLE: Record<string, Style> = { 'vesper-corvus': 'CINEMATIC', 'raxi-vox': 'AMATEUR' };
@@ -11,7 +17,7 @@ export const PROMPTER_ESTIMATE = 'unos $0.02'; // Sonnet 5.5 with two images; th
 export interface Prepared { objectivePath: string; objectiveUrl: string; prompt: string; summary: string; observations: string[]; warnings: string[]; promptCostMills: number }
 export interface RecreateQuote { totalMills: number; perPhotoMills: number; spentMills: number; capMills: number }
 export interface RecreateTake { id: string; variant: number; takeNo: number; status: TakeStatus; costMills: number; error: string | null; chosen: boolean; previewUrl: string | null }
-export interface RecreateView { recreationId: string; character: string; channel: PublicChannel; style: Style; prompt: string; variants: number; objectiveUrl: string; takes: RecreateTake[] }
+export interface RecreateView { recreationId: string; character: string; channel: Channel; level?: ContentLevel; style: Style; prompt: string; variants: number; objectiveUrl: string; takes: RecreateTake[] }
 export const recreateBusy = (v: RecreateView | null) => Boolean(v?.takes.some((t) => t.status === 'QUEUED' || t.status === 'PENDING'));
 
 export const MAX_TARGET_BYTES = 3 * 1024 * 1024;

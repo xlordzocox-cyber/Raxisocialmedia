@@ -1,6 +1,8 @@
 // Recrear (M5): target photo + the model's general face → 1..4 new photos. Pure (unit-tested under Node).
 import { takeCost, type Price, type Resolution } from './sheetPlan.ts';
 import { MAX_INSTRUCTION, MAX_PROMPT } from './sheetPrompts.ts';
+import { CHANNEL_LEVEL, isChannel, type Channel, type ContentLevel, type Ref } from './seriesPlan.ts';
+export { CHANNEL_LEVEL, isChannel, type Channel, type ContentLevel };
 
 export type Style = 'CINEMATIC' | 'AMATEUR';
 export type PublicChannel = 'INSTAGRAM' | 'INSTAGRAM_STORY' | 'TEASER';
@@ -37,18 +39,36 @@ export function decodeTarget(dataUrl: unknown): { mime: 'image/png' | 'image/jpe
   return { mime, ext: mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : 'webp', bytes, base64: m[2] };
 }
 
-/** A target photo path is only valid inside this workspace's recreate drafts folder (the server writes it there). */
-export const isDraftPath = (ws: string, path: unknown): path is string =>
-  typeof path === 'string' && new RegExp(`^${ws}/recreate/drafts/[0-9a-f-]{36}\\.(png|jpg|webp)$`).test(path);
+/** Fanvue targets live in their own folder, so an adult target photo can never feed a public recreation. */
+export const draftFolder = (level: ContentLevel) => (level === 'PUBLIC' ? 'drafts' : 'drafts-adult');
+/** A target photo path is only valid inside this workspace's drafts folder for that level (the server writes it there). */
+export const isDraftPath = (ws: string, path: unknown, level: ContentLevel = 'PUBLIC'): path is string =>
+  typeof path === 'string' && new RegExp(`^${ws}/recreate/${draftFolder(level)}/[0-9a-f-]{36}\\.(png|jpg|webp)$`).test(path);
+
+/** Public: general face only. Fanvue: general face + the current adult body reference when it exists. */
+export function recreateRefs(level: ContentLevel, refs: { face?: Ref; adultBody?: Ref }): Ref[] {
+  if (!refs.face) throw new Error('Primero elige la cara de frente de la ficha general.');
+  return level === 'PUBLIC' || !refs.adultBody ? [refs.face] : [refs.face, refs.adultBody];
+}
+
+export const MAX_ADULT_TEXT = 1500;
+/** Luis's own wardrobe and adult part: required for Fanvue, never on public channels. Claude never writes it. */
+export function cleanAdultText(text: unknown, level: ContentLevel): string | null {
+  const t = typeof text === 'string' ? text.trim() : '';
+  if (level === 'PUBLIC') { if (t) throw new Error('Los canales públicos no llevan parte adulta.'); return null; }
+  if (!t) throw new Error('Escribe el vestuario y la parte adulta para Fanvue.');
+  if (t.length > MAX_ADULT_TEXT) throw new Error('La parte adulta es demasiado larga (máximo 1500 caracteres).');
+  return t;
+}
 
 export function cleanVariants(v: unknown): number {
   if (typeof v !== 'number' || !Number.isInteger(v) || v < MIN_VARIANTS || v > MAX_VARIANTS) throw new Error('Elige de 1 a 4 versiones.');
   return v;
 }
 
-/** Each version sends the general face (image 1) and the target photo (image 2). */
-export function quoteRecreate(input: { variants: number; price: Price; resolution: Resolution }) {
-  const inputs = 2;
+/** Each version sends the references (face, and the adult body on Fanvue) plus the target photo last. */
+export function quoteRecreate(input: { variants: number; price: Price; resolution: Resolution; refs?: number }) {
+  const inputs = (input.refs ?? 1) + 1;
   const perPhotoMills = takeCost(input.price, input.resolution, inputs);
   return { perPhotoMills, totalMills: perPhotoMills * input.variants, inputs };
 }
@@ -58,9 +78,20 @@ export const RECREATE_RULE = 'Image 1 shows who she is: keep her exact face, hai
   'Image 2 is only the scene reference (pose, outfit, place, light and framing): never copy the face, hair or identity of the person in image 2. ' +
   'Only one woman in the photo; if a mirror is visible, it shows only her own reflection. She is clearly an adult.';
 
-/** Final prompt sent to the image model: locked identity → image roles → the prompter's scene → Luis's change. */
-export function buildRecreatePrompt(input: { fixedPrompt: string | null; prompt: string; instruction?: string | null }): string {
-  const parts = [input.fixedPrompt?.trim() || null, RECREATE_RULE, input.prompt.trim()];
+/** Image roles for Fanvue: face, optional adult body, target last. The outfit comes from Luis's text, not from the target. */
+export function recreateRule(level: ContentLevel, refs: number): string {
+  if (level === 'PUBLIC') return RECREATE_RULE;
+  const t = refs + 1;
+  return 'Image 1 shows who she is: keep her exact face and hair. ' +
+    (refs > 1 ? 'Image 2 shows her body: keep the same body shape and skin tone. ' : 'Keep her body shape and skin tone. ') +
+    `Image ${t} is only the scene reference (pose, place, light and framing): never copy the face, hair, body or identity of the person in image ${t}, ` +
+    `and take the outfit from the text below, not from image ${t}. ` +
+    'Only one woman in the photo; if a mirror is visible, it shows only her own reflection. She is clearly an adult.';
+}
+
+/** Final prompt: locked identity → image roles → the prompter's scene → Luis's adult part (Fanvue) → Luis's change. */
+export function buildRecreatePrompt(input: { fixedPrompt: string | null; prompt: string; instruction?: string | null; rule?: string; adultText?: string | null }): string {
+  const parts = [input.fixedPrompt?.trim() || null, input.rule ?? RECREATE_RULE, input.prompt.trim(), input.adultText?.trim() || null];
   const instruction = input.instruction?.trim().slice(0, MAX_INSTRUCTION);
   if (instruction) parts.push(instruction);
   const out = parts.filter(Boolean).join('\n\n');
