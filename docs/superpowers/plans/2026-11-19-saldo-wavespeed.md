@@ -43,7 +43,19 @@ Ejemplo de la barra: «WaveSpeed: $7.42 · Este mes: $1.36 de $10 · ≈ 206 fot
   5. `photosLeft` se calcula con el menor de los dos topes y se redondea hacia abajo.
 - [ ] Implementar; las pruebas pasan a verde. Commit.
 
-### Tarea 2 — Barra de saldo en la interfaz
+### Tarea 2 — Barra de saldo en la interfaz (piloto de Astryx)
+
+**Decisión de Luis (2026-11-19): esta barra es la pantalla piloto de Astryx**, el sistema de diseño de Meta (React, licencia MIT, beta pública desde el 28-jun-2026, con CLI y servidor MCP). Si el piloto sale bien, se migran las demás pantallas poco a poco, en una rama aparte. **El MCP no se retrasa por esto.**
+
+- [ ] Antes de instalar:
+  - comprobar en el repositorio oficial (`meta/astryx`) la versión actual y que sea compatible con React 19, Vite 7 y el `tsconfig` de `apps/raxi-hq`;
+  - fijar la versión exacta en `package.json` (sin `^`), porque está en beta;
+  - anotar aquí lo comprobado.
+- [ ] Ejecutar `astryx init --agent claude` y **mostrarle a Luis el bloque que escribe** en CLAUDE.md antes de hacer commit. No debe contradecir `AGENTS.md`.
+- [ ] Conectar su servidor MCP en Claude Code para consultar los componentes reales y no inventar propiedades.
+- [ ] Crear un tema propio con `defineTheme`, con la paleta del rediseño «editorial de agencia». Sin colores por defecto de Meta.
+- [ ] Pasar `astryx doctor` sin errores.
+- [ ] Si algo no es compatible, **parar**: hacer la barra con los estilos actuales y anotar el motivo aquí.
 - [ ] Componente `CreditsBar` en el encabezado común de Raxi HQ, visible en todas las páginas tras iniciar sesión.
 - [ ] Estados a probar con `react-test-renderer`: cargando, normal, aviso, sin conexión y no disponible.
 - [ ] Estilo coherente con el rediseño «editorial de agencia». En el móvil se lee en una línea, o se abre con un toque.
