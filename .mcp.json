@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "skillspector": {
+      "type": "stdio",
+      "command": "bash",
+      "args": [".claude/hooks/skillspector-mcp.sh"]
+    }
+  }
+}
