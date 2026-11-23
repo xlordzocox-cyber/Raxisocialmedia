@@ -1,7 +1,7 @@
 # Vesper — «El hada oscura» · Guion de video clip por clip
 
 > **Estado:** listo para producir cuando se renueven los créditos de Magnific (9-dic-2026). Nivel **público** (Instagram).
-> **Formato:** reel vertical 9:16, 12 clips de 4 s (≈ 48 s), sin diálogos ni música. La música se pone en Instagram.
+> **Formato:** reel vertical 9:16, 13 clips de 4 s (montado en ≈ 30–45 s con cortes rápidos), sin diálogos ni música. La música se pone en Instagram.
 > **Historia:** Vesper llega sin invitación a una fiesta elegante, lanza una maldición, todos se duermen, se come el pastel, la detiene la policía y posa para la foto de fichaje.
 > **Diseño propio:** sin cuernos, sin el traje de Disney, magia roja (nunca verde), un solo cuervo.
 
@@ -18,7 +18,10 @@
 | **F3** | 2 policías con uniforme genérico | `lJmX1VKgv9` |
 | **F4** | Exterior de la mansión con la patrulla | `9ZqC7v7NYZ` |
 | **F5** | Sala de fichaje con la regla de estatura | `p8PUcw6ehw` |
-| **F6** | Cartel «VESPER C. / No. 1313 / 11-23-2026» | `fHnRIGuCDY` |
+| **F6** | Cartel «VESPER C. / No. 1313 / 11-23-2026». Pendiente: apodo entre comillas, al estilo de Aria | `fHnRIGuCDY` |
+| **F7** | La cumpleañera (pelirroja, vestido de encaje marfil, tiara) y la rueca antigua de adorno, con el huso puntiagudo | `iGKFPub3uK` |
+
+**Referencia al cuento:** la rueca y el pinchazo con el huso vienen del cuento clásico de la Bella Durmiente (Perrault y Grimm, dominio público). La cumpleañera tiene diseño propio y **no imita a la Aurora de Disney**: no es rubia ni lleva vestido rosa o azul.
 
 **Fotos fijas que hay que hacer antes del 9 de diciembre** (en Recrear, unos $0,07 cada una con 2 versiones). Sirven de fotograma inicial en los planos donde se ve su cara (lección aprendida: sin fotograma inicial, la cara de Vesper cambia).
 
@@ -55,8 +58,8 @@ Sus prompts están en la sección 5.
 
 Cada prompt = **[ESTILO] + [CÁMARA] + texto del clip + [SIN DIÁLOGOS]**. Donde sale Vesper, añadir también **[IDENTIDAD] + [VESTUARIO] + [MAGIA]**.
 
-### Clip 1 — La fiesta · refs F1, F2
-> In the ballroom from reference F1, the four guests from reference F2 celebrate around the tall four-tier birthday cake, holding champagne glasses. 0–2s: they clink glasses and laugh silently. 2–4s: every candle flame in the room suddenly bends sideways as if a cold wind entered; the guests stop and look toward the doors off-screen. SFX: glasses clinking, soft crowd ambience, a sudden whoosh of wind.
+### Clip 1 — La fiesta · refs F1, F2, F7
+> In the ballroom from reference F1, the four guests from reference F2 celebrate around the tall four-tier birthday cake, holding champagne glasses; in the background, the antique wooden spinning wheel from reference F7 stands as a decorative piece near a window, and the birthday girl from reference F7 looks at it with curiosity. 0–2s: the guests clink glasses and laugh silently. 2–4s: every candle flame in the room suddenly bends sideways as if a cold wind entered; the guests stop and look toward the doors off-screen. SFX: glasses clinking, soft crowd ambience, a sudden whoosh of wind.
 
 ### Clip 2 — La llegada · refs F1, V, VO
 > The tall double doors of the ballroom from reference F1 swing open. 0–2s: thick glowing deep-red mist rolls in across the marble floor. 2–4s: Vesper walks in slowly through the mist, cape trailing, raven on her shoulder, medium-wide shot, calm and regal. SFX: heavy doors creaking, wind, a single raven caw, slow footsteps on marble.
@@ -69,7 +72,10 @@ Cada prompt = **[ESTILO] + [CÁMARA] + texto del clip + [SIN DIÁLOGOS]**. Donde
 ### Clip 4 — La maldición se prepara · fotograma inicial S1 (sin referencias)
 > One continuous shot, no cuts. Vesper stands in the ballroom with her gloved right hand raised; glowing deep-red sparks swirl and gather in her palm; the raven on her shoulder spreads its wings and caws; her cape stirs. Slow push-in from medium shot to waist-up, never closer. SFX: crackling magic, raven caw, low rumble.
 
-### Clip 5 — La maldición · refs F1, F2, V
+### Clip 5a — El pinchazo · refs F1, F7
+> Medium shot near the window of the ballroom from reference F1. While everyone stares at the doors, the curious birthday girl from reference F7 reaches out to touch the long pointed spindle of the decorative antique spinning wheel. 0–2s: she touches the tip with her fingertip and pulls her hand back, surprised, looking at a tiny drop of blood on her finger. 2–4s: her eyelids grow heavy, she yawns and slowly slumps asleep against the spinning wheel, peaceful and comedic. Thin wisps of deep-red mist curl around the spindle. SFX: a soft prick sound, a small gasp, a gentle yawn, the spinning wheel creaking.
+
+### Clip 5b — La maldición se extiende · refs F1, F2, V
 > In the ballroom, seen from behind Vesper's shoulder, a wave of glowing deep-red mist sweeps from her hand across the room. 0–2s: the four guests from reference F2 yawn widely. 2–4s: they slump asleep: the man in the navy suit falls face-first gently onto his dinner plate, the woman in the green gown drops into a chair, the others lean on each other. Comedic, not scary. SFX: magic whoosh, yawns, a soft thud on a plate.
 
 ### Clip 6 — Todos dormidos · refs F1, F2, V
@@ -99,7 +105,7 @@ Cada prompt = **[ESTILO] + [CÁMARA] + texto del clip + [SIN DIÁLOGOS]**. Donde
 
 | Opción | Por clip de 4 s | 12 clips | Con margen para repetir (~50 %) |
 |---|---|---|---|
-| **Seedance 2.5 Flash, 480p (recomendada)** | 520 créditos | 6.240 | ≈ 9.400 |
+| **Seedance 2.5 Flash, 480p (recomendada)** | 520 créditos | 6.760 (13 clips) | ≈ 10.100 |
 | Seedance 2.5, Draft o 480p | 800 créditos | 9.600 | ≈ 14.400 |
 
 Con los 20.000 créditos del 9 de diciembre alcanza de sobra con Flash. Se pueden usar 800 créditos solo en los clips clave (4, 11 y 12) si Flash no convence.
