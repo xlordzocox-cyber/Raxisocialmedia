@@ -11,7 +11,7 @@
 
 | Código | Ficha | Identificador en Magnific |
 |---|---|---|
-| **V** | Vesper como hada oscura (Recrear, versión 2) | **Falta subirla a Magnific** |
+| **V** | Vesper como hada oscura (Recrear, versión 2) | `YMgxFFbWeC` |
 | **VO** | Vestuario del hada oscura (foto de producto, versión 1) | `cpUxzkY0eP` |
 | **F1** | Salón de la fiesta vacío, con el pastel de 4 pisos | `gOhBrnYSXO` |
 | **F2** | 4 invitados: vestido azul con perlas, vestido verde de terciopelo, esmoquin, traje azul marino | `YMgrZuAWeC` |
