@@ -1,7 +1,7 @@
 # Vesper — «El hada oscura» · Guion de video clip por clip
 
 > **Estado:** listo para producir cuando se renueven los créditos de Magnific (9-dic-2026). Nivel **público** (Instagram).
-> **Formato:** reel vertical 9:16, 13 clips de 4 s (montado en ≈ 30–45 s con cortes rápidos), sin diálogos ni música. La música se pone en Instagram.
+> **Formato:** reel vertical 9:16, 16 clips de 4 s (montado en ≈ 35–50 s con cortes rápidos), sin diálogos ni música. La música se pone en Instagram.
 > **Historia:** Vesper llega sin invitación a una fiesta elegante, lanza una maldición, todos se duermen, se come el pastel, la detiene la policía y posa para la foto de fichaje.
 > **Diseño propio:** sin cuernos, sin el traje de Disney, magia roja (nunca verde), un solo cuervo.
 
@@ -20,6 +20,11 @@
 | **F5** | Sala de fichaje con la regla de estatura | `p8PUcw6ehw` |
 | **F6** | Cartel «VESPER C. / No. 1313 / 11-23-2026». Pendiente: apodo entre comillas, al estilo de Aria | `fHnRIGuCDY` |
 | **F7** | La cumpleañera (pelirroja, vestido de encaje marfil, tiara) y la rueca antigua de adorno, con el huso puntiagudo | `iGKFPub3uK` |
+
+| **F8** | Cripta-laboratorio de pociones vacía: alambiques de cobre, frascos de líquido rojo con sello de lacre y niebla roja | `gOhosVESXO` |
+| **F9** | 3 trabajadores con túnica negra, capucha, delantal de cuero y gafas | `ksdV5Y916B` |
+
+**El giro «maleante» (decidido el 2026-11-23):** Vesper dirige un **laboratorio clandestino de pociones de sueño**. El «producto» es un líquido rojo mágico y **no alude a ninguna sustancia real**: nada de polvo blanco, paquetes ni eufemismos. Cartel: **VESPER «LA REINA»** (pendiente de que Luis confirme la ortografía).
 
 **Referencia al cuento:** la rueca y el pinchazo con el huso vienen del cuento clásico de la Bella Durmiente (Perrault y Grimm, dominio público). La cumpleañera tiene diseño propio y **no imita a la Aurora de Disney**: no es rubia ni lleva vestido rosa o azul.
 
@@ -58,6 +63,14 @@ Sus prompts están en la sección 5.
 
 Cada prompt = **[ESTILO] + [CÁMARA] + texto del clip + [SIN DIÁLOGOS]**. Donde sale Vesper, añadir también **[IDENTIDAD] + [VESTUARIO] + [MAGIA]**.
 
+### Clip L1 — El laboratorio · refs F8, F9
+> In the secret crypt laboratory from reference F8, the three hooded workers from reference F9 work at the long tables: one fills small glass vials with glowing deep-red liquid from a copper alembic, one corks them, the young woman with braids presses dark-red wax seals on each vial and lines them up in a wooden crate. Busy, comedic, assembly-line rhythm. SFX: bubbling liquid, glass clinking, corks popping, wax stamping.
+
+### Clip L2 — La jefa · refs F8, F9, V, VO
+> In the crypt laboratory, Vesper walks slowly along the worktable inspecting the work, cape trailing, raven on her shoulder. She picks up one sealed vial of glowing red liquid, holds it up to the candlelight, studies it, then gives a slow approving nod; the three workers from reference F9 straighten up proudly. Medium shot, never closer than waist-up. Lips closed, calm half smile. SFX: footsteps on stone, bubbling, a single raven caw.
+
+*Texto opcional en Instagram: «Negocio familiar desde 1697».*
+
 ### Clip 1 — La fiesta · refs F1, F2, F7
 > In the ballroom from reference F1, the four guests from reference F2 celebrate around the tall four-tier birthday cake, holding champagne glasses; in the background, the antique wooden spinning wheel from reference F7 stands as a decorative piece near a window, and the birthday girl from reference F7 looks at it with curiosity. 0–2s: the guests clink glasses and laugh silently. 2–4s: every candle flame in the room suddenly bends sideways as if a cold wind entered; the guests stop and look toward the doors off-screen. SFX: glasses clinking, soft crowd ambience, a sudden whoosh of wind.
 
@@ -70,7 +83,7 @@ Cada prompt = **[ESTILO] + [CÁMARA] + texto del clip + [SIN DIÁLOGOS]**. Donde
 > Medium shot of the four guests from reference F2 in the ballroom. 0–2s: they freeze in shock staring toward the doors. 2–4s: the woman in the pale blue gown drops her champagne glass, which shatters on the marble; the man in the tuxedo spits out his drink. SFX: glass shattering, a sharp gasp, then silence.
 
 ### Clip 4 — La maldición se prepara · fotograma inicial S1 (sin referencias)
-> One continuous shot, no cuts. Vesper stands in the ballroom with her gloved right hand raised; glowing deep-red sparks swirl and gather in her palm; the raven on her shoulder spreads its wings and caws; her cape stirs. Slow push-in from medium shot to waist-up, never closer. SFX: crackling magic, raven caw, low rumble.
+> One continuous shot, no cuts. Vesper stands in the ballroom holding up in her gloved right hand one of her small glass vials of glowing deep-red liquid; she pulls out the cork with her thumb and glowing deep-red mist and sparks pour out and swirl around her; the raven on her shoulder spreads its wings and caws; her cape stirs. Slow push-in from medium shot to waist-up, never closer. SFX: cork pop, crackling magic, raven caw, low rumble.
 
 ### Clip 5a — El pinchazo · refs F1, F7
 > Medium shot near the window of the ballroom from reference F1. While everyone stares at the doors, the curious birthday girl from reference F7 reaches out to touch the long pointed spindle of the decorative antique spinning wheel. 0–2s: she touches the tip with her fingertip and pulls her hand back, surprised, looking at a tiny drop of blood on her finger. 2–4s: her eyelids grow heavy, she yawns and slowly slumps asleep against the spinning wheel, peaceful and comedic. Thin wisps of deep-red mist curl around the spindle. SFX: a soft prick sound, a small gasp, a gentle yawn, the spinning wheel creaking.
@@ -90,6 +103,9 @@ Cada prompt = **[ESTILO] + [CÁMARA] + texto del clip + [SIN DIÁLOGOS]**. Donde
 ### Clip 9 — Llega la policía · refs F4, F3
 > At the mansion entrance from reference F4 at night, with red and blue lights flashing. 0–2s: the two officers from reference F3 step out of the parked patrol car; each front door hinges at the front edge and swings outward toward the front of the car, opening the normal way. 2–4s: they run up the stone steps toward the open doors. SFX: siren chirp, car doors closing, running footsteps on stone.
 
+### Clip R1 — La redada · refs F8, F9, F3
+> The two officers from reference F3 burst into the crypt laboratory from reference F8 with flashlights. The three hooded workers from reference F9 panic comically: one drops a crate of red vials that shatter into puffs of glowing deep-red mist, the other two run in opposite directions and bump into each other, then all three raise their gloved hands. SFX: door bang, glass shattering, running footsteps, a comedic thud.
+
 ### Clip 10 — Sorprendida · refs F1, F3, V
 > In the ballroom, the two officers from reference F3 burst in and freeze, staring at the sleeping guests. Vesper, seated at the table with her cake, looks up mid-bite and slowly raises both gloved hands, still holding the silver fork, with an innocent raised eyebrow, lips closed. SFX: door bang, snoring continues, a fork clinks.
 
@@ -105,7 +121,7 @@ Cada prompt = **[ESTILO] + [CÁMARA] + texto del clip + [SIN DIÁLOGOS]**. Donde
 
 | Opción | Por clip de 4 s | 12 clips | Con margen para repetir (~50 %) |
 |---|---|---|---|
-| **Seedance 2.5 Flash, 480p (recomendada)** | 520 créditos | 6.760 (13 clips) | ≈ 10.100 |
+| **Seedance 2.5 Flash, 480p (recomendada)** | 520 créditos | 8.320 (16 clips) | ≈ 12.500 |
 | Seedance 2.5, Draft o 480p | 800 créditos | 9.600 | ≈ 14.400 |
 
 Con los 20.000 créditos del 9 de diciembre alcanza de sobra con Flash. Se pueden usar 800 créditos solo en los clips clave (4, 11 y 12) si Flash no convence.
@@ -115,7 +131,7 @@ Con los 20.000 créditos del 9 de diciembre alcanza de sobra con Flash. Se puede
 ## 5. Prompts de Recrear para las fotos fijas (antes del 9 de diciembre)
 
 **S1, Vesper en el salón** (foto objetivo: F1, descargada de Magnific)
-> Cinematic photograph of this woman from the reference photo, keep the exact same face and hair from the reference. Keep the location of the target photo: the elegant ballroom with crystal chandelier, candelabras, set tables and the four-tier cake. Thick glowing deep-red mist drifts low over the marble floor. She wears a floor-length gothic Victorian gown in charcoal-black satin jacquard with a subtle deep blood-red sheen, rigid high collar with dark-red filigree, angular shoulders, three aged-silver clasps down the front, a floor-length black cape lined in deep blood-red satin, black gloves, and a tall black crown of thorny branches (thorns and branches only, no horns, no forehead jewel). Fully covered, no cleavage. A single black raven on her left shoulder. Hair long, wavy and jet-black; smoky eye makeup and dark red wine lipstick. She stands in the middle of the room with her gloved right hand raised at shoulder height, palm up, glowing deep-red sparks forming above it, looking straight into the camera with a cold knowing half smile, lips closed. No other people. Warm candlelight, red glow on her face. Eye level, 35mm, vertical 9:16, framing from the crown to the knees. Very fair cool-neutral skin with visible pores and light freckles. Cinematic photo, 35mm, soft film grain, natural skin with visible pores, never airbrushed or beauty-filtered
+> Cinematic photograph of this woman from the reference photo, keep the exact same face and hair from the reference. Keep the location of the target photo: the elegant ballroom with crystal chandelier, candelabras, set tables and the four-tier cake. Thick glowing deep-red mist drifts low over the marble floor. She wears a floor-length gothic Victorian gown in charcoal-black satin jacquard with a subtle deep blood-red sheen, rigid high collar with dark-red filigree, angular shoulders, three aged-silver clasps down the front, a floor-length black cape lined in deep blood-red satin, black gloves, and a tall black crown of thorny branches (thorns and branches only, no horns, no forehead jewel). Fully covered, no cleavage. A single black raven on her left shoulder. Hair long, wavy and jet-black; smoky eye makeup and dark red wine lipstick. She stands in the middle of the room holding up at shoulder height in her gloved right hand a small uncorked glass vial of glowing deep-red liquid, glowing deep-red mist and sparks pouring out of it, looking straight into the camera with a cold knowing half smile, lips closed. No other people. Warm candlelight, red glow on her face. Eye level, 35mm, vertical 9:16, framing from the crown to the knees. Very fair cool-neutral skin with visible pores and light freckles. Cinematic photo, 35mm, soft film grain, natural skin with visible pores, never airbrushed or beauty-filtered
 
 **S2, foto de fichaje** (foto objetivo: F5)
 > Cinematic photograph of this woman from the reference photo, keep the exact same face and hair from the reference. Keep the location of the target photo: the police booking room with the black and white height chart on the grey wall and cold fluorescent light; the tripod camera is not visible. She wears a gothic Victorian gown in charcoal-black satin jacquard with a subtle deep blood-red sheen, rigid high collar with dark-red filigree, three aged-silver clasps, a black cape lined in deep blood-red satin, black gloves, and a tall black crown of thorny branches (no horns). Fully covered. A single black raven on her left shoulder. Hair long, wavy and jet-black; smoky eye makeup and dark red wine lipstick. She stands facing the camera against the height chart, holding at chest height with both gloved hands a black letter board placard with white letters that reads exactly "VESPER C." on the first line, "No. 1313" on the second and "11-23-2026" on the third, correctly spelled. One eyebrow slightly raised, lips closed, unimpressed expression. Flat cold mugshot lighting with a slight flash look. Eye level, 50mm, vertical 9:16, framing from the crown to the waist. Very fair cool-neutral skin with visible pores and light freckles. Cinematic photo, 35mm, soft film grain, natural skin with visible pores, never airbrushed or beauty-filtered
@@ -134,7 +150,7 @@ Con los 20.000 créditos del 9 de diciembre alcanza de sobra con Flash. Se puede
 - Ella hace un gesto obsceno con el dedo. **Nosotros no:** a Vesper le basta con la ceja levantada.
 
 **Pasos:**
-- Abrir con 1–2 s del clip 12 (gancho) y luego clips 1 → 12. Recortar cada clip a su mejor 1–2 s, con cortes rápidos al ritmo de la música.
+- Abrir con 1–2 s del clip 12 (gancho), luego L1 → L2 → 1 → 12 (con R1 antes del 10). Recortar cada clip a su mejor 1–2 s, con cortes rápidos al ritmo de la música.
 - Unir los clips en CapCut o en el editor de Reels.
 - **Música** de la biblioteca de Instagram: orquestal oscura o vals siniestro, por debajo de los efectos de sonido.
 - **Textos opcionales:** «Nadie me invitó.» (clip 2) y «Cuando no te invitan a la fiesta…» (al inicio).
