@@ -119,7 +119,17 @@ Con los 20.000 créditos del 9 de diciembre alcanza de sobra con Flash. Se puede
 ---
 
 ## 6. Montaje
-- Unir los 12 clips en CapCut o en el editor de Reels.
+
+**Lo aprendido del video de Aria** (v206.mp4, analizado el 2026-11-23):
+- Dura 44,5 s y tiene unos **30 cortes**: genera clips de 4 s pero usa solo **entre 1 y 2 s de cada uno**. Ese ritmo rápido es buena parte del gancho.
+- **Arranca por el final:** la foto de fichaje en el segundo 0 y luego la historia. Para nosotros: **abrir con 1–2 s del clip 12** (Vesper con el cartel) y después contar desde el clip 1.
+- **Solo lleva música de fondo**; el sonido de los clips no se usa. Generar con o sin efectos cuesta lo mismo (520 créditos, comprobado), así que se dejan los efectos por si sirven, pero el montaje se hace con música.
+- Su video es horizontal (16:9); el nuestro sigue en **vertical 9:16**, que es el formato de Reels.
+- Ella hace un gesto obsceno con el dedo. **Nosotros no:** a Vesper le basta con la ceja levantada.
+
+**Pasos:**
+- Abrir con 1–2 s del clip 12 (gancho) y luego clips 1 → 12. Recortar cada clip a su mejor 1–2 s, con cortes rápidos al ritmo de la música.
+- Unir los clips en CapCut o en el editor de Reels.
 - **Música** de la biblioteca de Instagram: orquestal oscura o vals siniestro, por debajo de los efectos de sonido.
 - **Textos opcionales:** «Nadie me invitó.» (clip 2) y «Cuando no te invitan a la fiesta…» (al inicio).
 - **Portada:** el fotograma de la foto de fichaje (clip 12).
